@@ -186,7 +186,7 @@ func (ui *UI) gatewayInfoForm() tview.Primitive {
 				}
 				tree.SetBorder(true).SetTitle(" Gateway: " + name + " ")
 				ui.tapp.QueueUpdateDraw(func() {
-					ui.pages.AddAndSwitchToPage("gateway-info:"+name, tree, true)
+					ui.showDynamic("gateway-info:"+name, tree)
 					ui.message("[green]Gateway inspected.")
 				})
 			}()

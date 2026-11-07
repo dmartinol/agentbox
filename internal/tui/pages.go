@@ -281,7 +281,7 @@ func (ui *UI) showLogs(id string) {
 		SetTextAlign(tview.AlignLeft).
 		SetDynamicColors(false)
 	view.SetBorder(true).SetTitle(" Logs: " + id + " ")
-	ui.pages.AddAndSwitchToPage("logs:"+id, view, true)
+	ui.showDynamic("logs:"+id, view)
 }
 
 func (ui *UI) showDiff(id string) {
@@ -300,14 +300,16 @@ func (ui *UI) showDiff(id string) {
 		SetTextAlign(tview.AlignLeft).
 		SetDynamicColors(false)
 	view.SetBorder(true).SetTitle(" Diff: " + id + " ")
-	ui.pages.AddAndSwitchToPage("diff:"+id, view, true)
+	ui.showDynamic("diff:"+id, view)
 }
 
 func (ui *UI) confirmDelete(id string) {
+	ui.modalActive = true
 	modal := tview.NewModal().
 		SetText("Delete this run and discard its results?").
 		AddButtons([]string{"Cancel", "Delete"}).
 		SetDoneFunc(func(index int, label string) {
+			ui.modalActive = false
 			if index == 1 {
 				ui.async(func() error { return ui.app.Delete(ui.ctx, id, true) })
 			}

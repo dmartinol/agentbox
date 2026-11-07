@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/dmartinol/agentbox/internal/app"
 	"github.com/gdamore/tcell/v2"
@@ -30,14 +31,17 @@ var sectionPages = []string{
 }
 
 type UI struct {
-	ctx        context.Context
-	app        *app.App
-	tapp       *tview.Application
-	pages      *tview.Pages
-	navigation *tview.List
-	header     *tview.TextView
-	footer     *tview.TextView
-	current    string
+	ctx          context.Context
+	app          *app.App
+	tapp         *tview.Application
+	pages        *tview.Pages
+	navigation   *tview.List
+	header       *tview.TextView
+	footer       *tview.TextView
+	current      string
+	history      navigationHistory
+	dynamicPages map[string]tview.Primitive
+	modalActive  bool
 }
 
 // Run starts the AgentBox terminal user interface.
@@ -46,9 +50,10 @@ func Run(ctx context.Context, a *app.App) error {
 		return fmt.Errorf("application is required")
 	}
 	ui := &UI{
-		ctx:  ctx,
-		app:  a,
-		tapp: tview.NewApplication(),
+		ctx:          ctx,
+		app:          a,
+		tapp:         tview.NewApplication(),
+		dynamicPages: map[string]tview.Primitive{},
 	}
 	ui.buildLayout()
 	ui.tapp.SetInputCapture(ui.handleGlobalKeys)
@@ -63,23 +68,23 @@ func (ui *UI) buildLayout() {
 	ui.header.SetBorder(true).SetTitle(" AgentBox ")
 
 	ui.navigation = tview.NewList().
-		ShowSecondaryText(false).
-		AddItem("Dashboard", "", 'd', func() { ui.show(pageDashboard) }).
-		AddItem("Runs", "", 'r', func() { ui.show(pageRuns) }).
-		AddItem("Images", "", 'i', func() { ui.show(pageImages) }).
-		AddItem("Gateways", "", 'g', func() { ui.show(pageGateways) }).
-		AddItem("Policies", "", 'p', func() { ui.show(pagePolicies) }).
-		AddItem("Profiles", "", 'o', func() { ui.show(pageProfiles) }).
-		AddItem("Doctor", "", 'x', func() { ui.show(pageDoctor) })
+		ShowSecondaryText(true).
+		AddItem("Dashboard", "Overview", 'd', func() { ui.show(pageDashboard) }).
+		AddItem("Runs", "Workloads", 'r', func() { ui.show(pageRuns) }).
+		AddItem("Images", "Workloads", 'i', func() { ui.show(pageImages) }).
+		AddItem("Gateways", "Infrastructure", 'g', func() { ui.show(pageGateways) }).
+		AddItem("Policies", "Infrastructure", 'p', func() { ui.show(pagePolicies) }).
+		AddItem("Profiles", "Configuration", 'o', func() { ui.show(pageProfiles) }).
+		AddItem("Doctor", "Diagnostics", 'x', func() { ui.show(pageDoctor) })
 	ui.navigation.SetBorder(true).SetTitle(" Navigation ")
 
 	ui.footer = tview.NewTextView().
 		SetDynamicColors(true).
-		SetText("F1–F7 switch sections • Ctrl+←/→ cycles • Enter selects • q quits")
+		SetText("F1–F7 sections • Ctrl+[ / Alt+← back • Ctrl+] / Alt+→ forward • Tab fields • Enter select • q quit")
 	ui.footer.SetBorder(true).SetTitle(" Help ")
 
 	ui.pages = tview.NewPages()
-	ui.show(pageDashboard)
+	ui.render(pageDashboard)
 }
 
 func (ui *UI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
@@ -88,51 +93,23 @@ func (ui *UI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 	switch event.Key() {
-	case tcell.KeyLeft:
-		if event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) != 0 {
-			ui.show(nextSection(ui.current, -1))
+	case tcell.KeyEscape:
+		if !ui.modalActive && !isFormPage(ui.current) {
+			ui.back()
 			return nil
 		}
-	case tcell.KeyRight:
-		if event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) != 0 {
-			ui.show(nextSection(ui.current, 1))
+	case tcell.KeyCtrlLeftSq, tcell.KeyLeft:
+		if event.Key() == tcell.KeyCtrlLeftSq || event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) != 0 {
+			ui.back()
+			return nil
+		}
+	case tcell.KeyCtrlRightSq, tcell.KeyRight:
+		if event.Key() == tcell.KeyCtrlRightSq || event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) != 0 {
+			ui.forward()
 			return nil
 		}
 	}
 	return event
-}
-
-func sectionForFunctionKey(key tcell.Key) (int, bool) {
-	switch key {
-	case tcell.KeyF1:
-		return 0, true
-	case tcell.KeyF2:
-		return 1, true
-	case tcell.KeyF3:
-		return 2, true
-	case tcell.KeyF4:
-		return 3, true
-	case tcell.KeyF5:
-		return 4, true
-	case tcell.KeyF6:
-		return 5, true
-	case tcell.KeyF7:
-		return 6, true
-	default:
-		return 0, false
-	}
-}
-
-func nextSection(current string, delta int) string {
-	currentIndex := 0
-	for i, page := range sectionPages {
-		if page == current {
-			currentIndex = i
-			break
-		}
-	}
-	nextIndex := (currentIndex + delta + len(sectionPages)) % len(sectionPages)
-	return sectionPages[nextIndex]
 }
 
 func (ui *UI) switchSection(index int) {
@@ -145,7 +122,7 @@ func (ui *UI) switchSection(index int) {
 
 func (ui *UI) root() tview.Primitive {
 	body := tview.NewFlex().
-		AddItem(ui.navigation, 22, 1, false).
+		AddItem(ui.navigation, 24, 1, false).
 		AddItem(ui.pages, 0, 8, true)
 	return tview.NewFlex().
 		SetDirection(tview.FlexRow).
@@ -155,6 +132,11 @@ func (ui *UI) root() tview.Primitive {
 }
 
 func (ui *UI) show(page string) {
+	ui.history = pushNavigation(ui.history, ui.current, page)
+	ui.render(page)
+}
+
+func (ui *UI) render(page string) {
 	ui.current = page
 	ui.pages.RemovePage(page)
 	var primitive tview.Primitive
@@ -194,10 +176,107 @@ func (ui *UI) show(page string) {
 	case "profile-form":
 		primitive = ui.profileForm()
 	default:
-		primitive = tview.NewTextView().SetText("Unknown page")
+		if dynamic, ok := ui.dynamicPages[page]; ok {
+			primitive = dynamic
+		} else {
+			primitive = tview.NewTextView().SetText("Unknown page")
+		}
 	}
 	ui.pages.AddAndSwitchToPage(page, primitive, true)
-	ui.header.SetText("[::b]AgentBox — " + pageTitle(page) + "[::-]")
+	ui.header.SetText(ui.headerText())
+	ui.footer.SetText(helpFor(page))
+}
+
+func (ui *UI) showDynamic(page string, primitive tview.Primitive) {
+	ui.history = pushNavigation(ui.history, ui.current, page)
+	ui.dynamicPages[page] = primitive
+	ui.current = page
+	ui.pages.AddAndSwitchToPage(page, primitive, true)
+	ui.header.SetText(ui.headerText())
+	ui.footer.SetText(helpFor(page))
+}
+
+func (ui *UI) back() {
+	next, page, ok := backNavigation(ui.history, ui.current)
+	if !ok {
+		return
+	}
+	ui.history = next
+	ui.render(page)
+}
+
+func (ui *UI) forward() {
+	next, page, ok := forwardNavigation(ui.history, ui.current)
+	if !ok {
+		return
+	}
+	ui.history = next
+	ui.render(page)
+}
+
+func (ui *UI) headerText() string {
+	back := " "
+	if len(ui.history.past) > 0 {
+		back = "‹"
+	}
+	forward := " "
+	if len(ui.history.future) > 0 {
+		forward = "›"
+	}
+	return fmt.Sprintf("[::b]%s %s %s[::-]", back, breadcrumb(ui.current), forward)
+}
+
+func breadcrumb(page string) string {
+	parts := []string{"AgentBox"}
+	if parent := parentSection(page); parent != "" {
+		parts = append(parts, parent)
+	}
+	parts = append(parts, pageTitle(page))
+	return strings.Join(parts, " / ")
+}
+
+func parentSection(page string) string {
+	switch page {
+	case "run-form":
+		return "Runs"
+	case "image-version-form", "image-build-form", "image-push-form", "image-pull-form":
+		return "Images"
+	case "gateway-form", "gateway-info-form":
+		return "Gateways"
+	case "provider-form", "profile-form":
+		return "Profiles"
+	case "policy-host-form":
+		return "Policies"
+	default:
+		if strings.HasPrefix(page, "gateway-info:") {
+			return "Gateways"
+		}
+		if strings.HasPrefix(page, "logs:") || strings.HasPrefix(page, "diff:") {
+			return "Runs"
+		}
+		return ""
+	}
+}
+
+func isFormPage(page string) bool {
+	switch page {
+	case "run-form", "image-version-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-host-form", "profile-form":
+		return true
+	default:
+		return false
+	}
+}
+
+func helpFor(page string) string {
+	if strings.HasPrefix(page, "logs:") || strings.HasPrefix(page, "diff:") {
+		return "Esc / Ctrl+[ / Alt+← back • Ctrl+] / Alt+→ forward • Tab focus • q quit"
+	}
+	switch page {
+	case "run-form", "image-version-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-host-form", "profile-form":
+		return "Tab next field • Shift+Tab previous • Enter submit • Ctrl+[ / Alt+← back • Ctrl+] / Alt+→ forward"
+	default:
+		return "F1–F7 sections • Esc / Ctrl+[ / Alt+← back • Ctrl+] / Alt+→ forward • Tab focus • Enter select • q quit"
+	}
 }
 
 func pageTitle(page string) string {
@@ -237,6 +316,15 @@ func pageTitle(page string) string {
 	case "profile-form":
 		return "Create profile"
 	default:
+		if strings.HasPrefix(page, "logs:") {
+			return "Logs"
+		}
+		if strings.HasPrefix(page, "diff:") {
+			return "Diff"
+		}
+		if strings.HasPrefix(page, "gateway-info:") {
+			return "Gateway info"
+		}
 		return "Unknown"
 	}
 }
@@ -246,7 +334,7 @@ func (ui *UI) message(format string, args ...any) {
 }
 
 func (ui *UI) refresh() {
-	ui.show(ui.current)
+	ui.render(ui.current)
 }
 
 func (ui *UI) async(action func() error) {
