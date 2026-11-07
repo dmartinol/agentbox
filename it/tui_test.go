@@ -145,50 +145,44 @@ fi
 
 	waitFor(t, "AgentBox/Dashboard")
 
-	// Tab moves focus from the dashboard table to the quick-action buttons.
+	// Tab moves inward: pages -> content -> actions.
+	send("\t")
+	time.Sleep(100 * time.Millisecond)
+	send("\t")
+	time.Sleep(100 * time.Millisecond)
+
+	// Arrows move within the action-button layer.
+	send("\x1b[C")
+	time.Sleep(100 * time.Millisecond)
+
+	// Esc moves outward: actions -> content -> pages.
+	send("\x1b")
+	time.Sleep(200 * time.Millisecond)
+	send("\x1b")
+	time.Sleep(200 * time.Millisecond)
+
+	// Arrows move among pages; Enter opens the selected page.
+	send("\x1b[B")
+	time.Sleep(100 * time.Millisecond)
+	send("\r")
+	waitFor(t, "AgentBox/Runs")
+
+	// Tab inward and activate the first action button.
+	send("\t")
+	time.Sleep(100 * time.Millisecond)
 	send("\t")
 	time.Sleep(100 * time.Millisecond)
 	send("\r")
 	waitFor(t, "AgentBox/Runs/Startrun")
-	send("\x1b")
-	time.Sleep(200 * time.Millisecond)
-	waitFor(t, "AgentBox/Dashboard")
 
-	// Plain letters switch between the main sections.
-	send("r")
-	waitFor(t, "AgentBox/Runs")
-	send("i")
-	waitFor(t, "AgentBox/Images")
-	send("g")
-	waitFor(t, "AgentBox/Gateways")
-	send("p")
-	waitFor(t, "AgentBox/Policies")
-	send("o")
-	waitFor(t, "AgentBox/Profiles")
-	send("x")
-	waitFor(t, "AgentBox/Doctor")
-	send("d")
-	waitFor(t, "AgentBox/Dashboard")
-
-	// Tab still reaches the action bar outside the Dashboard.
-	send("r")
-	waitFor(t, "AgentBox/Runs")
-	send("\t")
-	time.Sleep(100 * time.Millisecond)
-	send("\r")
-	waitFor(t, "AgentBox/Runs/Startrun")
+	// Esc returns from the form page to the Runs page.
 	send("\x1b")
 	time.Sleep(200 * time.Millisecond)
 	waitFor(t, "AgentBox/Runs")
-	send("d")
-	waitFor(t, "AgentBox/Dashboard")
 
-	// Escape still goes back through navigation history.
+	// Esc returns from the page content to the page list.
 	send("\x1b")
 	time.Sleep(200 * time.Millisecond)
-	waitFor(t, "AgentBox/Doctor")
-	send("d")
-	waitFor(t, "AgentBox/Dashboard")
 
 	send("q")
 

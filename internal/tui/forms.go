@@ -8,10 +8,6 @@ import (
 	"github.com/rivo/tview"
 )
 
-func (ui *UI) setFormCancel(form *tview.Form) {
-	form.SetCancelFunc(func() { ui.back() })
-}
-
 func (ui *UI) profileForm() tview.Primitive {
 	var (
 		name     string
@@ -59,7 +55,6 @@ func (ui *UI) profileForm() tview.Primitive {
 			})
 		}).
 		AddButton("Cancel", func() { ui.show(pageProfiles) })
-	ui.setFormCancel(form)
 	form.SetBorder(true).SetTitle(" Create profile ")
 	return form
 }
@@ -100,7 +95,6 @@ func (ui *UI) runForm() tview.Primitive {
 			})
 		}).
 		AddButton("Cancel", func() { ui.show(pageRuns) })
-	ui.setFormCancel(form)
 	form.SetBorder(true).SetTitle(" Start run ")
 	return form
 }
@@ -116,7 +110,6 @@ func (ui *UI) imageVersionForm() tview.Primitive {
 			})
 		}).
 		AddButton("Cancel", func() { ui.show(pageImages) })
-	ui.setFormCancel(form)
 	form.SetBorder(true).SetTitle(" Discover image version ")
 	return form
 }
@@ -133,7 +126,6 @@ func (ui *UI) imageBuildForm() tview.Primitive {
 			})
 		}).
 		AddButton("Cancel", func() { ui.show(pageImages) })
-	ui.setFormCancel(form)
 	form.SetBorder(true).SetTitle(" Build image ")
 	return form
 }
@@ -147,7 +139,6 @@ func (ui *UI) imagePushForm() tview.Primitive {
 			ui.asyncTo(pageImages, func() error { return ui.app.ImagePush(ui.ctx, localTag, remote, false) })
 		}).
 		AddButton("Cancel", func() { ui.show(pageImages) })
-	ui.setFormCancel(form)
 	form.SetBorder(true).SetTitle(" Push image ")
 	return form
 }
@@ -160,7 +151,6 @@ func (ui *UI) imagePullForm() tview.Primitive {
 			ui.asyncTo(pageImages, func() error { return ui.app.ImagePull(ui.ctx, ref, false) })
 		}).
 		AddButton("Cancel", func() { ui.show(pageImages) })
-	ui.setFormCancel(form)
 	form.SetBorder(true).SetTitle(" Pull image ")
 	return form
 }
@@ -174,7 +164,6 @@ func (ui *UI) gatewayForm() tview.Primitive {
 			ui.asyncTo(pageGateways, func() error { return ui.app.GatewayConnect(ui.ctx, endpoint, name, false) })
 		}).
 		AddButton("Cancel", func() { ui.show(pageGateways) })
-	ui.setFormCancel(form)
 	form.SetBorder(true).SetTitle(" Connect gateway ")
 	return form
 }
@@ -203,7 +192,6 @@ func (ui *UI) gatewayInfoForm() tview.Primitive {
 			}()
 		}).
 		AddButton("Cancel", func() { ui.show(pageGateways) })
-	ui.setFormCancel(form)
 	form.SetBorder(true).SetTitle(" Inspect gateway ")
 	return form
 }
@@ -218,7 +206,6 @@ func (ui *UI) providerForm() tview.Primitive {
 			ui.asyncTo(pageProfiles, func() error { return ui.app.ProviderSetup(ui.ctx, kind, name, gateway, false, false) })
 		}).
 		AddButton("Cancel", func() { ui.show(pageProfiles) })
-	ui.setFormCancel(form)
 	form.SetBorder(true).SetTitle(" Set up provider ")
 	return form
 }
@@ -242,7 +229,6 @@ func (ui *UI) policyHostForm() tview.Primitive {
 			ui.asyncTo(pagePolicies, func() error { return ui.app.PolicyEdit(ui.ctx, runID, host, binary, false) })
 		}).
 		AddButton("Cancel", func() { ui.show(pagePolicies) })
-	ui.setFormCancel(form)
 	form.SetBorder(true).SetTitle(" Allow network host ")
 	return form
 }

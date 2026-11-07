@@ -8,15 +8,8 @@ import (
 	"github.com/rivo/tview"
 )
 
-func (ui *UI) focusActions(table *tview.Table, actions *tview.Form) {
-	table.SetDoneFunc(func(key tcell.Key) {
-		if key == tcell.KeyTab || key == tcell.KeyEnter {
-			ui.tapp.SetFocus(actions)
-		}
-	})
-	actions.SetCancelFunc(func() {
-		ui.tapp.SetFocus(table)
-	})
+func (ui *UI) registerActions(actions *tview.Form) {
+	ui.currentActions = actions
 }
 
 func newTable(headers []string, rows [][]string) *tview.Table {
@@ -83,7 +76,7 @@ func (ui *UI) dashboardPage() tview.Primitive {
 		AddButton("Build image", func() { ui.show("image-build-form") }).
 		AddButton("Connect gateway", func() { ui.show("gateway-form") })
 	quickActions.SetBorder(true).SetTitle(" Quick actions ")
-	ui.focusActions(table, quickActions)
+	ui.registerActions(quickActions)
 	return tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(table, 0, 3, true).
@@ -141,7 +134,7 @@ func (ui *UI) runsPage() tview.Primitive {
 			}
 		})
 	actions.SetBorder(true).SetTitle(" Run actions ")
-	ui.focusActions(table, actions)
+	ui.registerActions(actions)
 	return tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(table, 0, 4, true).
@@ -169,7 +162,7 @@ func (ui *UI) imagesPage() tview.Primitive {
 		AddButton("Push", func() { ui.show("image-push-form") }).
 		AddButton("Pull", func() { ui.show("image-pull-form") })
 	actions.SetBorder(true).SetTitle(" Image actions ")
-	ui.focusActions(table, actions)
+	ui.registerActions(actions)
 	return tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(table, 0, 4, true).
@@ -196,7 +189,7 @@ func (ui *UI) gatewaysPage() tview.Primitive {
 		AddButton("Start", func() { ui.async(func() error { return ui.app.GatewayStart(ui.ctx, false) }) }).
 		AddButton("Inspect", func() { ui.show("gateway-info-form") })
 	actions.SetBorder(true).SetTitle(" Gateway actions ")
-	ui.focusActions(table, actions)
+	ui.registerActions(actions)
 	return tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(table, 0, 4, true).
@@ -261,7 +254,7 @@ func (ui *UI) profilesPage() tview.Primitive {
 		}).
 		AddButton("Provider setup", func() { ui.show("provider-form") })
 	actions.SetBorder(true).SetTitle(" Profile actions ")
-	ui.focusActions(table, actions)
+	ui.registerActions(actions)
 	return tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(table, 0, 4, true).
@@ -280,7 +273,7 @@ func (ui *UI) doctorPage() tview.Primitive {
 		SetButtonsAlign(tview.AlignCenter).
 		AddButton("Refresh", func() { ui.refresh() })
 	form.SetBorder(true).SetTitle(" Actions ")
-	ui.focusActions(table, form)
+	ui.registerActions(form)
 	return tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(table, 0, 5, true).

@@ -84,11 +84,11 @@ AgentBox uses [tview](https://github.com/rivo/tview) for the terminal UI.
 
 Keyboard navigation is available throughout the TUI:
 
-- `d`, `r`, `i`, `g`, `p`, `o`, and `x` switch directly between the main sections
-- `Esc` goes back in the navigation history
-- `Tab` moves from a table to its action bar
-- `Tab` and `Shift+Tab` move between fields and buttons in forms
-- Arrow keys move within tables and tree views
+- `Tab` moves inward through the UI layers: pages → page content → action buttons
+- `Shift+Tab` moves outward through the same layers
+- `Esc` moves back one layer: buttons → page content → pages
+- Arrow keys move among the elements in the current layer
+- `Enter` selects or activates the focused element
 - The header shows a breadcrumb and indicates when history is available
 - The navigation sidebar groups sections by purpose: overview, workloads, infrastructure, configuration, and diagnostics
 

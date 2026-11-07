@@ -1,7 +1,5 @@
 package tui
 
-import "github.com/gdamore/tcell/v2"
-
 type navigationHistory struct {
 	past   []string
 	future []string
@@ -45,58 +43,4 @@ func forwardNavigation(history navigationHistory, current string) (navigationHis
 		past = past[1:]
 	}
 	return navigationHistory{past: append(past, current), future: future}, next, true
-}
-
-func sectionForRune(r rune) (int, bool) {
-	switch r {
-	case 'd':
-		return 0, true
-	case 'r':
-		return 1, true
-	case 'i':
-		return 2, true
-	case 'g':
-		return 3, true
-	case 'p':
-		return 4, true
-	case 'o':
-		return 5, true
-	case 'x':
-		return 6, true
-	default:
-		return 0, false
-	}
-}
-
-func sectionForFunctionKey(key tcell.Key) (int, bool) {
-	switch key {
-	case tcell.KeyF1:
-		return 0, true
-	case tcell.KeyF2:
-		return 1, true
-	case tcell.KeyF3:
-		return 2, true
-	case tcell.KeyF4:
-		return 3, true
-	case tcell.KeyF5:
-		return 4, true
-	case tcell.KeyF6:
-		return 5, true
-	case tcell.KeyF7:
-		return 6, true
-	default:
-		return 0, false
-	}
-}
-
-func nextSection(current string, delta int) string {
-	currentIndex := 0
-	for i, page := range sectionPages {
-		if page == current {
-			currentIndex = i
-			break
-		}
-	}
-	nextIndex := (currentIndex + delta + len(sectionPages)) % len(sectionPages)
-	return sectionPages[nextIndex]
 }

@@ -31,17 +31,19 @@ var sectionPages = []string{
 }
 
 type UI struct {
-	ctx          context.Context
-	app          *app.App
-	tapp         *tview.Application
-	pages        *tview.Pages
-	navigation   *tview.List
-	header       *tview.TextView
-	footer       *tview.TextView
-	current      string
-	history      navigationHistory
-	dynamicPages map[string]tview.Primitive
-	modalActive  bool
+	ctx            context.Context
+	app            *app.App
+	tapp           *tview.Application
+	pages          *tview.Pages
+	navigation     *tview.List
+	header         *tview.TextView
+	footer         *tview.TextView
+	current        string
+	history        navigationHistory
+	dynamicPages   map[string]tview.Primitive
+	modalActive    bool
+	currentContent tview.Primitive
+	currentActions *tview.Form
 }
 
 // Run starts the AgentBox terminal user interface.
@@ -57,6 +59,7 @@ func Run(ctx context.Context, a *app.App) error {
 	}
 	ui.buildLayout()
 	ui.tapp.SetInputCapture(ui.handleGlobalKeys)
+	ui.tapp.SetFocus(ui.navigation)
 	return ui.tapp.SetRoot(ui.root(), true).EnableMouse(true).Run()
 }
 
@@ -80,7 +83,7 @@ func (ui *UI) buildLayout() {
 
 	ui.footer = tview.NewTextView().
 		SetDynamicColors(true).
-		SetText("d Dashboard • r Runs • i Images • g Gateways • p Policies • o Profiles • x Doctor\nTab actions • Esc back • q quit")
+		SetText("Tab next layer • Shift+Tab previous • Esc back • Arrows move • Enter select • q quit")
 	ui.footer.SetBorder(true).SetTitle(" Help ")
 
 	ui.pages = tview.NewPages()
@@ -88,40 +91,101 @@ func (ui *UI) buildLayout() {
 }
 
 func (ui *UI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
-	if index, ok := sectionForFunctionKey(event.Key()); ok {
-		ui.switchSection(index)
-		return nil
+	if ui.modalActive {
+		return event
 	}
+
 	switch event.Key() {
 	case tcell.KeyRune:
-		if ui.modalActive || isFormPage(ui.current) {
-			break
-		}
-		if event.Rune() == 'q' {
+		if event.Rune() == 'q' && !isFormPage(ui.current) {
 			ui.tapp.Stop()
 			return nil
 		}
-		if index, ok := sectionForRune(event.Rune()); ok {
-			ui.switchSection(index)
+	case tcell.KeyTab:
+		if ui.navigation.HasFocus() {
+			ui.setFocusLayer(1)
+			return nil
+		}
+		if ui.currentContent != nil && ui.currentContent.HasFocus() && ui.currentActions != nil && !ui.currentContentIsForm() {
+			ui.setFocusLayer(2)
+			return nil
+		}
+	case tcell.KeyBacktab:
+		if ui.currentActions != nil && ui.currentActions.HasFocus() {
+			ui.setFocusLayer(1)
+			return nil
+		}
+		if ui.currentContent != nil && ui.currentContent.HasFocus() {
+			ui.setFocusLayer(0)
 			return nil
 		}
 	case tcell.KeyEscape:
-		if !ui.modalActive {
+		if ui.currentActions != nil && ui.currentActions.HasFocus() {
+			ui.setFocusLayer(1)
+			return nil
+		}
+		if isFormPage(ui.current) {
 			ui.back()
 			return nil
 		}
-	case tcell.KeyCtrlLeftSq, tcell.KeyLeft:
-		if event.Key() == tcell.KeyCtrlLeftSq || event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) != 0 {
-			ui.back()
+		if ui.currentContent != nil && ui.currentContent.HasFocus() {
+			ui.setFocusLayer(0)
 			return nil
 		}
-	case tcell.KeyCtrlRightSq, tcell.KeyRight:
-		if event.Key() == tcell.KeyCtrlRightSq || event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) != 0 {
-			ui.forward()
+	case tcell.KeyUp, tcell.KeyDown, tcell.KeyLeft, tcell.KeyRight:
+		if ui.currentActions != nil && ui.currentActions.HasFocus() {
+			ui.moveActionFocus(event.Key())
 			return nil
 		}
 	}
 	return event
+}
+
+func (ui *UI) setFocusLayer(layer int) {
+	switch layer {
+	case 0:
+		ui.tapp.SetFocus(ui.navigation)
+	case 1:
+		if ui.currentContent != nil {
+			ui.tapp.SetFocus(ui.currentContent)
+		}
+	case 2:
+		if ui.currentActions != nil {
+			ui.tapp.SetFocus(ui.currentActions)
+		}
+	}
+}
+
+func (ui *UI) currentContentIsForm() bool {
+	_, ok := ui.currentContent.(*tview.Form)
+	return ok
+}
+
+func (ui *UI) moveActionFocus(key tcell.Key) {
+	if ui.currentActions == nil {
+		return
+	}
+	_, button := ui.currentActions.GetFocusedItemIndex()
+	count := ui.currentActions.GetButtonCount()
+	if count == 0 {
+		return
+	}
+	if button < 0 {
+		button = 0
+	}
+	switch key {
+	case tcell.KeyUp, tcell.KeyLeft:
+		button--
+		if button < 0 {
+			button = count - 1
+		}
+	case tcell.KeyDown, tcell.KeyRight:
+		button++
+		if button >= count {
+			button = 0
+		}
+	}
+	ui.tapp.SetFocus(ui.currentActions.GetButton(button))
 }
 
 func (ui *UI) switchSection(index int) {
@@ -130,6 +194,7 @@ func (ui *UI) switchSection(index int) {
 	}
 	ui.navigation.SetCurrentItem(index)
 	ui.show(sectionPages[index])
+	ui.tapp.SetFocus(ui.navigation)
 }
 
 func (ui *UI) root() tview.Primitive {
@@ -150,6 +215,7 @@ func (ui *UI) show(page string) {
 
 func (ui *UI) render(page string) {
 	ui.current = page
+	ui.currentActions = nil
 	ui.pages.RemovePage(page)
 	var primitive tview.Primitive
 	switch page {
@@ -194,6 +260,7 @@ func (ui *UI) render(page string) {
 			primitive = tview.NewTextView().SetText("Unknown page")
 		}
 	}
+	ui.currentContent = primitive
 	ui.pages.AddAndSwitchToPage(page, primitive, true)
 	ui.tapp.SetFocus(primitive)
 	ui.header.SetText(ui.headerText())
@@ -204,6 +271,8 @@ func (ui *UI) showDynamic(page string, primitive tview.Primitive) {
 	ui.history = pushNavigation(ui.history, ui.current, page)
 	ui.dynamicPages[page] = primitive
 	ui.current = page
+	ui.currentContent = primitive
+	ui.currentActions = nil
 	ui.pages.AddAndSwitchToPage(page, primitive, true)
 	ui.tapp.SetFocus(primitive)
 	ui.header.SetText(ui.headerText())
@@ -282,15 +351,7 @@ func isFormPage(page string) bool {
 }
 
 func helpFor(page string) string {
-	if strings.HasPrefix(page, "logs:") || strings.HasPrefix(page, "diff:") {
-		return "Esc back • q quit"
-	}
-	switch page {
-	case "run-form", "image-version-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-host-form", "profile-form":
-		return "Tab next field • Shift+Tab previous • Enter submit • Esc back"
-	default:
-		return "d Dashboard • r Runs • i Images • g Gateways • p Policies • o Profiles • x Doctor\nTab actions • Esc back • q quit"
-	}
+	return "Tab next layer • Shift+Tab previous • Esc back • Arrows move • Enter select • q quit"
 }
 
 func pageTitle(page string) string {
