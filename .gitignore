@@ -1,0 +1,25 @@
+# Go build and test artifacts
+/bin/
+/dist/
+/build/
+*.test
+*.out
+*.coverprofile
+coverage.*
+*.prof
+
+# Local environment secrets
+.env
+.env.*
+!.env.example
+
+# Local AgentBox state (runtime data belongs outside the repository)
+/.agentbox/
+/agentbox.db
+/agentbox.db-*
+
+# Operating system metadata
+.DS_Store
+
+# Built binary
+/agentbox

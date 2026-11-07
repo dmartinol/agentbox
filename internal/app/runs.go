@@ -1,0 +1,321 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+type StartOptions struct {
+	Profile  string
+	Source   string
+	Gateway  string
+	Image    string
+	Model    string
+	Mode     string
+	Approval string
+	Prompt   string
+	Dry      bool
+}
+
+func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
+	p, err := a.Store.LoadProfile(opt.Profile)
+	if err != nil {
+		return Run{}, err
+	}
+	if opt.Image != "" {
+		p.Image = opt.Image
+	}
+	if opt.Model != "" {
+		p.Model = opt.Model
+	}
+	if opt.Mode != "" {
+		p.Mode = opt.Mode
+	}
+	if opt.Approval != "" {
+		p.Approval = opt.Approval
+	}
+	if err := p.Validate(); err != nil {
+		return Run{}, err
+	}
+	policy, err := os.ReadFile(p.Policy)
+	if err != nil {
+		return Run{}, err
+	}
+	if _, err := ParsePolicy(policy); err != nil {
+		return Run{}, err
+	}
+	if opt.Source == "" {
+		opt.Source = "."
+	}
+	if opt.Gateway == "" {
+		return Run{}, fmt.Errorf("explicit gateway name required")
+	}
+	gw, err := a.GatewayInfo(ctx, opt.Gateway)
+	if err != nil {
+		return Run{}, err
+	}
+	if !strings.Contains(strings.ToLower(string(gw)), "podman") {
+		return Run{}, fmt.Errorf("selected gateway does not report the Podman driver")
+	}
+	if _, err := a.Runner.Output(ctx, "openshell", "provider", "get", p.Provider, "--gateway", opt.Gateway); err != nil {
+		return Run{}, fmt.Errorf("provider %q unavailable: %w", p.Provider, err)
+	}
+	if _, err := a.Runner.Output(ctx, "podman", "image", "inspect", p.Image); err != nil {
+		return Run{}, fmt.Errorf("image unavailable locally: %w", err)
+	}
+	id, err := NewID()
+	if err != nil {
+		return Run{}, err
+	}
+	if opt.Dry {
+		return Run{ID: id, Source: opt.Source, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: "preview"}, nil
+	}
+	r, err := a.CreateWorktree(ctx, opt.Source, id)
+	if err != nil {
+		return Run{}, err
+	}
+	r.Created = time.Now().UTC()
+	r.Gateway = opt.Gateway
+	r.Agent = p.Agent
+	r.Image = p.Image
+	r.Mode = p.Mode
+	r.Model = p.Model
+	r.Approval = p.Approval
+	r.Policy = filepath.Join(a.Store.PolicyDir(), id+".yaml")
+	if err := atomicWrite(r.Policy, policy); err != nil {
+		return r, err
+	}
+	if err := a.Store.SaveRun(r); err != nil {
+		return r, err
+	}
+	bundle, err := a.MakeBundle(ctx, r)
+	if err != nil {
+		return r, err
+	}
+	config, err := a.PrepareAgent(ctx, r, p, opt.Prompt)
+	if err != nil {
+		return r, err
+	}
+	bootstrap := []byte("#!/bin/sh\nset -eu\ntmux new-session -d -s agent /bin/sh /workspace/state/agent.sh\ntmux set-option -g remain-on-exit on\ntmux pipe-pane -t agent -o 'cat >> /workspace/state/agent.log'\nwhile [ \"$(tmux display-message -p -t agent '#{pane_dead}')\" != 1 ]; do sleep 1; done\ntouch /workspace/finished\nexec sleep infinity\n")
+	bootPath := filepath.Join(config, "bootstrap.sh")
+	if err := os.WriteFile(bootPath, bootstrap, 0700); err != nil {
+		return r, err
+	}
+	args := []string{"sandbox", "create", "--name", r.Sandbox, "--from", p.Image, "--provider", p.Provider, "--policy", r.Policy, "--detach", "--no-auto-providers", "--approval-mode", "manual", "--label", "agentbox-run=" + id, "--gateway", opt.Gateway, "--", "/bin/sh", "-c", "while [ ! -f /workspace/ready ]; do sleep 1; done; exec /bin/sh /workspace/state/bootstrap.sh"}
+	if _, err := a.Runner.Output(ctx, "openshell", args...); err != nil {
+		r.Status = "create-failed"
+		_ = a.Store.SaveRun(r)
+		return r, err
+	}
+	r.Status = "created"
+	r.Synced = false
+	if err := a.Store.SaveRun(r); err != nil {
+		return r, err
+	}
+	if err := a.upload(ctx, r, bundle, "/workspace/source.bundle"); err != nil {
+		return r, err
+	}
+	tarPath := filepath.Join(a.Store.RunsDir(), id+"-config.tar")
+	if _, err := a.Runner.Output(ctx, "tar", "-C", config, "-cf", tarPath, "."); err != nil {
+		return r, err
+	}
+	if err := a.upload(ctx, r, tarPath, "/workspace/config.tar"); err != nil {
+		return r, err
+	}
+	prep := "set -eu; mkdir -p /workspace/state; tar -xf /workspace/config.tar -C /workspace/state; git clone /workspace/source.bundle /workspace/project; git -C /workspace/project checkout " + shellQuote(r.Branch)
+	if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", prep); err != nil {
+		return r, err
+	}
+	if err := a.VerifyEffectivePolicy(ctx, r); err != nil {
+		r.Status = "policy-blocked"
+		_ = a.Store.SaveRun(r)
+		return r, err
+	}
+	if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", "touch /workspace/ready"); err != nil {
+		return r, err
+	}
+	r.Status = "running"
+	return r, a.Store.SaveRun(r)
+}
+
+func (a *App) VerifyEffectivePolicy(ctx context.Context, r Run) error {
+	b, err := a.Runner.Output(ctx, "openshell", "policy", "get", r.Sandbox, "--full", "-o", "json", "--gateway", r.Gateway)
+	if err != nil {
+		return err
+	}
+	s := strings.ToLower(string(b))
+	if r.Mode == "enmaas" {
+		if !strings.Contains(s, enmaasHost) {
+			return fmt.Errorf("effective policy lacks EnMaaS endpoint; provider not ready")
+		}
+		if strings.Contains(s, "api.openai.com") || strings.Contains(s, "api.anthropic.com") {
+			return fmt.Errorf("effective policy allows direct model-provider egress in EnMaaS mode")
+		}
+	}
+	if r.Approval == "unattended" {
+		if !strings.Contains(s, "hard_requirement") {
+			return fmt.Errorf("unattended run lacks hard Landlock requirement")
+		}
+		if !strings.Contains(s, "network_policies") {
+			return fmt.Errorf("unattended run lacks verified network policy")
+		}
+	}
+	return nil
+}
+
+func (a *App) ListAndReconcile(ctx context.Context) ([]Run, error) {
+	runs, err := a.Store.ListRuns()
+	if err != nil {
+		return nil, err
+	}
+	for i := range runs {
+		r := runs[i]
+		if r.Status == "create-failed" || r.Status == "prepared" {
+			continue
+		}
+		b, err := a.Runner.Output(ctx, "openshell", "sandbox", "get", r.Sandbox, "-o", "json", "--gateway", r.Gateway)
+		if err != nil {
+			r.Status = "unreachable"
+			_ = a.Store.SaveRun(r)
+			runs[i] = r
+			continue
+		}
+		var status struct {
+			Phase string `json:"phase"`
+		}
+		if err := json.Unmarshal(b, &status); err != nil {
+			r.Status = "unreadable"
+			_ = a.Store.SaveRun(r)
+			runs[i] = r
+			continue
+		}
+		state := strings.ToLower(status.Phase)
+		if state == "error" {
+			r.Status = "error"
+			_ = a.Store.SaveRun(r)
+		} else {
+			_, finishErr := a.sandboxExec(ctx, r, "/bin/sh", "-c", "test -f /workspace/finished")
+			var syncFinished bool
+			r.Status, syncFinished = classifySandboxStatus(state, finishErr == nil)
+			_ = a.Store.SaveRun(r)
+			if syncFinished {
+				if err := a.Sync(ctx, r.ID); err == nil {
+					r, _ = a.Store.LoadRun(r.ID)
+				}
+			}
+		}
+		runs[i] = r
+	}
+	return runs, nil
+}
+
+func classifySandboxStatus(phase string, finishedMarker bool) (string, bool) {
+	phase = strings.ToLower(phase)
+	if phase == "error" {
+		return "error", false
+	}
+	if finishedMarker {
+		return "finished", true
+	}
+	switch phase {
+	case "stopped", "completed", "exited":
+		return "stopped", false
+	default:
+		return "running", false
+	}
+}
+
+func (a *App) Attach(ctx context.Context, id string) error {
+	r, err := a.Store.LoadRun(id)
+	if err != nil {
+		return err
+	}
+	args := []string{"sandbox", "exec", "-n", r.Sandbox, "--tty", "--", "tmux", "attach", "-t", "agent"}
+	if r.Gateway != "" {
+		args = append([]string{"--gateway", r.Gateway}, args...)
+	}
+	return a.Runner.Stream(ctx, os.Stdin, os.Stdout, os.Stderr, "openshell", args...)
+}
+
+func (a *App) Logs(ctx context.Context, id string) ([]byte, error) {
+	r, err := a.Store.LoadRun(id)
+	if err != nil {
+		return nil, err
+	}
+	return a.sandboxExec(ctx, r, "/bin/sh", "-c", "cat /workspace/state/agent.log 2>/dev/null || true")
+}
+
+func (a *App) Stop(ctx context.Context, id string) error {
+	r, err := a.Store.LoadRun(id)
+	if err != nil {
+		return err
+	}
+	if _, err := a.sandboxExec(ctx, r, "tmux", "send-keys", "-t", "agent", "C-c"); err != nil {
+		return err
+	}
+	finished := false
+	for i := 0; i < 30; i++ {
+		if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", "test -f /workspace/finished"); err == nil {
+			finished = true
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	if !finished {
+		return fmt.Errorf("agent did not stop within 30 seconds; sandbox retained")
+	}
+	if err := a.Sync(ctx, id); err != nil {
+		return err
+	}
+	if _, err := a.Runner.Output(ctx, "openshell", "sandbox", "stop", r.Sandbox, "--gateway", r.Gateway); err != nil {
+		return err
+	}
+	r, err = a.Store.LoadRun(id)
+	if err != nil {
+		return err
+	}
+	r.Status = "stopped"
+	r.Synced = true
+	return a.Store.SaveRun(r)
+}
+
+func (a *App) Delete(ctx context.Context, id string, discard bool) error {
+	r, err := a.Store.LoadRun(id)
+	if err != nil {
+		return err
+	}
+	if r.Status == "running" && !discard {
+		return fmt.Errorf("run is still active; stop it or pass --discard")
+	}
+	if !r.Synced && !discard {
+		return fmt.Errorf("run has unsynced results; sync first or pass --discard")
+	}
+	if !discard {
+		diff, err := a.Diff(ctx, r)
+		if err != nil {
+			return err
+		}
+		if len(diff) > 0 {
+			return fmt.Errorf("run has review changes; pass --discard to acknowledge deletion")
+		}
+	}
+	if r.Status != "create-failed" && r.Status != "prepared" {
+		if _, err := a.Runner.Output(ctx, "openshell", "sandbox", "delete", r.Sandbox, "--gateway", r.Gateway); err != nil {
+			return err
+		}
+	}
+	if _, err := a.git(ctx, r.Source, "worktree", "remove", "--force", r.Worktree); err != nil {
+		return fmt.Errorf("sandbox removed but worktree cleanup failed: %w", err)
+	}
+	if _, err := a.git(ctx, r.Source, "branch", "-D", r.Branch); err != nil {
+		return fmt.Errorf("sandbox removed but branch cleanup failed: %w", err)
+	}
+	_ = os.RemoveAll(filepath.Join(a.Store.RunsDir(), id+"-config"))
+	_ = os.Remove(r.Policy)
+	return os.Remove(a.Store.RunPath(id))
+}
