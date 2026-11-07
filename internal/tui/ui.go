@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/dmartinol/agentbox/internal/app"
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -17,6 +18,16 @@ const (
 	pageProfiles  = "profiles"
 	pageDoctor    = "doctor"
 )
+
+var sectionPages = []string{
+	pageDashboard,
+	pageRuns,
+	pageImages,
+	pageGateways,
+	pagePolicies,
+	pageProfiles,
+	pageDoctor,
+}
 
 type UI struct {
 	ctx        context.Context
@@ -40,6 +51,7 @@ func Run(ctx context.Context, a *app.App) error {
 		tapp: tview.NewApplication(),
 	}
 	ui.buildLayout()
+	ui.tapp.SetInputCapture(ui.handleGlobalKeys)
 	return ui.tapp.SetRoot(ui.root(), true).EnableMouse(true).Run()
 }
 
@@ -63,11 +75,72 @@ func (ui *UI) buildLayout() {
 
 	ui.footer = tview.NewTextView().
 		SetDynamicColors(true).
-		SetText("Tab/arrow keys navigate • Enter selects • q quits")
+		SetText("F1–F7 switch sections • Ctrl+←/→ cycles • Enter selects • q quits")
 	ui.footer.SetBorder(true).SetTitle(" Help ")
 
 	ui.pages = tview.NewPages()
 	ui.show(pageDashboard)
+}
+
+func (ui *UI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
+	if index, ok := sectionForFunctionKey(event.Key()); ok {
+		ui.switchSection(index)
+		return nil
+	}
+	switch event.Key() {
+	case tcell.KeyLeft:
+		if event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) != 0 {
+			ui.show(nextSection(ui.current, -1))
+			return nil
+		}
+	case tcell.KeyRight:
+		if event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) != 0 {
+			ui.show(nextSection(ui.current, 1))
+			return nil
+		}
+	}
+	return event
+}
+
+func sectionForFunctionKey(key tcell.Key) (int, bool) {
+	switch key {
+	case tcell.KeyF1:
+		return 0, true
+	case tcell.KeyF2:
+		return 1, true
+	case tcell.KeyF3:
+		return 2, true
+	case tcell.KeyF4:
+		return 3, true
+	case tcell.KeyF5:
+		return 4, true
+	case tcell.KeyF6:
+		return 5, true
+	case tcell.KeyF7:
+		return 6, true
+	default:
+		return 0, false
+	}
+}
+
+func nextSection(current string, delta int) string {
+	currentIndex := 0
+	for i, page := range sectionPages {
+		if page == current {
+			currentIndex = i
+			break
+		}
+	}
+	nextIndex := (currentIndex + delta + len(sectionPages)) % len(sectionPages)
+	return sectionPages[nextIndex]
+}
+
+func (ui *UI) switchSection(index int) {
+	if index < 0 || index >= len(sectionPages) {
+		return
+	}
+	ui.navigation.SetCurrentItem(index)
+	ui.show(sectionPages[index])
 }
 
 func (ui *UI) root() tview.Primitive {

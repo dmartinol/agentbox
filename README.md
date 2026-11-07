@@ -80,6 +80,13 @@ Open the TUI:
 
 AgentBox uses [tview](https://github.com/rivo/tview) for the terminal UI.
 
+Keyboard navigation is available throughout the TUI:
+
+- `F1`–`F7` switch directly between the main sections
+- `Ctrl+←` / `Ctrl+→` cycle through the main sections
+- `Tab` and `Shift+Tab` move between fields and buttons in forms
+- Arrow keys move within tables and tree views
+
 The TUI is organized around structured widgets rather than raw JSON output:
 
 - Tables for runs, images, gateways, profiles, and doctor checks
