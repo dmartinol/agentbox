@@ -47,6 +47,27 @@ func forwardNavigation(history navigationHistory, current string) (navigationHis
 	return navigationHistory{past: append(past, current), future: future}, next, true
 }
 
+func sectionForRune(r rune) (int, bool) {
+	switch r {
+	case 'd':
+		return 0, true
+	case 'r':
+		return 1, true
+	case 'i':
+		return 2, true
+	case 'g':
+		return 3, true
+	case 'p':
+		return 4, true
+	case 'o':
+		return 5, true
+	case 'x':
+		return 6, true
+	default:
+		return 0, false
+	}
+}
+
 func sectionForFunctionKey(key tcell.Key) (int, bool) {
 	switch key {
 	case tcell.KeyF1:

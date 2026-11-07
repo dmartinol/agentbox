@@ -103,3 +103,26 @@ func TestBreadcrumbAndParentSection(t *testing.T) {
 		}
 	}
 }
+
+func TestSectionForRune(t *testing.T) {
+	cases := map[rune]int{
+		'd': 0,
+		'r': 1,
+		'i': 2,
+		'g': 3,
+		'p': 4,
+		'o': 5,
+		'x': 6,
+	}
+	for r, want := range cases {
+		got, ok := sectionForRune(r)
+		if !ok || got != want {
+			t.Errorf("sectionForRune(%q) = %d,%v; want %d,true", r, got, ok, want)
+		}
+	}
+	for _, r := range []rune{'1', '2', '3', 'q', 'z'} {
+		if _, ok := sectionForRune(r); ok {
+			t.Errorf("sectionForRune(%q) unexpectedly matched a section", r)
+		}
+	}
+}

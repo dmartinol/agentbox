@@ -154,32 +154,42 @@ fi
 	time.Sleep(200 * time.Millisecond)
 	waitFor(t, "AgentBox/Dashboard")
 
-	send("1")
+	// Plain letters switch between the main sections.
+	send("r")
+	waitFor(t, "AgentBox/Runs")
+	send("i")
+	waitFor(t, "AgentBox/Images")
+	send("g")
+	waitFor(t, "AgentBox/Gateways")
+	send("p")
+	waitFor(t, "AgentBox/Policies")
+	send("o")
+	waitFor(t, "AgentBox/Profiles")
+	send("x")
+	waitFor(t, "AgentBox/Doctor")
+	send("d")
+	waitFor(t, "AgentBox/Dashboard")
+
+	// Tab still reaches the action bar outside the Dashboard.
+	send("r")
+	waitFor(t, "AgentBox/Runs")
+	send("\t")
+	time.Sleep(100 * time.Millisecond)
+	send("\r")
 	waitFor(t, "AgentBox/Runs/Startrun")
 	send("\x1b")
 	time.Sleep(200 * time.Millisecond)
+	waitFor(t, "AgentBox/Runs")
+	send("d")
 	waitFor(t, "AgentBox/Dashboard")
 
-	send("2")
-	waitFor(t, "AgentBox/Images/Buildimage")
+	// Escape still goes back through navigation history.
 	send("\x1b")
 	time.Sleep(200 * time.Millisecond)
+	waitFor(t, "AgentBox/Doctor")
+	send("d")
 	waitFor(t, "AgentBox/Dashboard")
 
-	send("3")
-	waitFor(t, "AgentBox/Gateways/Connectgateway")
-	send("\x1b")
-	time.Sleep(200 * time.Millisecond)
-	waitFor(t, "AgentBox/Dashboard")
-
-	send("\x1bOQ") // F2
-	waitFor(t, "AgentBox/Runs")
-	send("\x1bOR") // F3
-	waitFor(t, "AgentBox/Images")
-	send("\x1b") // Escape goes back to Runs.
-	waitFor(t, "AgentBox/Runs")
-	send("\x1d") // Ctrl+] goes forward to Images.
-	waitFor(t, "AgentBox/Images")
 	send("q")
 
 	done := make(chan error, 1)

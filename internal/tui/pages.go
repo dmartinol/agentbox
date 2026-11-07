@@ -79,9 +79,9 @@ func (ui *UI) dashboardPage() tview.Primitive {
 	table.SetBorder(true).SetTitle(" Dashboard ")
 	quickActions := tview.NewForm().
 		SetButtonsAlign(tview.AlignCenter).
-		AddButton("1 Start run", func() { ui.show("run-form") }).
-		AddButton("2 Build image", func() { ui.show("image-build-form") }).
-		AddButton("3 Connect gateway", func() { ui.show("gateway-form") })
+		AddButton("Start run", func() { ui.show("run-form") }).
+		AddButton("Build image", func() { ui.show("image-build-form") }).
+		AddButton("Connect gateway", func() { ui.show("gateway-form") })
 	quickActions.SetBorder(true).SetTitle(" Quick actions ")
 	ui.focusActions(table, quickActions)
 	return tview.NewFlex().
@@ -280,6 +280,7 @@ func (ui *UI) doctorPage() tview.Primitive {
 		SetButtonsAlign(tview.AlignCenter).
 		AddButton("Refresh", func() { ui.refresh() })
 	form.SetBorder(true).SetTitle(" Actions ")
+	ui.focusActions(table, form)
 	return tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(table, 0, 5, true).

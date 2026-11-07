@@ -80,7 +80,7 @@ func (ui *UI) buildLayout() {
 
 	ui.footer = tview.NewTextView().
 		SetDynamicColors(true).
-		SetText("F1–F7 sections • Ctrl+[ / Alt+← back • Ctrl+] / Alt+→ forward • Tab fields • Enter select • q quit")
+		SetText("d Dashboard • r Runs • i Images • g Gateways • p Policies • o Profiles • x Doctor\nTab actions • Esc back • q quit")
 	ui.footer.SetBorder(true).SetTitle(" Help ")
 
 	ui.pages = tview.NewPages()
@@ -94,21 +94,15 @@ func (ui *UI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 	}
 	switch event.Key() {
 	case tcell.KeyRune:
-		if ui.modalActive {
+		if ui.modalActive || isFormPage(ui.current) {
 			break
 		}
-		switch {
-		case event.Rune() == 'q' && !isFormPage(ui.current):
+		if event.Rune() == 'q' {
 			ui.tapp.Stop()
 			return nil
-		case ui.current == pageDashboard && event.Rune() == '1':
-			ui.show("run-form")
-			return nil
-		case ui.current == pageDashboard && event.Rune() == '2':
-			ui.show("image-build-form")
-			return nil
-		case ui.current == pageDashboard && event.Rune() == '3':
-			ui.show("gateway-form")
+		}
+		if index, ok := sectionForRune(event.Rune()); ok {
+			ui.switchSection(index)
 			return nil
 		}
 	case tcell.KeyEscape:
@@ -289,15 +283,13 @@ func isFormPage(page string) bool {
 
 func helpFor(page string) string {
 	if strings.HasPrefix(page, "logs:") || strings.HasPrefix(page, "diff:") {
-		return "Esc / Ctrl+[ / Alt+← back • Ctrl+] / Alt+→ forward • Tab focus • q quit"
+		return "Esc back • q quit"
 	}
 	switch page {
 	case "run-form", "image-version-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-host-form", "profile-form":
-		return "Tab next field • Shift+Tab previous • Enter submit • Ctrl+[ / Alt+← back • Ctrl+] / Alt+→ forward"
-	case pageDashboard:
-		return "1 Start run • 2 Build image • 3 Connect gateway • Tab actions • F1–F7 sections • Esc back • q quit"
+		return "Tab next field • Shift+Tab previous • Enter submit • Esc back"
 	default:
-		return "F1–F7 sections • Esc / Ctrl+[ / Alt+← back • Ctrl+] / Alt+→ forward • Tab focus • Enter select • q quit"
+		return "d Dashboard • r Runs • i Images • g Gateways • p Policies • o Profiles • x Doctor\nTab actions • Esc back • q quit"
 	}
 }
 
