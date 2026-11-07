@@ -3,6 +3,7 @@ module github.com/dmartinol/agentbox
 go 1.26
 
 require (
+	github.com/creack/pty v1.1.24
 	github.com/gdamore/tcell/v2 v2.13.10
 	github.com/rivo/tview v0.42.0
 	gopkg.in/yaml.v3 v3.0.1

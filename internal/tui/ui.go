@@ -93,6 +93,11 @@ func (ui *UI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 	switch event.Key() {
+	case tcell.KeyRune:
+		if event.Rune() == 'q' && !ui.modalActive && !isFormPage(ui.current) {
+			ui.tapp.Stop()
+			return nil
+		}
 	case tcell.KeyEscape:
 		if !ui.modalActive && !isFormPage(ui.current) {
 			ui.back()

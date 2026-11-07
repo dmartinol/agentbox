@@ -43,6 +43,8 @@ make vet
 make race
 ```
 
+`go test ./...` also runs a PTY-driven TUI integration test that verifies direct section navigation, back/forward history, and quitting with `q`.
+
 ## Usage
 
 Run the doctor command to inspect local prerequisites:
