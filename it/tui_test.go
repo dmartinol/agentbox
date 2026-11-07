@@ -144,6 +144,34 @@ fi
 	}
 
 	waitFor(t, "AgentBox/Dashboard")
+
+	// Tab moves focus from the dashboard table to the quick-action buttons.
+	send("\t")
+	time.Sleep(100 * time.Millisecond)
+	send("\r")
+	waitFor(t, "AgentBox/Runs/Startrun")
+	send("\x1b")
+	time.Sleep(200 * time.Millisecond)
+	waitFor(t, "AgentBox/Dashboard")
+
+	send("1")
+	waitFor(t, "AgentBox/Runs/Startrun")
+	send("\x1b")
+	time.Sleep(200 * time.Millisecond)
+	waitFor(t, "AgentBox/Dashboard")
+
+	send("2")
+	waitFor(t, "AgentBox/Images/Buildimage")
+	send("\x1b")
+	time.Sleep(200 * time.Millisecond)
+	waitFor(t, "AgentBox/Dashboard")
+
+	send("3")
+	waitFor(t, "AgentBox/Gateways/Connectgateway")
+	send("\x1b")
+	time.Sleep(200 * time.Millisecond)
+	waitFor(t, "AgentBox/Dashboard")
+
 	send("\x1bOQ") // F2
 	waitFor(t, "AgentBox/Runs")
 	send("\x1bOR") // F3

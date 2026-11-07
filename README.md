@@ -87,6 +87,8 @@ Keyboard navigation is available throughout the TUI:
 - `F1`–`F7` switch directly between the main sections
 - `Esc`, `Ctrl+[`, or `Alt+←` goes back in the navigation history
 - `Ctrl+]` or `Alt+→` goes forward in the navigation history
+- `Tab` moves from a table to its action bar; `Shift+Tab` moves back
+- On the Dashboard, `1`, `2`, and `3` directly open Start run, Build image, and Connect gateway
 - `Tab` and `Shift+Tab` move between fields and buttons in forms
 - Arrow keys move within tables and tree views
 - The header shows a breadcrumb and indicates when history is available

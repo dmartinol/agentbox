@@ -94,12 +94,25 @@ func (ui *UI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 	}
 	switch event.Key() {
 	case tcell.KeyRune:
-		if event.Rune() == 'q' && !ui.modalActive && !isFormPage(ui.current) {
+		if ui.modalActive {
+			break
+		}
+		switch {
+		case event.Rune() == 'q' && !isFormPage(ui.current):
 			ui.tapp.Stop()
+			return nil
+		case ui.current == pageDashboard && event.Rune() == '1':
+			ui.show("run-form")
+			return nil
+		case ui.current == pageDashboard && event.Rune() == '2':
+			ui.show("image-build-form")
+			return nil
+		case ui.current == pageDashboard && event.Rune() == '3':
+			ui.show("gateway-form")
 			return nil
 		}
 	case tcell.KeyEscape:
-		if !ui.modalActive && !isFormPage(ui.current) {
+		if !ui.modalActive {
 			ui.back()
 			return nil
 		}
@@ -188,6 +201,7 @@ func (ui *UI) render(page string) {
 		}
 	}
 	ui.pages.AddAndSwitchToPage(page, primitive, true)
+	ui.tapp.SetFocus(primitive)
 	ui.header.SetText(ui.headerText())
 	ui.footer.SetText(helpFor(page))
 }
@@ -197,6 +211,7 @@ func (ui *UI) showDynamic(page string, primitive tview.Primitive) {
 	ui.dynamicPages[page] = primitive
 	ui.current = page
 	ui.pages.AddAndSwitchToPage(page, primitive, true)
+	ui.tapp.SetFocus(primitive)
 	ui.header.SetText(ui.headerText())
 	ui.footer.SetText(helpFor(page))
 }
@@ -279,6 +294,8 @@ func helpFor(page string) string {
 	switch page {
 	case "run-form", "image-version-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-host-form", "profile-form":
 		return "Tab next field • Shift+Tab previous • Enter submit • Ctrl+[ / Alt+← back • Ctrl+] / Alt+→ forward"
+	case pageDashboard:
+		return "1 Start run • 2 Build image • 3 Connect gateway • Tab actions • F1–F7 sections • Esc back • q quit"
 	default:
 		return "F1–F7 sections • Esc / Ctrl+[ / Alt+← back • Ctrl+] / Alt+→ forward • Tab focus • Enter select • q quit"
 	}
