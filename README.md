@@ -14,7 +14,7 @@ The current implementation provides:
 - `provider` setup for OpenShell inference providers.
 - `policy` commands for showing and editing sandbox policies.
 - `run` commands for start, list, show, attach, logs, stop, sync, diff, and delete.
-- A small aggregate TUI.
+- A structured, tview-based terminal UI.
 
 Unit tests cover the core behavior with temporary repositories and fake command runners. Live gateway, registry, policy-enforcement, and real-agent validation are not yet exercised.
 
@@ -76,6 +76,24 @@ Open the TUI:
 ./agentbox tui
 ```
 
+## Terminal UI
+
+AgentBox uses [tview](https://github.com/rivo/tview) for the terminal UI.
+
+The TUI is organized around structured widgets rather than raw JSON output:
+
+- Tables for runs, images, gateways, profiles, and doctor checks
+- Forms for creating profiles, starting runs, building images, connecting gateways, setting up providers, and editing policies
+- Tree views for nested gateway and policy data
+- Modal dialogs for destructive actions
+- Direct calls to the internal application layer instead of shelling out to the CLI binary
+
+To start it:
+
+```sh
+./agentbox tui
+```
+
 ## State location
 
 AgentBox stores profiles, run records, worktrees, policies, and generated configuration outside this repository.
@@ -97,8 +115,9 @@ Set `AGENTBOX_HOME` to use a private state directory for testing.
 ## Repository layout
 
 ```text
-cmd/agentbox     CLI and TUI entry points
+cmd/agentbox     CLI entry point
 internal/app     Core application logic
+internal/tui     tview-based terminal user interface
 .github          CI workflow
 Makefile         Build and test targets
 ```

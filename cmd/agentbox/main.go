@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/dmartinol/agentbox/internal/app"
+	"github.com/dmartinol/agentbox/internal/tui"
 )
 
 func main() {
@@ -67,7 +68,7 @@ func dispatch(ctx context.Context, a *app.App, args []string) error {
 	case "run":
 		return runCmd(ctx, a, args[1:])
 	case "tui":
-		return runTUI(ctx, a)
+		return tui.Run(ctx, a)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
