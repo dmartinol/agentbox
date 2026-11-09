@@ -124,3 +124,34 @@ func TestImageHelpDoesNotRunCommand(t *testing.T) {
 		t.Fatalf("image help output = %q", output)
 	}
 }
+
+type imageListRunner struct{}
+
+func (imageListRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	if name == "podman" && len(args) > 0 && args[0] == "images" {
+		return []byte(`[{"Names":["localhost/openshell:codex-0.167.0-r3"],"Digest":"sha256:image","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"0.167.0","agentbox.recipe":"3"}}]`), nil
+	}
+	return []byte(`{}`), nil
+}
+
+func (imageListRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error {
+	return nil
+}
+
+func TestImageListDefaultOutputIsStructured(t *testing.T) {
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: imageListRunner{}}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"image", "list"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"AGENT", "VERSION", "RECIPE", "PLATFORM", "REFERENCE", "codex", "0.167.0", "linux/arm64", "localhost/openshell:codex-0.167.0-r3"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("structured image list missing %q:\n%s", want, output)
+		}
+	}
+	if strings.HasPrefix(output, "[") || strings.HasPrefix(output, "{") {
+		t.Fatalf("image list returned JSON without --json:\n%s", output)
+	}
+}

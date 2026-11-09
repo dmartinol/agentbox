@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/dmartinol/agentbox/internal/app"
 	"github.com/dmartinol/agentbox/internal/tui"
@@ -269,7 +270,11 @@ func imageCmd(ctx context.Context, a *app.App, args []string) error {
 			_, err = os.Stdout.Write(b)
 			return err
 		}
-		fmt.Print(string(b))
+		images, err := a.LocalImages(ctx)
+		if err != nil {
+			return err
+		}
+		printImageList(images)
 		return nil
 	case "push":
 		f := flags("image push")
@@ -296,6 +301,23 @@ func imageCmd(ctx context.Context, a *app.App, args []string) error {
 	default:
 		return fmt.Errorf("unknown image command")
 	}
+}
+
+func printImageList(images []app.ImageArtifact) {
+	if len(images) == 0 {
+		fmt.Println("No AgentBox images found.")
+		return
+	}
+	writer := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(writer, "AGENT\tVERSION\tRECIPE\tPLATFORM\tREFERENCE")
+	for _, image := range images {
+		platform := strings.Trim(strings.Join([]string{image.OS, image.Arch}, "/"), "/")
+		if platform == "" {
+			platform = "-"
+		}
+		fmt.Fprintf(writer, "%s\t%s\t%d\t%s\t%s\n", image.Agent, image.Version, image.Recipe, platform, image.Reference)
+	}
+	_ = writer.Flush()
 }
 
 func imageRegistryCmd(ctx context.Context, a *app.App, args []string) error {
