@@ -105,7 +105,7 @@ func (ui *UI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 
 	switch event.Key() {
 	case tcell.KeyRune:
-		if event.Rune() == 'q' && !isFormPage(ui.current) {
+		if event.Rune() == 'q' && !isFormPage(ui.current) && !isEditingPrimitive(ui.tapp.GetFocus()) {
 			ui.tapp.Stop()
 			return nil
 		}
@@ -147,6 +147,15 @@ func (ui *UI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 		}
 	}
 	return event
+}
+
+func isEditingPrimitive(primitive tview.Primitive) bool {
+	switch primitive.(type) {
+	case *tview.InputField, *tview.TextArea, *tview.DropDown:
+		return true
+	default:
+		return false
+	}
 }
 
 func (ui *UI) setFocusLayer(layer int) {
