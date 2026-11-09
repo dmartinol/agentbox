@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -218,8 +220,8 @@ func (ui *UI) runForm() tview.Primitive {
 		AddFormItem(modelDropdown).
 		AddFormItem(approvalDropdown).
 		AddButton("Start", func() {
-			ui.asyncTo(pageRuns, func() error {
-				_, err := ui.app.Start(ui.ctx, app.StartOptions{
+			ui.runTask("Start run", pageRuns, false, func(ctx context.Context, a *app.App, out io.Writer) error {
+				run, err := a.Start(ctx, app.StartOptions{
 					Profile:  profile,
 					Source:   source,
 					Gateway:  gateway,
@@ -229,6 +231,9 @@ func (ui *UI) runForm() tview.Primitive {
 					Approval: approval,
 					Prompt:   prompt,
 				})
+				if err == nil {
+					_, _ = fmt.Fprintf(out, "\nRun %s started in %s\n", run.ID, run.Worktree)
+				}
 				return err
 			})
 		}).
@@ -274,8 +279,11 @@ func (ui *UI) imageBuildForm() tview.Primitive {
 		AddDropDown("Agent", []string{"codex", "claude", "opencode"}, 0, func(text string, _ int) { agent = text }).
 		AddInputField("Exact version", "", 20, nil, func(text string) { version = text }).
 		AddButton("Build", func() {
-			ui.asyncTo(pageImages, func() error {
-				_, err := ui.app.ImageBuild(ui.ctx, agent, version, false)
+			ui.runTask("Build image", pageImages, true, func(ctx context.Context, a *app.App, out io.Writer) error {
+				record, err := a.ImageBuild(ctx, agent, version, false)
+				if err == nil {
+					_, _ = fmt.Fprintf(out, "\nBuilt image: %s\n", record.Tag)
+				}
 				return err
 			})
 		}).
@@ -333,7 +341,9 @@ func (ui *UI) imagePushForm() tview.Primitive {
 		AddFormItem(localField).
 		AddFormItem(remoteField).
 		AddButton("Push", func() {
-			ui.asyncTo(pageImages, func() error { return ui.app.ImagePush(ui.ctx, localTag, remote, false) })
+			ui.runTask("Push image", pageImages, true, func(ctx context.Context, a *app.App, _ io.Writer) error {
+				return a.ImagePush(ctx, localTag, remote, false)
+			})
 		}).
 		AddButton("Cancel", func() { ui.show(pageImages) })
 	form.SetBorder(true).SetTitle(" Push image ")
@@ -345,7 +355,9 @@ func (ui *UI) imagePullForm() tview.Primitive {
 	form := tview.NewForm().
 		AddFormItem(autocompleteInput("Remote reference", "", 90, ui.registryReferences(), func(text string) { ref = text })).
 		AddButton("Pull", func() {
-			ui.asyncTo(pageImages, func() error { return ui.app.ImagePull(ui.ctx, ref, false) })
+			ui.runTask("Pull image", pageImages, true, func(ctx context.Context, a *app.App, _ io.Writer) error {
+				return a.ImagePull(ctx, ref, false)
+			})
 		}).
 		AddButton("Cancel", func() { ui.show(pageImages) })
 	form.SetBorder(true).SetTitle(" Pull image ")
@@ -409,7 +421,9 @@ func (ui *UI) providerForm() tview.Primitive {
 		AddInputField("Provider name", "", 30, nil, func(text string) { name = text }).
 		AddFormItem(autocompleteInput("Gateway", gateway, 40, gateways, func(text string) { gateway = text })).
 		AddButton("Set up", func() {
-			ui.asyncTo(pageProfiles, func() error { return ui.app.ProviderSetup(ui.ctx, kind, name, gateway, false, false) })
+			ui.runTask("Set up provider", pageProfiles, true, func(ctx context.Context, a *app.App, _ io.Writer) error {
+				return a.ProviderSetup(ctx, kind, name, gateway, false, false)
+			})
 		}).
 		AddButton("Cancel", func() { ui.show(pageProfiles) })
 	form.SetBorder(true).SetTitle(" Set up provider ")

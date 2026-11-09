@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"strings"
 
+	"github.com/dmartinol/agentbox/internal/app"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -261,7 +264,11 @@ func (ui *UI) gatewaysPage() tview.Primitive {
 	actions := tview.NewForm().
 		SetButtonsAlign(tview.AlignCenter).
 		AddButton("Connect", func() { ui.show("gateway-form") }).
-		AddButton("Start", func() { ui.async(func() error { return ui.app.GatewayStart(ui.ctx, false) }) }).
+		AddButton("Start", func() {
+			ui.runTask("Start gateway", pageGateways, true, func(ctx context.Context, a *app.App, _ io.Writer) error {
+				return a.GatewayStart(ctx, false)
+			})
+		}).
 		AddButton("Inspect", func() { ui.show("gateway-info-form") })
 	actions.SetBorder(true).SetTitle(" Gateway actions ")
 	ui.registerActions(actions)
