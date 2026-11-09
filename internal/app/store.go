@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -146,15 +145,8 @@ func DefaultStore() (Store, error) {
 	if err != nil {
 		return Store{}, err
 	}
-	worktreeRoot := filepath.Join(home, ".agentbox", "worktrees")
-	if runtimeGOOS() == "darwin" {
-		return Store{Base: filepath.Join(home, "Library", "Application Support", "agentbox"), WorktreeRoot: worktreeRoot}, nil
-	}
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		base = filepath.Join(home, ".local", "state")
-	}
-	return Store{Base: filepath.Join(base, "agentbox"), WorktreeRoot: worktreeRoot}, nil
+	base := filepath.Join(home, ".agentbox")
+	return Store{Base: base, WorktreeRoot: filepath.Join(base, "worktrees")}, nil
 }
 
 func (s Store) Ensure() error {
@@ -544,8 +536,6 @@ func atomicWrite(path string, b []byte) error {
 	}
 	return os.Rename(f.Name(), path)
 }
-
-func runtimeGOOS() string { return runtime.GOOS }
 
 type Registry struct {
 	Reference string `yaml:"reference" json:"reference"`

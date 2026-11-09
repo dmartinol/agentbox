@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestDefaultStoreUsesAgentBoxWorktreeRoot(t *testing.T) {
+func TestDefaultStoreUsesAgentBoxHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("AGENTBOX_HOME", "")
@@ -14,7 +14,11 @@ func TestDefaultStoreUsesAgentBoxWorktreeRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(home, ".agentbox", "worktrees")
+	base := filepath.Join(home, ".agentbox")
+	if store.Base != base {
+		t.Fatalf("state directory = %q; want %q", store.Base, base)
+	}
+	want := filepath.Join(base, "worktrees")
 	if got := store.WorktreesDir(); got != want {
 		t.Fatalf("worktree root = %q; want %q", got, want)
 	}

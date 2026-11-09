@@ -266,21 +266,20 @@ The Runs page selects the first run by default, so the action bar can attach imm
 
 ## State location
 
-AgentBox stores projects, profiles, run records, policies, registry settings, and generated configuration in its private state directory. Git worktrees default to `~/.agentbox/worktrees`; set `AGENTBOX_HOME` to keep worktrees under that disposable state directory instead.
-
-On macOS:
+AgentBox stores all default state under `~/.agentbox`:
 
 ```text
-~/Library/Application Support/agentbox
+~/.agentbox/
+  settings.yaml
+  projects/
+  profiles/
+  runs/
+  policies/
+  worktrees/
 ```
 
-On Linux:
-
-```text
-$XDG_STATE_HOME/agentbox
-```
-
-Set `AGENTBOX_HOME` to use a private state directory for testing.
+Set `AGENTBOX_HOME` to use a different private state directory for testing or
+custom layouts. Worktrees then live under `$AGENTBOX_HOME/worktrees`.
 
 ## Repository layout
 
