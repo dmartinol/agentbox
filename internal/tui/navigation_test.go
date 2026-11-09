@@ -52,6 +52,8 @@ func TestBreadcrumbAndParentSection(t *testing.T) {
 		"image-build-form":   "AgentBox / Images / Build image",
 		"gateway-form":       "AgentBox / Gateways / Connect gateway",
 		"provider-form":      "AgentBox / Profiles / Set up provider",
+		"project-form":       "AgentBox / Projects / Create project",
+		"project-edit:dev":   "AgentBox / Projects / Edit project",
 		"profile-edit:dev":   "AgentBox / Profiles / Edit profile",
 		"policy-host-form":   "AgentBox / Policies / Allow network host",
 		"logs:run-123":       "AgentBox / Runs / Logs",

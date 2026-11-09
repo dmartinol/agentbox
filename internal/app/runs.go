@@ -25,6 +25,7 @@ exec sleep infinity
 
 type StartOptions struct {
 	Profile  string
+	Project  string
 	Source   string
 	Gateway  string
 	Image    string
@@ -71,6 +72,34 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if opt.Source == "" {
 		opt.Source = "."
 	}
+	projectName := ""
+	useWorktree := true
+	if opt.Project != "" {
+		project, err := a.Store.LoadProject(opt.Project)
+		if err != nil {
+			return Run{}, fmt.Errorf("project %q not found; create it from the Projects page or with `agentbox project create`", opt.Project)
+		}
+		projectName = project.Name
+		opt.Source = project.Root
+		useWorktree = project.UseWorktree()
+	}
+	sourceRoot, err := a.ProjectRoot(ctx, opt.Source)
+	if err != nil {
+		return Run{}, err
+	}
+	if projectName == "" {
+		if project, ok, err := a.Store.ProjectRoot(sourceRoot); err != nil {
+			return Run{}, err
+		} else if ok {
+			projectName = project.Name
+			useWorktree = project.UseWorktree()
+		}
+	}
+	if !useWorktree {
+		if err := a.requireDirectRunAvailable(sourceRoot); err != nil {
+			return Run{}, err
+		}
+	}
 	if opt.Gateway == "" {
 		return Run{}, fmt.Errorf("explicit gateway name required")
 	}
@@ -92,12 +121,19 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 		return Run{}, err
 	}
 	if opt.Dry {
-		return Run{ID: id, Source: opt.Source, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: "preview"}, nil
+		return Run{ID: id, Source: sourceRoot, Project: projectName, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: "preview", WorktreeIsolated: useWorktree}, nil
 	}
-	r, err := a.CreateWorktree(ctx, opt.Source, id)
+	var r Run
+	if useWorktree {
+		r, err = a.CreateWorktree(ctx, sourceRoot, id)
+	} else {
+		r, err = a.CreateDirectRun(ctx, sourceRoot, id)
+	}
 	if err != nil {
 		return Run{}, err
 	}
+	r.Project = projectName
+	r.WorktreeIsolated = useWorktree
 	r.Created = time.Now().UTC()
 	r.Gateway = opt.Gateway
 	r.Agent = p.Agent
@@ -231,6 +267,23 @@ func (a *App) ListAndReconcile(ctx context.Context) ([]Run, error) {
 		runs[i] = r
 	}
 	return runs, nil
+}
+
+func (a *App) requireDirectRunAvailable(root string) error {
+	runs, err := a.Store.ListRuns()
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		if run.Isolated() || filepath.Clean(run.Source) != root {
+			continue
+		}
+		switch strings.ToLower(run.Status) {
+		case "running", "created", "prepared":
+			return fmt.Errorf("direct worktree mode already has active run %s; wait for it to finish or enable worktree isolation", run.ID)
+		}
+	}
+	return nil
 }
 
 func classifySandboxStatus(phase string, finishedMarker bool) (string, bool) {
@@ -369,11 +422,13 @@ func (a *App) Delete(ctx context.Context, id string, discard bool) error {
 			return err
 		}
 	}
-	if _, err := a.git(ctx, r.Source, "worktree", "remove", "--force", r.Worktree); err != nil {
-		return fmt.Errorf("sandbox removed but worktree cleanup failed: %w", err)
-	}
-	if _, err := a.git(ctx, r.Source, "branch", "-D", r.Branch); err != nil {
-		return fmt.Errorf("sandbox removed but branch cleanup failed: %w", err)
+	if r.Isolated() {
+		if _, err := a.git(ctx, r.Source, "worktree", "remove", "--force", r.Worktree); err != nil {
+			return fmt.Errorf("sandbox removed but worktree cleanup failed: %w", err)
+		}
+		if _, err := a.git(ctx, r.Source, "branch", "-D", r.Branch); err != nil {
+			return fmt.Errorf("sandbox removed but branch cleanup failed: %w", err)
+		}
 	}
 	_ = os.RemoveAll(filepath.Join(a.Store.RunsDir(), id+"-config"))
 	_ = os.Remove(r.Policy)

@@ -17,6 +17,7 @@ const (
 	pageGateways      = "gateways"
 	pagePolicies      = "policies"
 	pageProfiles      = "profiles"
+	pageProjects      = "projects"
 	pageDoctor        = "doctor"
 	pageImageRegistry = "image-registry"
 )
@@ -28,6 +29,7 @@ var sectionPages = []string{
 	pageGateways,
 	pagePolicies,
 	pageProfiles,
+	pageProjects,
 	pageDoctor,
 }
 
@@ -86,6 +88,7 @@ func (ui *UI) buildLayout() {
 		AddItem("Gateways", "Infrastructure", 'g', func() { ui.show(pageGateways) }).
 		AddItem("Policies", "Infrastructure", 'p', func() { ui.show(pagePolicies) }).
 		AddItem("Profiles", "Configuration", 'o', func() { ui.show(pageProfiles) }).
+		AddItem("Projects", "Configuration", 'j', func() { ui.show(pageProjects) }).
 		AddItem("Doctor", "Diagnostics", 'x', func() { ui.show(pageDoctor) })
 	ui.navigation.SetBorder(true).SetTitle(" Navigation ")
 
@@ -312,6 +315,8 @@ func (ui *UI) render(page string) {
 		primitive = ui.policiesPage()
 	case pageProfiles:
 		primitive = ui.profilesPage()
+	case pageProjects:
+		primitive = ui.projectsPage()
 	case pageDoctor:
 		primitive = ui.doctorPage()
 	case pageImageRegistry:
@@ -334,6 +339,8 @@ func (ui *UI) render(page string) {
 		primitive = ui.policyHostForm()
 	case "profile-form":
 		primitive = ui.profileForm()
+	case "project-form":
+		primitive = ui.projectForm()
 	default:
 		if dynamic, ok := ui.dynamicPages[page]; ok {
 			primitive = dynamic
@@ -413,11 +420,16 @@ func parentSection(page string) string {
 		return "Gateways"
 	case "provider-form", "profile-form":
 		return "Profiles"
+	case "project-form":
+		return "Projects"
 	case "policy-host-form":
 		return "Policies"
 	default:
 		if strings.HasPrefix(page, "profile-edit:") {
 			return "Profiles"
+		}
+		if strings.HasPrefix(page, "project-edit:") {
+			return "Projects"
 		}
 		if strings.HasPrefix(page, "gateway-info:") {
 			return "Gateways"
@@ -431,10 +443,10 @@ func parentSection(page string) string {
 
 func isFormPage(page string) bool {
 	switch page {
-	case "run-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-host-form", "profile-form":
+	case "run-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-host-form", "profile-form", "project-form":
 		return true
 	default:
-		return strings.HasPrefix(page, "profile-edit:")
+		return strings.HasPrefix(page, "profile-edit:") || strings.HasPrefix(page, "project-edit:")
 	}
 }
 
@@ -456,6 +468,8 @@ func pageTitle(page string) string {
 		return "Policies"
 	case pageProfiles:
 		return "Profiles"
+	case pageProjects:
+		return "Projects"
 	case pageDoctor:
 		return "Doctor"
 	case pageImageRegistry:
@@ -478,9 +492,14 @@ func pageTitle(page string) string {
 		return "Allow network host"
 	case "profile-form":
 		return "Create profile"
+	case "project-form":
+		return "Create project"
 	default:
 		if strings.HasPrefix(page, "profile-edit:") {
 			return "Edit profile"
+		}
+		if strings.HasPrefix(page, "project-edit:") {
+			return "Edit project"
 		}
 		if strings.HasPrefix(page, "logs:") {
 			return "Logs"

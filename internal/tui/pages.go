@@ -63,7 +63,11 @@ func (ui *UI) dashboardPage() tview.Primitive {
 	if err != nil {
 		return ui.errorPage(err)
 	}
-	summary := newSummary(runs, len(images), len(gateways), len(profiles))
+	projects, err := ui.app.Store.ListProjects()
+	if err != nil {
+		return ui.errorPage(err)
+	}
+	summary := newSummary(runs, len(images), len(gateways), len(profiles), len(projects))
 	table := newTable(
 		[]string{"Metric", "Value"},
 		[][]string{
@@ -74,6 +78,7 @@ func (ui *UI) dashboardPage() tview.Primitive {
 			{"Images", itoa(summary.Images)},
 			{"Gateways", itoa(summary.Gateways)},
 			{"Profiles", itoa(summary.Profiles)},
+			{"Projects", itoa(summary.Projects)},
 		},
 	)
 	table.SetBorder(true).SetTitle(" Dashboard ")
@@ -102,7 +107,7 @@ func (ui *UI) runsPage() tview.Primitive {
 		selected = rows[0].ID
 	}
 	table := newTable(
-		[]string{"ID", "Agent", "Mode", "Approval", "Status", "Synced", "Worktree"},
+		[]string{"ID", "Project", "Agent", "Mode", "Approval", "Isolation", "Status", "Synced", "Worktree"},
 		toMatrix(rows),
 	)
 	table.SetBorder(true).SetTitle(" Runs ")
@@ -318,6 +323,55 @@ func (ui *UI) showProfileEdit(name string) {
 	ui.showDynamic("profile-edit:"+name, ui.profileEditForm(profile))
 }
 
+func (ui *UI) showProjectEdit(name string) {
+	project, err := ui.app.Store.LoadProject(name)
+	if err != nil {
+		ui.message("[red]Error: %s", err)
+		return
+	}
+	ui.showDynamic("project-edit:"+name, ui.projectEditForm(project))
+}
+
+func (ui *UI) projectsPage() tview.Primitive {
+	projects, err := ui.app.Store.ListProjects()
+	if err != nil {
+		return ui.errorPage(err)
+	}
+	rows := newProjectRows(projects)
+	selected := ""
+	if len(rows) > 0 {
+		selected = rows[0].Name
+	}
+	table := newTable(
+		[]string{"Name", "Root", "Isolation"},
+		toMatrix(rows),
+	)
+	table.SetBorder(true).SetTitle(" Projects ")
+	ui.registerContent(table)
+	table.SetSelectionChangedFunc(func(row, col int) {
+		if row > 0 && row-1 < len(rows) {
+			selected = rows[row-1].Name
+		}
+	})
+	if len(rows) > 0 {
+		table.Select(1, 0)
+	}
+	actions := tview.NewForm().
+		SetButtonsAlign(tview.AlignCenter).
+		AddButton("Create", func() { ui.show("project-form") }).
+		AddButton("Edit", func() {
+			if selected != "" {
+				ui.showProjectEdit(selected)
+			}
+		})
+	actions.SetBorder(true).SetTitle(" Project actions ")
+	ui.registerActions(actions)
+	return tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(table, 0, 4, true).
+		AddItem(actions, 5, 0, false)
+}
+
 func (ui *UI) profilesPage() tview.Primitive {
 	profiles, err := ui.app.Store.ListProfiles()
 	if err != nil {
@@ -454,7 +508,7 @@ func toMatrix[T any](rows []T) [][]string {
 func rowToStrings[T any](row T) []string {
 	switch typed := any(row).(type) {
 	case runRow:
-		return []string{typed.ID, typed.Agent, typed.Mode, typed.Approval, typed.Status, typed.Synced, typed.Worktree}
+		return []string{typed.ID, typed.Project, typed.Agent, typed.Mode, typed.Approval, typed.Isolation, typed.Status, typed.Synced, typed.Worktree}
 	case imageRow:
 		return []string{typed.ID, typed.Name, typed.Agent, typed.Version, typed.Recipe, typed.BaseDigest, typed.Size, typed.Created}
 	case gatewayRow:

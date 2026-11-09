@@ -189,10 +189,22 @@ Community consumers can discover all agents in one repository:
 
 The JSON result includes `agent`, `version`, `recipe`, `os`, `arch`, `digest` when available, and the full `reference` field.
 
-Start a run:
+Register a Git project and choose its workspace isolation policy:
 
 ```sh
-./agentbox run start --profile dev --gateway openshell --source .
+./agentbox project create --root . dev
+./agentbox project create --root . --no-worktree scratch
+./agentbox project list
+```
+
+Worktree isolation is enabled by default. With isolation disabled, AgentBox
+requires a clean checkout and allows only one active run against that project
+at a time.
+
+Start a run from a registered project:
+
+```sh
+./agentbox run start --project dev --profile codex-enmaas --gateway openshell
 ```
 
 Open the TUI:
@@ -218,8 +230,8 @@ Keyboard navigation is available throughout the TUI:
 
 The TUI is organized around structured widgets rather than raw JSON output:
 
-- Tables for runs, images, gateways, profiles, and doctor checks
-- Forms for creating profiles, starting runs, building images, connecting gateways, setting up providers, and editing policies
+- Tables for runs, images, gateways, profiles, projects, and doctor checks
+- Forms for creating profiles and projects, starting runs, building images, connecting gateways, setting up providers, and editing policies
 - Start-run forms that show the selected profile's runtime values read-only; image, mode, model, and approval overrides are disabled until **Override profile** is enabled and start at `<None>`
 - A task console for long-running image, gateway, provider, and run operations, with captured command output, elapsed status, and Stop for cancellable commands
 - Tree views for nested gateway and policy data
@@ -240,7 +252,7 @@ The Runs page selects the first run by default, so the action bar can attach imm
 
 ## State location
 
-AgentBox stores profiles, run records, worktrees, policies, registry settings, and generated configuration outside this repository.
+AgentBox stores projects, profiles, run records, worktrees, policies, registry settings, and generated configuration outside this repository.
 
 On macOS:
 

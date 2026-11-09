@@ -11,6 +11,51 @@ import (
 	"github.com/rivo/tview"
 )
 
+func (ui *UI) projectForm() tview.Primitive {
+	return ui.projectFormFor(nil)
+}
+
+func (ui *UI) projectEditForm(existing app.Project) tview.Primitive {
+	return ui.projectFormFor(&existing)
+}
+
+func (ui *UI) projectFormFor(existing *app.Project) tview.Primitive {
+	var (
+		name     string
+		root     = "."
+		worktree = true
+		title    = " Create project "
+	)
+	if existing != nil {
+		name = existing.Name
+		root = existing.Root
+		worktree = existing.UseWorktree()
+		title = " Edit project: " + name + " "
+	}
+	nameField := tview.NewInputField().
+		SetLabel("Name").
+		SetText(name).
+		SetFieldWidth(30).
+		SetChangedFunc(func(text string) { name = text })
+	if existing != nil {
+		nameField.SetDisabled(true)
+	}
+	form := tview.NewForm().
+		AddFormItem(nameField).
+		AddInputField("Root", root, 80, nil, func(text string) { root = text }).
+		AddCheckbox("Worktree isolation", worktree, func(checked bool) { worktree = checked }).
+		AddTextView("Isolation help", "Enabled: each run gets its own Git worktree and branch. Disabled: runs directly in the project checkout and requires a clean tree with only one active run.", 100, 2, false, false).
+		AddButton("Save", func() {
+			ui.asyncTo(pageProjects, func() error {
+				_, err := ui.app.RegisterProject(ui.ctx, name, root, worktree)
+				return err
+			})
+		}).
+		AddButton("Cancel", func() { ui.show(pageProjects) })
+	form.SetBorder(true).SetTitle(title)
+	return form
+}
+
 func (ui *UI) profileForm() tview.Primitive {
 	return ui.profileFormFor(nil)
 }
@@ -103,6 +148,15 @@ func (ui *UI) profileFormFor(existing *app.Profile) tview.Primitive {
 }
 
 func (ui *UI) runForm() tview.Primitive {
+	projects := ui.projectNames()
+	if len(projects) == 0 {
+		form := tview.NewForm().
+			AddTextView("", "No saved projects found. Create a project first; it defines the repository and worktree isolation policy for a run.", 70, 3, false, false).
+			AddButton("Create project", func() { ui.show("project-form") }).
+			AddButton("Cancel", func() { ui.show(pageRuns) })
+		form.SetBorder(true).SetTitle(" Start run ")
+		return form
+	}
 	profiles := ui.profileNames()
 	if len(profiles) == 0 {
 		form := tview.NewForm().
@@ -122,14 +176,35 @@ func (ui *UI) runForm() tview.Primitive {
 	const useProfile = "<None>"
 	gateway := gateways[0]
 	var (
+		project  = projects[0]
 		profile  string
-		source   = "."
 		image    string
 		mode     string
 		model    string
 		approval string
 		prompt   string
 	)
+
+	projectInfo := tview.NewTextView().
+		SetLabel("Project details").
+		SetScrollable(false).
+		SetWrap(true).
+		SetSize(3, 100)
+	projectDropdown := tview.NewDropDown().SetLabel("Project")
+	applyProject := func(name string) {
+		project = name
+		saved, err := ui.app.Store.LoadProject(name)
+		if err != nil {
+			projectInfo.SetText("(project details unavailable)")
+			return
+		}
+		isolation := "worktree"
+		if !saved.UseWorktree() {
+			isolation = "direct checkout (clean tree, one active run)"
+		}
+		projectInfo.SetText("Root: " + shortenValue(saved.Root, 55) + "\nIsolation: " + isolation)
+	}
+	projectDropdown.SetOptions(projects, func(text string, _ int) { applyProject(text) })
 
 	profileValues := tview.NewTextView().
 		SetLabel("Profile values (RO)").
@@ -138,7 +213,6 @@ func (ui *UI) runForm() tview.Primitive {
 		SetSize(5, 100)
 
 	profileDropdown := tview.NewDropDown().SetLabel("Profile")
-	sourceField := tview.NewInputField().SetLabel("Source checkout").SetText(source).SetFieldWidth(60)
 	gatewayDropdown := tview.NewDropDown().SetLabel("Gateway").SetOptions(gateways, func(text string, _ int) {
 		gateway = text
 	})
@@ -197,9 +271,9 @@ func (ui *UI) runForm() tview.Primitive {
 		profileValues.SetText(profileValueSummary(saved))
 		resetOverrides()
 	}
+	projectDropdown.SetCurrentOption(0)
 	profileDropdown.SetOptions(profiles, func(text string, _ int) { applyProfile(text) })
 	profileDropdown.SetCurrentOption(0)
-	sourceField.SetChangedFunc(func(text string) { source = text })
 	gatewayDropdown.SetCurrentOption(0)
 	imageDropdown.SetCurrentOption(0)
 	modeDropdown.SetCurrentOption(0)
@@ -208,8 +282,9 @@ func (ui *UI) runForm() tview.Primitive {
 	setOverridesEnabled(false)
 
 	form := tview.NewForm().
+		AddFormItem(projectDropdown).
+		AddFormItem(projectInfo).
 		AddFormItem(profileDropdown).
-		AddFormItem(sourceField).
 		AddFormItem(gatewayDropdown).
 		AddFormItem(profileValues).
 		AddInputField("Prompt", "", 80, nil, func(text string) { prompt = text }).
@@ -223,7 +298,7 @@ func (ui *UI) runForm() tview.Primitive {
 			ui.runTask("Start run", pageRuns, false, func(ctx context.Context, a *app.App, out io.Writer) error {
 				run, err := a.Start(ctx, app.StartOptions{
 					Profile:  profile,
-					Source:   source,
+					Project:  project,
 					Gateway:  gateway,
 					Image:    image,
 					Mode:     mode,

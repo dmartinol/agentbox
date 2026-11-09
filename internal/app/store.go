@@ -64,26 +64,49 @@ func (p Profile) Validate() error {
 	return nil
 }
 
+type Project struct {
+	Version  int    `yaml:"version" json:"version"`
+	Name     string `yaml:"name" json:"name"`
+	Root     string `yaml:"root" json:"root"`
+	Worktree *bool  `yaml:"worktree,omitempty" json:"worktree,omitempty"`
+}
+
+func (p Project) UseWorktree() bool {
+	return p.Worktree == nil || *p.Worktree
+}
+
+func (p Project) Validate() error {
+	if p.Version != 1 || !safeName.MatchString(p.Name) {
+		return fmt.Errorf("project needs version 1 and a lower-case name")
+	}
+	if !filepath.IsAbs(p.Root) || filepath.Clean(p.Root) != p.Root {
+		return fmt.Errorf("project root must be a clean absolute path")
+	}
+	return nil
+}
+
 type Run struct {
-	ID            string    `json:"id"`
-	Created       time.Time `json:"created"`
-	Source        string    `json:"source"`
-	Worktree      string    `json:"worktree"`
-	Branch        string    `json:"branch"`
-	Baseline      string    `json:"baseline"`
-	LastSynced    string    `json:"last_synced"`
-	Fingerprint   string    `json:"fingerprint,omitempty"`
-	Sandbox       string    `json:"sandbox"`
-	Gateway       string    `json:"gateway"`
-	Agent         string    `json:"agent"`
-	Image         string    `json:"image"`
-	Mode          string    `json:"mode"`
-	Model         string    `json:"model"`
-	Approval      string    `json:"approval"`
-	Status        string    `json:"status"`
-	Synced        bool      `json:"synced"`
-	Policy        string    `json:"policy"`
-	PendingPolicy string    `json:"pending_policy,omitempty"`
+	ID               string    `json:"id"`
+	Created          time.Time `json:"created"`
+	Source           string    `json:"source"`
+	Project          string    `json:"project,omitempty"`
+	Worktree         string    `json:"worktree"`
+	WorktreeIsolated bool      `json:"worktree_isolated,omitempty"`
+	Branch           string    `json:"branch"`
+	Baseline         string    `json:"baseline"`
+	LastSynced       string    `json:"last_synced"`
+	Fingerprint      string    `json:"fingerprint,omitempty"`
+	Sandbox          string    `json:"sandbox"`
+	Gateway          string    `json:"gateway"`
+	Agent            string    `json:"agent"`
+	Image            string    `json:"image"`
+	Mode             string    `json:"mode"`
+	Model            string    `json:"model"`
+	Approval         string    `json:"approval"`
+	Status           string    `json:"status"`
+	Synced           bool      `json:"synced"`
+	Policy           string    `json:"policy"`
+	PendingPolicy    string    `json:"pending_policy,omitempty"`
 }
 
 type Store struct {
@@ -109,7 +132,7 @@ func DefaultStore() (Store, error) {
 }
 
 func (s Store) Ensure() error {
-	for _, dir := range []string{s.Base, s.ProfilesDir(), s.RunsDir(), s.WorktreesDir(), s.PolicyDir()} {
+	for _, dir := range []string{s.Base, s.ProfilesDir(), s.ProjectsDir(), s.RunsDir(), s.WorktreesDir(), s.PolicyDir()} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return err
 		}
@@ -121,10 +144,12 @@ func (s Store) Ensure() error {
 }
 
 func (s Store) ProfilesDir() string            { return filepath.Join(s.Base, "profiles") }
+func (s Store) ProjectsDir() string            { return filepath.Join(s.Base, "projects") }
 func (s Store) RunsDir() string                { return filepath.Join(s.Base, "runs") }
 func (s Store) WorktreesDir() string           { return filepath.Join(s.Base, "worktrees") }
 func (s Store) PolicyDir() string              { return filepath.Join(s.Base, "policies") }
 func (s Store) ProfilePath(name string) string { return filepath.Join(s.ProfilesDir(), name+".yaml") }
+func (s Store) ProjectPath(name string) string { return filepath.Join(s.ProjectsDir(), name+".yaml") }
 func (s Store) RunPath(id string) string       { return filepath.Join(s.RunsDir(), id+".json") }
 
 func (s Store) SaveProfile(p Profile) error {
@@ -223,6 +248,127 @@ func (s Store) ListProfiles() ([]Profile, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+func (s Store) SaveProject(p Project) error {
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	if err := s.Ensure(); err != nil {
+		return err
+	}
+	b, err := yaml.Marshal(p)
+	if err != nil {
+		return err
+	}
+	return atomicWrite(s.ProjectPath(p.Name), b)
+}
+
+func (s Store) LoadProject(name string) (Project, error) {
+	if !safeName.MatchString(name) {
+		return Project{}, fmt.Errorf("invalid project name")
+	}
+	b, err := os.ReadFile(s.ProjectPath(name))
+	if err != nil {
+		return Project{}, err
+	}
+	var p Project
+	dec := yaml.NewDecoder(strings.NewReader(string(b)))
+	dec.KnownFields(true)
+	if err := dec.Decode(&p); err != nil {
+		return Project{}, err
+	}
+	if p.Name != name {
+		return Project{}, fmt.Errorf("project filename and name disagree")
+	}
+	return p, p.Validate()
+}
+
+func (s Store) EditProject(ctx context.Context, name string) error {
+	if _, err := s.LoadProject(name); err != nil {
+		return err
+	}
+	b, err := os.ReadFile(s.ProjectPath(name))
+	if err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(s.ProjectsDir(), "edit-*.yaml")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if err := f.Chmod(0600); err != nil {
+		f.Close()
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := RunEditor(ctx, f.Name()); err != nil {
+		return err
+	}
+	next, err := os.ReadFile(f.Name())
+	if err != nil {
+		return err
+	}
+	var project Project
+	dec := yaml.NewDecoder(strings.NewReader(string(next)))
+	dec.KnownFields(true)
+	if err := dec.Decode(&project); err != nil {
+		return err
+	}
+	if project.Name != name {
+		return fmt.Errorf("project filename and name disagree")
+	}
+	if err := project.Validate(); err != nil {
+		return err
+	}
+	return atomicWrite(s.ProjectPath(name), next)
+}
+
+func (s Store) ListProjects() ([]Project, error) {
+	entries, err := os.ReadDir(s.ProjectsDir())
+	if errors.Is(err, os.ErrNotExist) {
+		return []Project{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []Project
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".yaml" {
+			continue
+		}
+		p, err := s.LoadProject(strings.TrimSuffix(e.Name(), ".yaml"))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (s Store) ProjectRoot(root string) (Project, bool, error) {
+	projects, err := s.ListProjects()
+	if err != nil {
+		return Project{}, false, err
+	}
+	root = filepath.Clean(root)
+	for _, project := range projects {
+		if project.Root == root {
+			return project, true, nil
+		}
+	}
+	return Project{}, false, nil
+}
+
+func (r Run) Isolated() bool {
+	return r.WorktreeIsolated || (r.Worktree != "" && r.Worktree != r.Source)
 }
 
 func (s Store) SaveRun(r Run) error {

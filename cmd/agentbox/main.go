@@ -71,6 +71,8 @@ func dispatch(ctx context.Context, a *app.App, args []string) error {
 			fmt.Printf("%-5s %-18s %s\n", state, c.Name, c.Detail)
 		}
 		return nil
+	case "project":
+		return projectCmd(ctx, a, args[1:])
 	case "profile":
 		return profileCmd(ctx, a, args[1:])
 	case "image":
@@ -94,6 +96,7 @@ func usage() {
 	fmt.Println("AgentBox — OpenShell agent runner")
 	fmt.Println("  version")
 	fmt.Println("  doctor [--json]")
+	fmt.Println("  project create|edit|show|list")
 	fmt.Println("  profile create|edit|show|list")
 	fmt.Println("  image versions|build|list|push|pull|registry")
 	fmt.Println("  gateway list|connect|start|info")
@@ -123,6 +126,84 @@ func need(pos []string, n int) error {
 		return fmt.Errorf("expected %d positional argument(s)", n)
 	}
 	return nil
+}
+
+func projectCmd(ctx context.Context, a *app.App, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("project create|edit|show|list required")
+	}
+	switch args[0] {
+	case "create":
+		f := flags("project create")
+		root := f.String("root", ".", "Git project root")
+		noWorktree := f.Bool("no-worktree", false, "run directly in the checkout instead of an isolated worktree")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		project, err := a.RegisterProject(ctx, f.Args()[0], *root, !*noWorktree)
+		if err != nil {
+			return err
+		}
+		fmt.Println(project.Root)
+		return nil
+	case "edit":
+		f := flags("project edit")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		return a.Store.EditProject(ctx, f.Args()[0])
+	case "list":
+		f := flags("project list")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		projects, err := a.Store.ListProjects()
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(projects)
+		}
+		for _, project := range projects {
+			isolation := "worktree"
+			if !project.UseWorktree() {
+				isolation = "direct"
+			}
+			fmt.Printf("%-20s %-10s %s\n", project.Name, isolation, project.Root)
+		}
+		return nil
+	case "show":
+		f := flags("project show")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		project, err := a.Store.LoadProject(f.Args()[0])
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(project)
+		}
+		isolation := "worktree"
+		if !project.UseWorktree() {
+			isolation = "direct"
+		}
+		fmt.Printf("Name: %s\nRoot: %s\nIsolation: %s\n", project.Name, project.Root, isolation)
+		return nil
+	default:
+		return fmt.Errorf("unknown project command")
+	}
 }
 
 func profileCmd(ctx context.Context, a *app.App, args []string) error {
@@ -556,7 +637,8 @@ func runCmd(ctx context.Context, a *app.App, args []string) error {
 	case "start":
 		f := flags("run start")
 		profile := f.String("profile", "", "saved profile name")
-		source := f.String("source", ".", "Git source checkout")
+		project := f.String("project", "", "registered project name")
+		source := f.String("source", ".", "Git source checkout (when --project is omitted)")
 		gateway := f.String("gateway", "", "OpenShell gateway name")
 		image := f.String("image", "", "image override")
 		mode := f.String("mode", "", "mode override")
@@ -568,7 +650,7 @@ func runCmd(ctx context.Context, a *app.App, args []string) error {
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
-		r, err := a.Start(ctx, app.StartOptions{Profile: *profile, Source: *source, Gateway: *gateway, Image: *image, Mode: *mode, Model: *model, Approval: *approval, Prompt: *prompt, Dry: *dry})
+		r, err := a.Start(ctx, app.StartOptions{Profile: *profile, Project: *project, Source: *source, Gateway: *gateway, Image: *image, Mode: *mode, Model: *model, Approval: *approval, Prompt: *prompt, Dry: *dry})
 		if err != nil {
 			return err
 		}
@@ -591,7 +673,11 @@ func runCmd(ctx context.Context, a *app.App, args []string) error {
 			return app.PrintJSON(runs)
 		}
 		for _, r := range runs {
-			fmt.Printf("%-20s %-9s %-10s %-12s %s\n", r.ID, r.Agent, r.Mode, r.Status, r.Worktree)
+			isolation := "direct"
+			if r.Isolated() {
+				isolation = "worktree"
+			}
+			fmt.Printf("%-20s %-14s %-9s %-9s %-10s %-12s %s\n", r.ID, r.Project, r.Agent, isolation, r.Mode, r.Status, r.Worktree)
 		}
 		return nil
 	case "show":

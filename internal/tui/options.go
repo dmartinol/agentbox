@@ -28,6 +28,18 @@ func (ui *UI) imageNames() []string {
 	return uniqueSorted(names)
 }
 
+func (ui *UI) projectNames() []string {
+	projects, err := ui.app.Store.ListProjects()
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, project := range projects {
+		names = append(names, project.Name)
+	}
+	return uniqueSorted(names)
+}
+
 func (ui *UI) profileNames() []string {
 	profiles, err := ui.app.Store.ListProfiles()
 	if err != nil {

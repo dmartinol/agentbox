@@ -90,6 +90,48 @@ func (a *App) CreateWorktree(ctx context.Context, source, id string) (Run, error
 	return r, nil
 }
 
+func (a *App) CreateDirectRun(ctx context.Context, source, id string) (Run, error) {
+	root, err := a.ProjectRoot(ctx, source)
+	if err != nil {
+		return Run{}, err
+	}
+	status, err := a.git(ctx, root, "status", "--porcelain", "--untracked-files=normal")
+	if err != nil {
+		return Run{}, err
+	}
+	if len(strings.TrimSpace(string(status))) > 0 {
+		return Run{}, fmt.Errorf("direct worktree mode requires a clean checkout; commit, stash, or remove local changes first")
+	}
+	headB, err := a.git(ctx, root, "rev-parse", "HEAD")
+	if err != nil {
+		return Run{}, err
+	}
+	branchB, err := a.git(ctx, root, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		return Run{}, fmt.Errorf("direct worktree mode requires an attached branch: %w", err)
+	}
+	head := strings.TrimSpace(string(headB))
+	branch := strings.TrimSpace(string(branchB))
+	r := Run{
+		ID:               id,
+		Source:           root,
+		Worktree:         root,
+		Branch:           branch,
+		Baseline:         head,
+		LastSynced:       head,
+		Sandbox:          id,
+		Status:           "prepared",
+		Synced:           true,
+		WorktreeIsolated: false,
+	}
+	fp, err := a.WorktreeFingerprint(ctx, r)
+	if err != nil {
+		return Run{}, err
+	}
+	r.Fingerprint = fp
+	return r, nil
+}
+
 func copySnapshotEntry(src, dst string) error {
 	info, err := os.Lstat(src)
 	if err != nil {

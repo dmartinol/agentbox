@@ -33,6 +33,10 @@ func (runFormRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, st
 func TestRunFormShowsReadOnlyProfileValuesAndNoneOverrides(t *testing.T) {
 	t.Setenv("ENMAAS_KEY", "")
 	store := app.Store{Base: t.TempDir()}
+	worktree := true
+	if err := store.SaveProject(app.Project{Version: 1, Name: "repo", Root: t.TempDir(), Worktree: &worktree}); err != nil {
+		t.Fatal(err)
+	}
 	for _, profile := range []app.Profile{
 		{Version: 1, Name: "alpha", Agent: "codex", Image: "image-a", Mode: "standard", Model: "model-a", Provider: "provider-a", Policy: "/tmp/alpha.yaml", Approval: "prompted"},
 		{Version: 1, Name: "beta", Agent: "claude", Image: "image-b", Mode: "enmaas", Model: "model-b", Provider: "provider-b", Policy: "/tmp/beta.yaml", Approval: "unattended"},
@@ -178,5 +182,49 @@ func TestImageBuildFormIncludesDiscoverLatestVersion(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("build form buttons = %v; missing Discover latest version", labels)
+	}
+}
+
+func TestRunFormUsesProjectInsteadOfSourceCheckout(t *testing.T) {
+	t.Setenv("ENMAAS_KEY", "")
+	store := app.Store{Base: t.TempDir()}
+	worktree := false
+	if err := store.SaveProject(app.Project{Version: 1, Name: "repo", Root: t.TempDir(), Worktree: &worktree}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProfile(app.Profile{Version: 1, Name: "dev", Agent: "codex", Image: "image", Mode: "standard", Provider: "provider", Policy: "/tmp/policy.yaml", Approval: "prompted"}); err != nil {
+		t.Fatal(err)
+	}
+	ui := &UI{ctx: context.Background(), app: &app.App{Store: store, Runner: runFormRunner{}}}
+	form, ok := ui.runForm().(*tview.Form)
+	if !ok {
+		t.Fatal("run form is not a tview form")
+	}
+	project := form.GetFormItemByLabel("Project").(*tview.DropDown)
+	if index, value := project.GetCurrentOption(); index != 0 || value != "repo" {
+		t.Fatalf("project = %d %q; want repo", index, value)
+	}
+	if form.GetFormItemByLabel("Source checkout") != nil {
+		t.Fatal("source checkout should be derived from the project")
+	}
+	details := form.GetFormItemByLabel("Project details").(*tview.TextView).GetText(true)
+	if !strings.Contains(details, "Isolation: direct checkout") {
+		t.Fatalf("project details do not show isolation: %q", details)
+	}
+}
+
+func TestProjectFormDefaultsToWorktreeIsolation(t *testing.T) {
+	ui := &UI{app: &app.App{Store: app.Store{Base: t.TempDir()}}}
+	form, ok := ui.projectForm().(*tview.Form)
+	if !ok {
+		t.Fatal("project form is not a tview form")
+	}
+	checkbox, ok := form.GetFormItemByLabel("Worktree isolation").(*tview.Checkbox)
+	if !ok || !checkbox.IsChecked() {
+		t.Fatal("new projects should default to worktree isolation")
+	}
+	help := form.GetFormItemByLabel("Isolation help").(*tview.TextView).GetText(true)
+	if !strings.Contains(help, "one active run") {
+		t.Fatalf("isolation help is unclear: %q", help)
 	}
 }

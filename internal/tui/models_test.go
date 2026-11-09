@@ -60,7 +60,7 @@ func TestNewSummaryCountsRuns(t *testing.T) {
 		{Status: "finished", Synced: false},
 		{Status: "error", Synced: true},
 	}
-	s := newSummary(runs, 3, 2, 4)
+	s := newSummary(runs, 3, 2, 4, 1)
 	if s.Active != 1 || s.Finished != 1 || s.Failed != 1 || s.Unsynced != 1 || s.Images != 3 || s.Gateways != 2 || s.Profiles != 4 {
 		t.Fatalf("unexpected summary: %+v", s)
 	}

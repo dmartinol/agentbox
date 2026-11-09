@@ -8,6 +8,8 @@ import (
 	"flag"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -153,5 +155,60 @@ func TestImageListDefaultOutputIsStructured(t *testing.T) {
 	}
 	if strings.HasPrefix(output, "[") || strings.HasPrefix(output, "{") {
 		t.Fatalf("image list returned JSON without --json:\n%s", output)
+	}
+}
+
+func TestProjectCreateListAndShow(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	if err := os.Mkdir(repo, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"config", "user.name", "Tester"},
+		{"config", "user.email", "test@example.invalid"},
+	} {
+		command := exec.Command("git", args...)
+		command.Dir = repo
+		if out, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("test\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "."}, {"commit", "-qm", "base"}} {
+		command := exec.Command("git", args...)
+		command.Dir = repo
+		if out, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	a := &app.App{Store: app.Store{Base: filepath.Join(base, "state")}, Runner: &appfakeRunner{}}
+	a.Runner = app.OSRunner{}
+	if _, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"project", "create", "--root", repo, "--no-worktree", "demo"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"project", "list", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projects []app.Project
+	if err := json.Unmarshal([]byte(output), &projects); err != nil || len(projects) != 1 {
+		t.Fatalf("project list = %s, %v", output, err)
+	}
+	if projects[0].Name != "demo" || projects[0].UseWorktree() {
+		t.Fatalf("unexpected project: %+v", projects[0])
+	}
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"project", "show", "demo"})
+	})
+	if err != nil || !strings.Contains(output, "Isolation: direct") {
+		t.Fatalf("project show = %q, %v", output, err)
 	}
 }

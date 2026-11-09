@@ -11,13 +11,15 @@ import (
 )
 
 type runRow struct {
-	ID       string
-	Agent    string
-	Mode     string
-	Approval string
-	Status   string
-	Synced   string
-	Worktree string
+	ID        string
+	Project   string
+	Agent     string
+	Mode      string
+	Approval  string
+	Isolation string
+	Status    string
+	Synced    string
+	Worktree  string
 }
 
 func newRunRows(runs []app.Run) []runRow {
@@ -27,14 +29,20 @@ func newRunRows(runs []app.Run) []runRow {
 		if r.Synced {
 			synced = "yes"
 		}
+		isolation := "direct"
+		if r.Isolated() {
+			isolation = "worktree"
+		}
 		out = append(out, runRow{
-			ID:       r.ID,
-			Agent:    r.Agent,
-			Mode:     r.Mode,
-			Approval: r.Approval,
-			Status:   r.Status,
-			Synced:   synced,
-			Worktree: r.Worktree,
+			ID:        r.ID,
+			Project:   r.Project,
+			Agent:     r.Agent,
+			Mode:      r.Mode,
+			Approval:  r.Approval,
+			Isolation: isolation,
+			Status:    r.Status,
+			Synced:    synced,
+			Worktree:  r.Worktree,
 		})
 	}
 	return out
@@ -138,6 +146,24 @@ func newGatewayRows(data []byte) ([]gatewayRow, error) {
 	return out, nil
 }
 
+type projectRow struct {
+	Name      string
+	Root      string
+	Isolation string
+}
+
+func newProjectRows(projects []app.Project) []projectRow {
+	out := make([]projectRow, 0, len(projects))
+	for _, p := range projects {
+		isolation := "worktree"
+		if !p.UseWorktree() {
+			isolation = "direct"
+		}
+		out = append(out, projectRow{Name: p.Name, Root: p.Root, Isolation: isolation})
+	}
+	return out
+}
+
 type profileRow struct {
 	Name     string
 	Agent    string
@@ -188,9 +214,10 @@ type summary struct {
 	Images   int
 	Gateways int
 	Profiles int
+	Projects int
 }
 
-func newSummary(runs []app.Run, images int, gateways int, profiles int) summary {
+func newSummary(runs []app.Run, images int, gateways int, profiles int, projects int) summary {
 	var s summary
 	for _, r := range runs {
 		switch strings.ToLower(r.Status) {
@@ -208,6 +235,7 @@ func newSummary(runs []app.Run, images int, gateways int, profiles int) summary 
 	s.Images = images
 	s.Gateways = gateways
 	s.Profiles = profiles
+	s.Projects = projects
 	return s
 }
 
