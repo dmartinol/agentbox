@@ -189,17 +189,29 @@ func (ui *UI) imageBuildForm() tview.Primitive {
 
 func (ui *UI) imagePushForm() tview.Primitive {
 	images := ui.imageNames()
+	if len(images) == 0 {
+		form := tview.NewForm().
+			AddTextView("", "No local AgentBox images found. Build an image before pushing.", 70, 2, false, false).
+			AddButton("Build image", func() { ui.show("image-build-form") }).
+			AddButton("Cancel", func() { ui.show(pageImages) })
+		form.SetBorder(true).SetTitle(" Push image ")
+		return form
+	}
 	registry, _ := ui.app.Registry()
 	var localTag, remote string
 	remoteField := autocompleteInput("Remote reference", "", 90, ui.registryReferences(), func(text string) { remote = text })
-	localField := autocompleteInput("Local tag", "", 70, images, func(text string) {
-		localTag = text
-		if registry.Reference != "" {
-			if suggested := remoteRegistryReference(registry.NormalizedReference(), text); suggested != "" {
-				remoteField.SetText(suggested)
+	localField := tview.NewDropDown().
+		SetLabel("Local tag").
+		SetFieldWidth(70).
+		SetOptions(images, func(text string, _ int) {
+			localTag = text
+			if registry.Reference != "" && text != "" {
+				if suggested := remoteRegistryReference(registry.NormalizedReference(), text); suggested != "" {
+					remoteField.SetText(suggested)
+				}
 			}
-		}
-	})
+		})
+	localField.SetCurrentOption(0)
 	form := tview.NewForm().
 		AddFormItem(localField).
 		AddFormItem(remoteField).
