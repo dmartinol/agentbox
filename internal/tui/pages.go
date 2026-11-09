@@ -12,6 +12,10 @@ func (ui *UI) registerActions(actions *tview.Form) {
 	ui.currentActions = actions
 }
 
+func (ui *UI) registerContent(content tview.Primitive) {
+	ui.contentFocus = content
+}
+
 func newTable(headers []string, rows [][]string) *tview.Table {
 	table := tview.NewTable().
 		SetBorders(true).
@@ -70,6 +74,7 @@ func (ui *UI) dashboardPage() tview.Primitive {
 		},
 	)
 	table.SetBorder(true).SetTitle(" Dashboard ")
+	ui.registerContent(table)
 	quickActions := tview.NewForm().
 		SetButtonsAlign(tview.AlignCenter).
 		AddButton("Start run", func() { ui.show("run-form") }).
@@ -95,6 +100,7 @@ func (ui *UI) runsPage() tview.Primitive {
 		toMatrix(rows),
 	)
 	table.SetBorder(true).SetTitle(" Runs ")
+	ui.registerContent(table)
 	table.SetSelectionChangedFunc(func(row, col int) {
 		if row > 0 && row-1 < len(rows) {
 			selected = rows[row-1].ID
@@ -155,6 +161,7 @@ func (ui *UI) imagesPage() tview.Primitive {
 		toMatrix(rows),
 	)
 	table.SetBorder(true).SetTitle(" Images ")
+	ui.registerContent(table)
 	actions := tview.NewForm().
 		SetButtonsAlign(tview.AlignCenter).
 		AddButton("Discover", func() { ui.show("image-version-form") }).
@@ -183,6 +190,7 @@ func (ui *UI) gatewaysPage() tview.Primitive {
 		toMatrix(rows),
 	)
 	table.SetBorder(true).SetTitle(" Gateways ")
+	ui.registerContent(table)
 	actions := tview.NewForm().
 		SetButtonsAlign(tview.AlignCenter).
 		AddButton("Connect", func() { ui.show("gateway-form") }).
@@ -209,6 +217,7 @@ func (ui *UI) policiesPage() tview.Primitive {
 		return ui.errorPage(err)
 	}
 	left := tview.NewFlex().SetDirection(tview.FlexRow)
+	ui.registerContent(left)
 	for _, key := range sortedJSONKeys(policies) {
 		tree, err := jsonTree(policies[key], strings.Title(key))
 		if err != nil {
@@ -239,6 +248,7 @@ func (ui *UI) profilesPage() tview.Primitive {
 		toMatrix(rows),
 	)
 	table.SetBorder(true).SetTitle(" Profiles ")
+	ui.registerContent(table)
 	table.SetSelectionChangedFunc(func(row, col int) {
 		if row > 0 && row-1 < len(rows) {
 			selected = rows[row-1].Name
@@ -269,6 +279,7 @@ func (ui *UI) doctorPage() tview.Primitive {
 		toMatrix(rows),
 	)
 	table.SetBorder(true).SetTitle(" Doctor ")
+	ui.registerContent(table)
 	form := tview.NewForm().
 		SetButtonsAlign(tview.AlignCenter).
 		AddButton("Refresh", func() { ui.refresh() })
@@ -340,6 +351,7 @@ func (ui *UI) errorPage(err error) tview.Primitive {
 func (ui *UI) emptyPage(message string) tview.Primitive {
 	view := tview.NewTextView().SetText(message)
 	view.SetBorder(true).SetTitle(" Empty ")
+	ui.registerContent(view)
 	return view
 }
 

@@ -43,6 +43,7 @@ type UI struct {
 	dynamicPages   map[string]tview.Primitive
 	modalActive    bool
 	currentContent tview.Primitive
+	contentFocus   tview.Primitive
 	currentActions *tview.Form
 }
 
@@ -59,8 +60,13 @@ func Run(ctx context.Context, a *app.App) error {
 	}
 	ui.buildLayout()
 	ui.tapp.SetInputCapture(ui.handleGlobalKeys)
+	ui.tapp.SetBeforeDrawFunc(func(_ tcell.Screen) bool {
+		ui.updateFocusStyles()
+		return false
+	})
+	ui.tapp.SetRoot(ui.root(), true).EnableMouse(true)
 	ui.tapp.SetFocus(ui.navigation)
-	return ui.tapp.SetRoot(ui.root(), true).EnableMouse(true).Run()
+	return ui.tapp.Run()
 }
 
 func (ui *UI) buildLayout() {
@@ -106,7 +112,7 @@ func (ui *UI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 			ui.setFocusLayer(1)
 			return nil
 		}
-		if ui.currentContent != nil && ui.currentContent.HasFocus() && ui.currentActions != nil && !ui.currentContentIsForm() {
+		if ui.contentFocus != nil && ui.contentFocus.HasFocus() && ui.currentActions != nil && !ui.currentContentIsForm() {
 			ui.setFocusLayer(2)
 			return nil
 		}
@@ -115,7 +121,7 @@ func (ui *UI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 			ui.setFocusLayer(1)
 			return nil
 		}
-		if ui.currentContent != nil && ui.currentContent.HasFocus() {
+		if ui.contentFocus != nil && ui.contentFocus.HasFocus() {
 			ui.setFocusLayer(0)
 			return nil
 		}
@@ -128,7 +134,7 @@ func (ui *UI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 			ui.back()
 			return nil
 		}
-		if ui.currentContent != nil && ui.currentContent.HasFocus() {
+		if ui.contentFocus != nil && ui.contentFocus.HasFocus() {
 			ui.setFocusLayer(0)
 			return nil
 		}
@@ -146,8 +152,8 @@ func (ui *UI) setFocusLayer(layer int) {
 	case 0:
 		ui.tapp.SetFocus(ui.navigation)
 	case 1:
-		if ui.currentContent != nil {
-			ui.tapp.SetFocus(ui.currentContent)
+		if ui.contentFocus != nil {
+			ui.tapp.SetFocus(ui.contentFocus)
 		}
 	case 2:
 		if ui.currentActions != nil {
@@ -157,8 +163,71 @@ func (ui *UI) setFocusLayer(layer int) {
 }
 
 func (ui *UI) currentContentIsForm() bool {
-	_, ok := ui.currentContent.(*tview.Form)
+	_, ok := ui.contentFocus.(*tview.Form)
 	return ok
+}
+
+type borderStyleSetter interface {
+	SetBorderColor(color tcell.Color) *tview.Box
+	SetTitleColor(color tcell.Color) *tview.Box
+}
+
+func (ui *UI) updateFocusStyles() {
+	navFocused := ui.navigation != nil && ui.navigation.HasFocus()
+	contentFocused := ui.contentFocus != nil && ui.contentFocus.HasFocus()
+	actionsFocused := ui.currentActions != nil && ui.currentActions.HasFocus()
+
+	if ui.navigation != nil {
+		if navFocused {
+			ui.navigation.SetSelectedStyle(tcell.StyleDefault.Background(tcell.ColorOrange).Foreground(tcell.ColorBlack).Bold(true))
+			setBorderStyle(ui.navigation, tcell.ColorOrange)
+		} else {
+			ui.navigation.SetSelectedStyle(tcell.StyleDefault.Background(tcell.ColorGray).Foreground(tcell.ColorWhite))
+			setBorderStyle(ui.navigation, tcell.ColorGray)
+		}
+	}
+
+	if ui.contentFocus != nil {
+		if contentFocused {
+			setBorderStyle(ui.contentFocus, tcell.ColorBlue)
+			if table, ok := ui.contentFocus.(*tview.Table); ok {
+				table.SetSelectedStyle(tcell.StyleDefault.Background(tcell.ColorBlue).Foreground(tcell.ColorWhite))
+			}
+		} else {
+			setBorderStyle(ui.contentFocus, tcell.ColorGray)
+			if table, ok := ui.contentFocus.(*tview.Table); ok {
+				table.SetSelectedStyle(tcell.StyleDefault.Background(tcell.ColorGray).Foreground(tcell.ColorWhite))
+			}
+		}
+	}
+
+	if ui.currentActions != nil {
+		if actionsFocused {
+			setBorderStyle(ui.currentActions, tcell.ColorGreen)
+		} else {
+			setBorderStyle(ui.currentActions, tcell.ColorGray)
+		}
+	}
+
+	ui.header.SetText(ui.headerText())
+}
+
+func setBorderStyle(primitive tview.Primitive, color tcell.Color) {
+	if setter, ok := primitive.(borderStyleSetter); ok {
+		setter.SetBorderColor(color)
+		setter.SetTitleColor(color)
+	}
+}
+
+func (ui *UI) focusLayerName() string {
+	switch {
+	case ui.currentActions != nil && ui.currentActions.HasFocus():
+		return "Actions"
+	case ui.contentFocus != nil && ui.contentFocus.HasFocus():
+		return "Content"
+	default:
+		return "Pages"
+	}
 }
 
 func (ui *UI) moveActionFocus(key tcell.Key) {
@@ -216,6 +285,7 @@ func (ui *UI) show(page string) {
 func (ui *UI) render(page string) {
 	ui.current = page
 	ui.currentActions = nil
+	ui.contentFocus = nil
 	ui.pages.RemovePage(page)
 	var primitive tview.Primitive
 	switch page {
@@ -261,8 +331,11 @@ func (ui *UI) render(page string) {
 		}
 	}
 	ui.currentContent = primitive
+	if ui.contentFocus == nil {
+		ui.contentFocus = primitive
+	}
 	ui.pages.AddAndSwitchToPage(page, primitive, true)
-	ui.tapp.SetFocus(primitive)
+	ui.tapp.SetFocus(ui.contentFocus)
 	ui.header.SetText(ui.headerText())
 	ui.footer.SetText(helpFor(page))
 }
@@ -272,9 +345,10 @@ func (ui *UI) showDynamic(page string, primitive tview.Primitive) {
 	ui.dynamicPages[page] = primitive
 	ui.current = page
 	ui.currentContent = primitive
+	ui.contentFocus = primitive
 	ui.currentActions = nil
 	ui.pages.AddAndSwitchToPage(page, primitive, true)
-	ui.tapp.SetFocus(primitive)
+	ui.tapp.SetFocus(ui.contentFocus)
 	ui.header.SetText(ui.headerText())
 	ui.footer.SetText(helpFor(page))
 }
@@ -306,7 +380,7 @@ func (ui *UI) headerText() string {
 	if len(ui.history.future) > 0 {
 		forward = "›"
 	}
-	return fmt.Sprintf("[::b]%s %s %s[::-]", back, breadcrumb(ui.current), forward)
+	return fmt.Sprintf("[::b]%s %s %s — Focus: %s[::-]", back, breadcrumb(ui.current), forward, ui.focusLayerName())
 }
 
 func breadcrumb(page string) string {

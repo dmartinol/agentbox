@@ -15,7 +15,7 @@ import (
 	"github.com/creack/pty"
 )
 
-func TestTUIKeyboardNavigation(t *testing.T) {
+func TestTUICompleteLayeredNavigation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping TUI integration test in short mode")
 	}
@@ -90,42 +90,68 @@ fi
 	}
 	defer func() {
 		_ = ptmx.Close()
-		_ = cmd.Wait()
+		done := make(chan error, 1)
+		go func() { done <- cmd.Wait() }()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			_ = cmd.Process.Kill()
+			<-done
+		}
 	}()
 
-	output := make(chan string, 256)
+	chunks := make(chan string, 256)
 	var latest string
 	var mu sync.Mutex
 	go func() {
 		buf := make([]byte, 4096)
 		var acc strings.Builder
 		for {
-			n, err := ptmx.Read(buf)
+			n, readErr := ptmx.Read(buf)
 			if n > 0 {
-				acc.Write(buf[:n])
+				chunk := string(buf[:n])
+				acc.WriteString(chunk)
 				mu.Lock()
 				latest = acc.String()
 				mu.Unlock()
-				output <- acc.String()
+				chunks <- chunk
 			}
-			if err != nil {
-				close(output)
+			if readErr != nil {
+				close(chunks)
 				return
 			}
 		}
 	}()
 
+	drain := func() {
+		for {
+			select {
+			case <-chunks:
+			default:
+				return
+			}
+		}
+	}
+
+	send := func(keys string) {
+		t.Helper()
+		if _, writeErr := ptmx.Write([]byte(keys)); writeErr != nil {
+			t.Fatalf("write keys %q: %v", keys, writeErr)
+		}
+	}
+
 	waitFor := func(t *testing.T, substrings ...string) {
 		t.Helper()
 		deadline := time.After(5 * time.Second)
+		var seen strings.Builder
 		for {
 			select {
-			case text, ok := <-output:
+			case chunk, ok := <-chunks:
 				if !ok {
-					t.Fatalf("TUI output closed before %v; output:\n%s", substrings, text)
+					t.Fatalf("TUI output closed before %v; output:\n%s", substrings, seen.String())
 				}
-				clean := normalizeScreen(text)
-				if containsAll(clean, substrings...) {
+				seen.WriteString(chunk)
+				if containsAll(normalizeScreen(seen.String()), substrings...) {
 					return
 				}
 			case <-deadline:
@@ -137,54 +163,78 @@ fi
 		}
 	}
 
-	send := func(keys string) {
-		if _, err := ptmx.Write([]byte(keys)); err != nil {
-			t.Fatalf("write keys %q: %v", keys, err)
+	press := func(t *testing.T, keys string, substrings ...string) {
+		t.Helper()
+		drain()
+		send(keys)
+		if len(substrings) != 0 {
+			waitFor(t, substrings...)
+		} else {
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
-	waitFor(t, "AgentBox/Dashboard")
+	// The application starts in the page-list layer.
+	waitFor(t, "AgentBox/Dashboard", "Focus:Pages")
 
-	// Tab moves inward: pages -> content -> actions.
-	send("\t")
-	time.Sleep(100 * time.Millisecond)
-	send("\t")
-	time.Sleep(100 * time.Millisecond)
+	// Tab moves inward through all three layers.
+	press(t, "\t", "Focus:Content")
+	press(t, "\t", "Focus:Actions")
 
-	// Arrows move within the action-button layer.
-	send("\x1b[C")
-	time.Sleep(100 * time.Millisecond)
+	// Arrow keys move among buttons without leaving the action layer.
+	press(t, "\x1b[C", "Focus:Actions")
+	press(t, "\x1b[D", "Focus:Actions")
 
-	// Esc moves outward: actions -> content -> pages.
-	send("\x1b")
-	time.Sleep(200 * time.Millisecond)
-	send("\x1b")
-	time.Sleep(200 * time.Millisecond)
+	// Esc moves outward through all three layers.
+	press(t, "\x1b", "Focus:Content")
+	press(t, "\x1b", "Focus:Pages")
 
-	// Arrows move among pages; Enter opens the selected page.
-	send("\x1b[B")
-	time.Sleep(100 * time.Millisecond)
-	send("\r")
-	waitFor(t, "AgentBox/Runs")
+	// Visit every main section. Each non-empty page has content and action layers.
+	pages := []string{
+		"Runs",
+		"Images",
+		"Gateways",
+		"Policies",
+		"Profiles",
+		"Doctor",
+	}
+	for _, page := range pages {
+		press(t, "\x1b[B") // Move to the next page in the navigation list.
+		press(t, "\r", "AgentBox/"+page, "Focus:Content")
 
-	// Tab inward and activate the first action button.
-	send("\t")
-	time.Sleep(100 * time.Millisecond)
-	send("\t")
-	time.Sleep(100 * time.Millisecond)
-	send("\r")
-	waitFor(t, "AgentBox/Runs/Startrun")
+		if page == "Policies" {
+			// Policies is empty in this fixture and has no action bar.
+			// Tab must remain in the content layer rather than getting stuck.
+			press(t, "\t", "Focus:Content")
+			press(t, "\x1b", "Focus:Pages")
+			continue
+		}
 
-	// Esc returns from the form page to the Runs page.
-	send("\x1b")
-	time.Sleep(200 * time.Millisecond)
-	waitFor(t, "AgentBox/Runs")
+		press(t, "\t", "Focus:Actions")
+		press(t, "\x1b[C", "Focus:Actions")
+		press(t, "\x1b[D", "Focus:Actions")
+		press(t, "\x1b", "Focus:Content")
+		press(t, "\x1b", "Focus:Pages")
+	}
 
-	// Esc returns from the page content to the page list.
-	send("\x1b")
-	time.Sleep(200 * time.Millisecond)
+	// Open a form from the Runs action bar and return with Esc.
+	press(t, "\x1b[A") // Doctor -> Profiles
+	press(t, "\x1b[A") // Profiles -> Policies
+	press(t, "\x1b[A") // Policies -> Gateways
+	press(t, "\x1b[A") // Gateways -> Images
+	press(t, "\x1b[A") // Images -> Runs
+	press(t, "\r", "AgentBox/Runs", "Focus:Content")
+	press(t, "\t", "Focus:Actions")
+	press(t, "\x1b[C", "Focus:Actions")
+	press(t, "\x1b[D", "Focus:Actions") // Return to the first button.
+	press(t, "\r", "AgentBox/Runs/Startrun", "Focus:Content")
+	press(t, "\x1b", "AgentBox/Runs", "Focus:Content")
+	press(t, "\x1b", "Focus:Pages")
 
-	send("q")
+	// The app must remain exitable from the deepest action-button layer.
+	press(t, "\t", "Focus:Content")
+	press(t, "\t", "Focus:Actions")
+	press(t, "q")
 
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()

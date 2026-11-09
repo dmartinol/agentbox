@@ -89,7 +89,8 @@ Keyboard navigation is available throughout the TUI:
 - `Esc` moves back one layer: buttons → page content → pages
 - Arrow keys move among the elements in the current layer
 - `Enter` selects or activates the focused element
-- The header shows a breadcrumb and indicates when history is available
+- The header shows the breadcrumb, history affordances, and the current focus layer
+- The focused layer is color-coded: pages are orange, content is blue, and actions are green
 - The navigation sidebar groups sections by purpose: overview, workloads, infrastructure, configuration, and diagnostics
 
 The TUI is organized around structured widgets rather than raw JSON output:
