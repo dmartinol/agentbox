@@ -5,7 +5,7 @@ Host: macOS arm64
 OpenShell: 0.1.4  
 Gateway: `openshell`  
 Compute driver: Podman  
-AgentBox commit under test: `a649b3e` plus the live IT updates in this change
+AgentBox live IT commit: `1a26eb2`
 
 ## Scope
 
