@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -141,4 +142,65 @@ func TestImageListFiltersCurrentAndLegacyLabels(t *testing.T) {
 	if strings.Contains(string(got), `"Id":"other"`) {
 		t.Fatalf("unrelated image was included: %s", got)
 	}
+	if len(filteredImages(t, got)) != 2 {
+		t.Fatalf("filtered images = %#v; want new and old records", filteredImages(t, got))
+	}
+}
+
+func TestImageListDeduplicatesPodmanRowsForOneImage(t *testing.T) {
+	record := `{"Id":"image-1","Names":["quay.io/team/openshell:codex-1.0.0-r3","localhost/openshell:codex-1.0.0-r3"],"Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"1.0.0","agentbox.recipe":"3"}}`
+	raw := []byte("[" + record + "," + record + "]")
+	runner := &fakeRunner{output: func(recordedCommand) ([]byte, error) { return raw, nil }}
+	app := App{Runner: runner}
+	got, err := app.ImageList(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var images []struct {
+		ID string `json:"Id"`
+	}
+	if err := json.Unmarshal(got, &images); err != nil {
+		t.Fatal(err)
+	}
+	if len(images) != 1 || images[0].ID != "image-1" {
+		t.Fatalf("images = %#v; want one image-1 record", images)
+	}
+}
+
+func TestLocalImagesReturnsOneCanonicalReferencePerImage(t *testing.T) {
+	raw := []byte(`[
+		{
+			"Id":"image-1",
+			"Names":["quay.io/team/openshell:codex-1.0.0-r3-linux-arm64","localhost/openshell:codex-1.0.0-r3"],
+			"Digest":"sha256:image-1",
+			"Arch":"arm64",
+			"Os":"linux",
+			"Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"1.0.0","agentbox.recipe":"3"}
+		}
+	]`)
+	runner := &fakeRunner{output: func(recordedCommand) ([]byte, error) { return raw, nil }}
+	app := App{Runner: runner}
+	images, err := app.LocalImages(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(images) != 1 {
+		t.Fatalf("images = %#v; want one image", images)
+	}
+	if images[0].Reference != "localhost/openshell:codex-1.0.0-r3" {
+		t.Fatalf("reference = %q; want the canonical local tag", images[0].Reference)
+	}
+}
+
+func filteredImages(t *testing.T, data []byte) []struct {
+	ID string `json:"Id"`
+} {
+	t.Helper()
+	var images []struct {
+		ID string `json:"Id"`
+	}
+	if err := json.Unmarshal(data, &images); err != nil {
+		t.Fatal(err)
+	}
+	return images
 }

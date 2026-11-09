@@ -144,14 +144,24 @@ func (a *App) ImageList(ctx context.Context) ([]byte, error) {
 		return nil, err
 	}
 	filtered := make([]json.RawMessage, 0, len(records))
+	seen := make(map[string]struct{}, len(records))
 	for _, record := range records {
 		var meta struct {
+			ID     string            `json:"Id"`
 			Labels map[string]string `json:"Labels"`
 		}
 		if err := json.Unmarshal(record, &meta); err != nil {
 			return nil, err
 		}
 		if meta.Labels["agentbox"] == "true" || meta.Labels["ai-sandbox.spike"] == "true" {
+			// Podman emits one JSON row per repository tag, but each row for a
+			// multi-tagged image repeats the full Names list and image ID.
+			if meta.ID != "" {
+				if _, ok := seen[meta.ID]; ok {
+					continue
+				}
+				seen[meta.ID] = struct{}{}
+			}
 			filtered = append(filtered, record)
 		}
 	}

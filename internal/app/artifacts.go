@@ -59,6 +59,7 @@ func (a *App) LocalImages(ctx context.Context) ([]ImageArtifact, error) {
 		return nil, err
 	}
 	var records []struct {
+		ID     string            `json:"Id"`
 		Names  []string          `json:"Names"`
 		Digest string            `json:"Digest"`
 		Arch   string            `json:"Arch"`
@@ -81,28 +82,50 @@ func (a *App) LocalImages(ctx context.Context) ([]ImageArtifact, error) {
 		if err != nil {
 			continue
 		}
-		for _, name := range record.Names {
-			if _, ok := seen[name]; ok {
-				continue
-			}
-			seen[name] = struct{}{}
-			artifact := ImageArtifact{
-				Reference: name,
-				Agent:     label("agent"),
-				Version:   label("version"),
-				Recipe:    recipe,
-				OS:        record.OS,
-				Arch:      record.Arch,
-				Digest:    record.Digest,
-			}
-			if artifact.Agent == "" || artifact.Version == "" {
-				continue
-			}
-			artifacts = append(artifacts, artifact)
+		artifact := ImageArtifact{
+			Reference: preferredImageReference(record.Names, label("agent"), label("version"), recipe),
+			Agent:     label("agent"),
+			Version:   label("version"),
+			Recipe:    recipe,
+			OS:        record.OS,
+			Arch:      record.Arch,
+			Digest:    record.Digest,
 		}
+		if artifact.Agent == "" || artifact.Version == "" || artifact.Reference == "" {
+			continue
+		}
+		key := record.ID
+		if key == "" {
+			key = record.Digest
+		}
+		if key != "" {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		artifacts = append(artifacts, artifact)
 	}
 	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Reference < artifacts[j].Reference })
 	return artifacts, nil
+}
+
+func preferredImageReference(names []string, agent, version string, recipe int) string {
+	if len(names) == 0 {
+		return ""
+	}
+	localTag := fmt.Sprintf("localhost/openshell:%s-%s-r%d", agent, version, recipe)
+	for _, name := range names {
+		if name == localTag {
+			return name
+		}
+	}
+	for _, name := range names {
+		if strings.HasPrefix(name, "localhost/") {
+			return name
+		}
+	}
+	return names[0]
 }
 
 func (a *App) LocalImage(ctx context.Context, reference string) (ImageArtifact, error) {

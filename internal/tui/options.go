@@ -11,18 +11,14 @@ import (
 )
 
 func (ui *UI) imageNames() []string {
-	data, err := ui.app.ImageList(ui.ctx)
-	if err != nil {
-		return nil
-	}
-	rows, err := newImageRows(data)
+	images, err := ui.app.LocalImages(ui.ctx)
 	if err != nil {
 		return nil
 	}
 	var names []string
-	for _, row := range rows {
-		if row.Name != "" {
-			names = append(names, row.Name)
+	for _, image := range images {
+		if image.Reference != "" {
+			names = append(names, image.Reference)
 		}
 	}
 	return uniqueSorted(names)

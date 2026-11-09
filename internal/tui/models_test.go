@@ -54,6 +54,26 @@ func TestNewGatewayRowsParsesStructuredData(t *testing.T) {
 	}
 }
 
+func TestProjectRowsRenderAsTableColumns(t *testing.T) {
+	worktree := true
+	rows := newProjectRows([]app.Project{
+		{Version: 1, Name: "ghost", Root: "/tmp/ghost", Worktree: &worktree},
+	})
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d; want 1", len(rows))
+	}
+	cells := rowToStrings(rows[0])
+	want := []string{"ghost", "/tmp/ghost", "worktree"}
+	if len(cells) != len(want) {
+		t.Fatalf("cells = %#v; want %#v", cells, want)
+	}
+	for i := range want {
+		if cells[i] != want[i] {
+			t.Fatalf("cell %d = %q; want %q", i, cells[i], want[i])
+		}
+	}
+}
+
 func TestNewSummaryCountsRuns(t *testing.T) {
 	runs := []app.Run{
 		{Status: "running", Synced: true},

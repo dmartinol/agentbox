@@ -245,3 +245,14 @@ func TestSettingsPageExposesGlobalWorktreeSettings(t *testing.T) {
 		t.Fatalf("branch prefix = %q", prefix)
 	}
 }
+
+func TestImageNamesUsesCanonicalLocalReferences(t *testing.T) {
+	ui := &UI{
+		ctx: context.Background(),
+		app: &app.App{Runner: runFormRunner{}},
+	}
+	names := ui.imageNames()
+	if len(names) != 1 || names[0] != "localhost/agentbox-codex:1.0.0-r3" {
+		t.Fatalf("image names = %#v; want one canonical local reference", names)
+	}
+}

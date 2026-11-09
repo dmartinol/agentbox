@@ -533,6 +533,8 @@ func rowToStrings[T any](row T) []string {
 		return []string{typed.ID, typed.Name, typed.Agent, typed.Version, typed.Recipe, typed.BaseDigest, typed.Size, typed.Created}
 	case gatewayRow:
 		return []string{typed.Name, typed.Active, typed.Endpoint, typed.Type, typed.Auth, typed.Source}
+	case projectRow:
+		return []string{typed.Name, typed.Root, typed.Isolation}
 	case profileRow:
 		return []string{typed.Name, typed.Agent, typed.Mode, typed.Model, typed.Provider, typed.Approval}
 	case doctorRow:
