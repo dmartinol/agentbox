@@ -71,6 +71,8 @@ func dispatch(ctx context.Context, a *app.App, args []string) error {
 			fmt.Printf("%-5s %-18s %s\n", state, c.Name, c.Detail)
 		}
 		return nil
+	case "settings":
+		return settingsCmd(ctx, a, args[1:])
 	case "project":
 		return projectCmd(ctx, a, args[1:])
 	case "profile":
@@ -96,6 +98,7 @@ func usage() {
 	fmt.Println("AgentBox — OpenShell agent runner")
 	fmt.Println("  version")
 	fmt.Println("  doctor [--json]")
+	fmt.Println("  settings show|set")
 	fmt.Println("  project create|edit|show|list")
 	fmt.Println("  profile create|edit|show|list")
 	fmt.Println("  image versions|build|list|push|pull|registry")
@@ -126,6 +129,50 @@ func need(pos []string, n int) error {
 		return fmt.Errorf("expected %d positional argument(s)", n)
 	}
 	return nil
+}
+
+func settingsCmd(ctx context.Context, a *app.App, args []string) error {
+	if len(args) == 0 {
+		args = []string{"show"}
+	}
+	switch args[0] {
+	case "show":
+		f := flags("settings show")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		settings, err := a.EffectiveSettings()
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(settings)
+		}
+		fmt.Printf("Worktree root: %s\nBranch prefix: %s\n", settings.Worktrees.Root, settings.Worktrees.BranchPrefix)
+		return nil
+	case "set":
+		f := flags("settings set")
+		root := f.String("worktree-root", "", "root directory for Git worktrees")
+		prefix := f.String("branch-prefix", "", "branch namespace for run branches")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		current, err := a.EffectiveSettings()
+		if err != nil {
+			return err
+		}
+		if *root == "" {
+			*root = current.Worktrees.Root
+		}
+		if *prefix == "" {
+			*prefix = current.Worktrees.BranchPrefix
+		}
+		_, err = a.SaveGlobalSettings(*root, *prefix)
+		return err
+	default:
+		return fmt.Errorf("unknown settings command")
+	}
 }
 
 func projectCmd(ctx context.Context, a *app.App, args []string) error {
@@ -638,6 +685,7 @@ func runCmd(ctx context.Context, a *app.App, args []string) error {
 		f := flags("run start")
 		profile := f.String("profile", "", "saved profile name")
 		project := f.String("project", "", "registered project name")
+		name := f.String("name", "", "optional unique run name")
 		source := f.String("source", ".", "Git source checkout (when --project is omitted)")
 		gateway := f.String("gateway", "", "OpenShell gateway name")
 		image := f.String("image", "", "image override")
@@ -650,7 +698,7 @@ func runCmd(ctx context.Context, a *app.App, args []string) error {
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
-		r, err := a.Start(ctx, app.StartOptions{Profile: *profile, Project: *project, Source: *source, Gateway: *gateway, Image: *image, Mode: *mode, Model: *model, Approval: *approval, Prompt: *prompt, Dry: *dry})
+		r, err := a.Start(ctx, app.StartOptions{Profile: *profile, Project: *project, Name: *name, Source: *source, Gateway: *gateway, Image: *image, Mode: *mode, Model: *model, Approval: *approval, Prompt: *prompt, Dry: *dry})
 		if err != nil {
 			return err
 		}
@@ -677,7 +725,11 @@ func runCmd(ctx context.Context, a *app.App, args []string) error {
 			if r.Isolated() {
 				isolation = "worktree"
 			}
-			fmt.Printf("%-20s %-14s %-9s %-9s %-10s %-12s %s\n", r.ID, r.Project, r.Agent, isolation, r.Mode, r.Status, r.Worktree)
+			name := r.Name
+			if name == "" {
+				name = r.ID
+			}
+			fmt.Printf("%-16s %-20s %-14s %-9s %-9s %-10s %-12s %s\n", name, r.ID, r.Project, r.Agent, isolation, r.Mode, r.Status, r.Worktree)
 		}
 		return nil
 	case "show":

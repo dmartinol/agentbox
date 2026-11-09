@@ -12,6 +12,7 @@ import (
 
 type runRow struct {
 	ID        string
+	Name      string
 	Project   string
 	Agent     string
 	Mode      string
@@ -33,8 +34,13 @@ func newRunRows(runs []app.Run) []runRow {
 		if r.Isolated() {
 			isolation = "worktree"
 		}
+		name := r.Name
+		if name == "" {
+			name = r.ID
+		}
 		out = append(out, runRow{
 			ID:        r.ID,
+			Name:      name,
 			Project:   r.Project,
 			Agent:     r.Agent,
 			Mode:      r.Mode,

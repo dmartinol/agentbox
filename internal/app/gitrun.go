@@ -17,6 +17,10 @@ func (a *App) git(ctx context.Context, dir string, args ...string) ([]byte, erro
 }
 
 func (a *App) CreateWorktree(ctx context.Context, source, id string) (Run, error) {
+	return a.CreateWorktreeAt(ctx, source, id, filepath.Join(a.Store.WorktreesDir(), id), "agentbox/"+id)
+}
+
+func (a *App) CreateWorktreeAt(ctx context.Context, source, id, worktree, branch string) (Run, error) {
 	if err := a.Store.Ensure(); err != nil {
 		return Run{}, err
 	}
@@ -30,8 +34,14 @@ func (a *App) CreateWorktree(ctx context.Context, source, id string) (Run, error
 		return Run{}, err
 	}
 	head := strings.TrimSpace(string(headB))
-	branch := "agentbox/" + id
-	worktree := filepath.Join(a.Store.WorktreesDir(), id)
+	if err := os.MkdirAll(filepath.Dir(worktree), 0700); err != nil {
+		return Run{}, err
+	}
+	if _, err := os.Stat(worktree); err == nil {
+		return Run{}, fmt.Errorf("run worktree already exists: %s", worktree)
+	} else if !os.IsNotExist(err) {
+		return Run{}, err
+	}
 	if _, err := a.git(ctx, root, "worktree", "add", "-b", branch, worktree, head); err != nil {
 		return Run{}, err
 	}

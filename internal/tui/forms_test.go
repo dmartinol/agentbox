@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -226,5 +227,21 @@ func TestProjectFormDefaultsToWorktreeIsolation(t *testing.T) {
 	help := form.GetFormItemByLabel("Isolation help").(*tview.TextView).GetText(true)
 	if !strings.Contains(help, "one active run") {
 		t.Fatalf("isolation help is unclear: %q", help)
+	}
+}
+
+func TestSettingsPageExposesGlobalWorktreeSettings(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	ui := &UI{app: &app.App{Store: store}}
+	form, ok := ui.settingsPage().(*tview.Form)
+	if !ok {
+		t.Fatal("settings page is not a tview form")
+	}
+	root := form.GetFormItemByLabel("Worktree root").(*tview.InputField).GetText()
+	if root != filepath.Join(store.Base, "worktrees") {
+		t.Fatalf("worktree root = %q", root)
+	}
+	if prefix := form.GetFormItemByLabel("Branch prefix").(*tview.InputField).GetText(); prefix != "agentbox" {
+		t.Fatalf("branch prefix = %q", prefix)
 	}
 }

@@ -212,3 +212,25 @@ func TestProjectCreateListAndShow(t *testing.T) {
 		t.Fatalf("project show = %q, %v", output, err)
 	}
 }
+
+func TestSettingsSetAndShow(t *testing.T) {
+	base := t.TempDir()
+	a := &app.App{Store: app.Store{Base: base}, Runner: &appfakeRunner{}}
+	root := filepath.Join(base, "trees")
+	if err := dispatch(context.Background(), a, []string{"settings", "set", "--worktree-root", root, "--branch-prefix", "runs"}); err != nil {
+		t.Fatal(err)
+	}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"settings", "show", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings app.Settings
+	if err := json.Unmarshal([]byte(output), &settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings.Worktrees.Root != root || settings.Worktrees.BranchPrefix != "runs" {
+		t.Fatalf("unexpected settings: %+v", settings)
+	}
+}

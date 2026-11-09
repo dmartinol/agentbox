@@ -18,6 +18,7 @@ const (
 	pagePolicies      = "policies"
 	pageProfiles      = "profiles"
 	pageProjects      = "projects"
+	pageSettings      = "settings"
 	pageDoctor        = "doctor"
 	pageImageRegistry = "image-registry"
 )
@@ -30,6 +31,7 @@ var sectionPages = []string{
 	pagePolicies,
 	pageProfiles,
 	pageProjects,
+	pageSettings,
 	pageDoctor,
 }
 
@@ -89,6 +91,7 @@ func (ui *UI) buildLayout() {
 		AddItem("Policies", "Infrastructure", 'p', func() { ui.show(pagePolicies) }).
 		AddItem("Profiles", "Configuration", 'o', func() { ui.show(pageProfiles) }).
 		AddItem("Projects", "Configuration", 'j', func() { ui.show(pageProjects) }).
+		AddItem("Settings", "Configuration", 's', func() { ui.show(pageSettings) }).
 		AddItem("Doctor", "Diagnostics", 'x', func() { ui.show(pageDoctor) })
 	ui.navigation.SetBorder(true).SetTitle(" Navigation ")
 
@@ -317,6 +320,8 @@ func (ui *UI) render(page string) {
 		primitive = ui.profilesPage()
 	case pageProjects:
 		primitive = ui.projectsPage()
+	case pageSettings:
+		primitive = ui.settingsPage()
 	case pageDoctor:
 		primitive = ui.doctorPage()
 	case pageImageRegistry:
@@ -443,7 +448,7 @@ func parentSection(page string) string {
 
 func isFormPage(page string) bool {
 	switch page {
-	case "run-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-host-form", "profile-form", "project-form":
+	case "run-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-host-form", "profile-form", "project-form", pageSettings:
 		return true
 	default:
 		return strings.HasPrefix(page, "profile-edit:") || strings.HasPrefix(page, "project-edit:")
@@ -470,6 +475,8 @@ func pageTitle(page string) string {
 		return "Profiles"
 	case pageProjects:
 		return "Projects"
+	case pageSettings:
+		return "Settings"
 	case pageDoctor:
 		return "Doctor"
 	case pageImageRegistry:

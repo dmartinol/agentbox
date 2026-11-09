@@ -178,6 +178,7 @@ func (ui *UI) runForm() tview.Primitive {
 	var (
 		project  = projects[0]
 		profile  string
+		runName  string
 		image    string
 		mode     string
 		model    string
@@ -287,6 +288,7 @@ func (ui *UI) runForm() tview.Primitive {
 		AddFormItem(profileDropdown).
 		AddFormItem(gatewayDropdown).
 		AddFormItem(profileValues).
+		AddInputField("Run name (optional)", "", 40, nil, func(text string) { runName = text }).
 		AddInputField("Prompt", "", 80, nil, func(text string) { prompt = text }).
 		AddFormItem(overrideCheckbox).
 		AddTextView("Overrides", "Enable Override profile to edit.", 100, 1, false, false).
@@ -299,6 +301,7 @@ func (ui *UI) runForm() tview.Primitive {
 				run, err := a.Start(ctx, app.StartOptions{
 					Profile:  profile,
 					Project:  project,
+					Name:     runName,
 					Gateway:  gateway,
 					Image:    image,
 					Mode:     mode,

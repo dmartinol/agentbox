@@ -217,6 +217,7 @@ fi
 		"Policies",
 		"Profiles",
 		"Projects",
+		"Settings",
 		"Doctor",
 	}
 	for _, page := range pages {
@@ -269,6 +270,12 @@ fi
 			continue
 		}
 
+		if page == "Settings" {
+			press(t, "\x1b", "AgentBox/Projects", "Focus:Content")
+			press(t, "\x1b", "Focus:Pages")
+			continue
+		}
+
 		press(t, "\t", "Focus:Actions")
 		press(t, "\x1b[C", "Focus:Actions")
 		press(t, "\x1b[D", "Focus:Actions")
@@ -277,7 +284,8 @@ fi
 	}
 
 	// Open a form from the Runs action bar and return with Esc.
-	press(t, "\x1b[A") // Doctor -> Projects
+	press(t, "\x1b[A") // Doctor -> Settings
+	press(t, "\x1b[A") // Settings -> Projects
 	press(t, "\x1b[A") // Projects -> Profiles
 	press(t, "\x1b[A") // Profiles -> Policies
 	press(t, "\x1b[A") // Policies -> Gateways

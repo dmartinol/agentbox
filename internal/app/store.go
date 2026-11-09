@@ -87,6 +87,7 @@ func (p Project) Validate() error {
 
 type Run struct {
 	ID               string    `json:"id"`
+	Name             string    `json:"name,omitempty"`
 	Created          time.Time `json:"created"`
 	Source           string    `json:"source"`
 	Project          string    `json:"project,omitempty"`
@@ -109,26 +110,51 @@ type Run struct {
 	PendingPolicy    string    `json:"pending_policy,omitempty"`
 }
 
+type WorktreeSettings struct {
+	Root         string `yaml:"root" json:"root"`
+	BranchPrefix string `yaml:"branch_prefix" json:"branch_prefix"`
+}
+
+type Settings struct {
+	Version   int              `yaml:"version" json:"version"`
+	Worktrees WorktreeSettings `yaml:"worktrees" json:"worktrees"`
+}
+
+func (s Settings) Validate() error {
+	if s.Version != 1 {
+		return fmt.Errorf("settings need version 1")
+	}
+	if !filepath.IsAbs(s.Worktrees.Root) || filepath.Clean(s.Worktrees.Root) != s.Worktrees.Root {
+		return fmt.Errorf("worktree root must be a clean absolute path")
+	}
+	if !safeName.MatchString(s.Worktrees.BranchPrefix) {
+		return fmt.Errorf("branch prefix must be a lower-case identifier")
+	}
+	return nil
+}
+
 type Store struct {
-	Base string
+	Base         string
+	WorktreeRoot string
 }
 
 func DefaultStore() (Store, error) {
 	if custom := os.Getenv("AGENTBOX_HOME"); custom != "" {
-		return Store{Base: custom}, nil
+		return Store{Base: custom, WorktreeRoot: filepath.Join(custom, "worktrees")}, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return Store{}, err
 	}
+	worktreeRoot := filepath.Join(home, ".agentbox", "worktrees")
 	if runtimeGOOS() == "darwin" {
-		return Store{Base: filepath.Join(home, "Library", "Application Support", "agentbox")}, nil
+		return Store{Base: filepath.Join(home, "Library", "Application Support", "agentbox"), WorktreeRoot: worktreeRoot}, nil
 	}
 	base := os.Getenv("XDG_STATE_HOME")
 	if base == "" {
 		base = filepath.Join(home, ".local", "state")
 	}
-	return Store{Base: filepath.Join(base, "agentbox")}, nil
+	return Store{Base: filepath.Join(base, "agentbox"), WorktreeRoot: worktreeRoot}, nil
 }
 
 func (s Store) Ensure() error {
@@ -143,14 +169,70 @@ func (s Store) Ensure() error {
 	return nil
 }
 
-func (s Store) ProfilesDir() string            { return filepath.Join(s.Base, "profiles") }
-func (s Store) ProjectsDir() string            { return filepath.Join(s.Base, "projects") }
-func (s Store) RunsDir() string                { return filepath.Join(s.Base, "runs") }
-func (s Store) WorktreesDir() string           { return filepath.Join(s.Base, "worktrees") }
+func (s Store) ProfilesDir() string { return filepath.Join(s.Base, "profiles") }
+func (s Store) ProjectsDir() string { return filepath.Join(s.Base, "projects") }
+func (s Store) RunsDir() string     { return filepath.Join(s.Base, "runs") }
+func (s Store) WorktreesDir() string {
+	if s.WorktreeRoot != "" {
+		return s.WorktreeRoot
+	}
+	return filepath.Join(s.Base, "worktrees")
+}
 func (s Store) PolicyDir() string              { return filepath.Join(s.Base, "policies") }
 func (s Store) ProfilePath(name string) string { return filepath.Join(s.ProfilesDir(), name+".yaml") }
 func (s Store) ProjectPath(name string) string { return filepath.Join(s.ProjectsDir(), name+".yaml") }
 func (s Store) RunPath(id string) string       { return filepath.Join(s.RunsDir(), id+".json") }
+func (s Store) SettingsPath() string           { return filepath.Join(s.Base, "settings.yaml") }
+
+func (s Store) DefaultSettings() Settings {
+	return Settings{
+		Version: 1,
+		Worktrees: WorktreeSettings{
+			Root:         s.WorktreesDir(),
+			BranchPrefix: "agentbox",
+		},
+	}
+}
+
+func (s Store) LoadSettings() (Settings, error) {
+	b, err := os.ReadFile(s.SettingsPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return s.DefaultSettings(), nil
+	}
+	if err != nil {
+		return Settings{}, err
+	}
+	settings := s.DefaultSettings()
+	dec := yaml.NewDecoder(strings.NewReader(string(b)))
+	dec.KnownFields(true)
+	if err := dec.Decode(&settings); err != nil {
+		return Settings{}, err
+	}
+	if settings.Worktrees.Root == "" {
+		settings.Worktrees.Root = s.WorktreesDir()
+	}
+	if settings.Worktrees.BranchPrefix == "" {
+		settings.Worktrees.BranchPrefix = "agentbox"
+	}
+	return settings, settings.Validate()
+}
+
+func (s Store) SaveSettings(settings Settings) error {
+	if settings.Version == 0 {
+		settings.Version = 1
+	}
+	if err := settings.Validate(); err != nil {
+		return err
+	}
+	if err := s.Ensure(); err != nil {
+		return err
+	}
+	b, err := yaml.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	return atomicWrite(s.SettingsPath(), b)
+}
 
 func (s Store) SaveProfile(p Profile) error {
 	if err := p.Validate(); err != nil {

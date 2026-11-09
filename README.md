@@ -201,11 +201,25 @@ Worktree isolation is enabled by default. With isolation disabled, AgentBox
 requires a clean checkout and allows only one active run against that project
 at a time.
 
+Configure global worktree placement and branch naming:
+
+```sh
+./agentbox settings show
+./agentbox settings set --worktree-root ~/.agentbox/worktrees --branch-prefix agentbox
+```
+
+New isolated runs use `<worktree-root>/<project>/<run-name>` and
+`<branch-prefix>/<project>/<run-name>`.
+
 Start a run from a registered project:
 
 ```sh
 ./agentbox run start --project dev --profile codex-enmaas --gateway openshell
+./agentbox run start --project dev --profile codex-enmaas --name auth-refactor --gateway openshell
 ```
+
+A run name is optional, must be unique within the project, and defaults to the
+generated run ID.
 
 Open the TUI:
 
@@ -226,7 +240,7 @@ Keyboard navigation is available throughout the TUI:
 - `Enter` selects or activates the focused element
 - The header shows the breadcrumb, history affordances, and the current focus layer
 - The focused layer is color-coded: pages are orange, content is blue, and actions are green
-- The navigation sidebar groups sections by purpose: overview, workloads, infrastructure, configuration, and diagnostics
+- The navigation sidebar groups sections by purpose: overview, workloads, infrastructure, configuration, and diagnostics. **Settings** manages global worktree placement and branch naming.
 
 The TUI is organized around structured widgets rather than raw JSON output:
 
@@ -252,7 +266,7 @@ The Runs page selects the first run by default, so the action bar can attach imm
 
 ## State location
 
-AgentBox stores projects, profiles, run records, worktrees, policies, registry settings, and generated configuration outside this repository.
+AgentBox stores projects, profiles, run records, policies, registry settings, and generated configuration in its private state directory. Git worktrees default to `~/.agentbox/worktrees`; set `AGENTBOX_HOME` to keep worktrees under that disposable state directory instead.
 
 On macOS:
 

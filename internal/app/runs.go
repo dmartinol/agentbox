@@ -26,6 +26,7 @@ exec sleep infinity
 type StartOptions struct {
 	Profile  string
 	Project  string
+	Name     string
 	Source   string
 	Gateway  string
 	Image    string
@@ -95,6 +96,9 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 			useWorktree = project.UseWorktree()
 		}
 	}
+	if err := a.validateRunName(projectName, opt.Name); err != nil {
+		return Run{}, err
+	}
 	if !useWorktree {
 		if err := a.requireDirectRunAvailable(sourceRoot); err != nil {
 			return Run{}, err
@@ -120,18 +124,30 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
+	runName := strings.TrimSpace(opt.Name)
+	if runName == "" {
+		runName = id
+	}
 	if opt.Dry {
-		return Run{ID: id, Source: sourceRoot, Project: projectName, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: "preview", WorktreeIsolated: useWorktree}, nil
+		return Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: "preview", WorktreeIsolated: useWorktree}, nil
 	}
 	var r Run
 	if useWorktree {
-		r, err = a.CreateWorktree(ctx, sourceRoot, id)
+		worktree, branch, err := a.WorktreeLocation(projectName, runName, id)
+		if err != nil {
+			return Run{}, err
+		}
+		r, err = a.CreateWorktreeAt(ctx, sourceRoot, id, worktree, branch)
+		if err != nil {
+			return Run{}, err
+		}
 	} else {
 		r, err = a.CreateDirectRun(ctx, sourceRoot, id)
+		if err != nil {
+			return Run{}, err
+		}
 	}
-	if err != nil {
-		return Run{}, err
-	}
+	r.Name = runName
 	r.Project = projectName
 	r.WorktreeIsolated = useWorktree
 	r.Created = time.Now().UTC()

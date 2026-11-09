@@ -107,7 +107,7 @@ func (ui *UI) runsPage() tview.Primitive {
 		selected = rows[0].ID
 	}
 	table := newTable(
-		[]string{"ID", "Project", "Agent", "Mode", "Approval", "Isolation", "Status", "Synced", "Worktree"},
+		[]string{"Name", "Project", "Agent", "Mode", "Approval", "Isolation", "Status", "Synced", "Worktree"},
 		toMatrix(rows),
 	)
 	table.SetBorder(true).SetTitle(" Runs ")
@@ -332,6 +332,26 @@ func (ui *UI) showProjectEdit(name string) {
 	ui.showDynamic("project-edit:"+name, ui.projectEditForm(project))
 }
 
+func (ui *UI) settingsPage() tview.Primitive {
+	settings, err := ui.app.EffectiveSettings()
+	if err != nil {
+		return ui.errorPage(err)
+	}
+	root, prefix := settings.Worktrees.Root, settings.Worktrees.BranchPrefix
+	form := tview.NewForm().
+		AddInputField("Worktree root", root, 90, nil, func(text string) { root = text }).
+		AddInputField("Branch prefix", prefix, 30, nil, func(text string) { prefix = text }).
+		AddTextView("Worktrees", "New isolated runs use <root>/<project>/<run-name> and <prefix>/<project>/<run-name>. Existing runs keep their recorded paths and branches.", 100, 3, false, false).
+		AddButton("Save", func() {
+			ui.asyncTo(pageSettings, func() error {
+				_, err := ui.app.SaveGlobalSettings(root, prefix)
+				return err
+			})
+		})
+	form.SetBorder(true).SetTitle(" Settings ")
+	return form
+}
+
 func (ui *UI) projectsPage() tview.Primitive {
 	projects, err := ui.app.Store.ListProjects()
 	if err != nil {
@@ -508,7 +528,7 @@ func toMatrix[T any](rows []T) [][]string {
 func rowToStrings[T any](row T) []string {
 	switch typed := any(row).(type) {
 	case runRow:
-		return []string{typed.ID, typed.Project, typed.Agent, typed.Mode, typed.Approval, typed.Isolation, typed.Status, typed.Synced, typed.Worktree}
+		return []string{typed.Name, typed.Project, typed.Agent, typed.Mode, typed.Approval, typed.Isolation, typed.Status, typed.Synced, typed.Worktree}
 	case imageRow:
 		return []string{typed.ID, typed.Name, typed.Agent, typed.Version, typed.Recipe, typed.BaseDigest, typed.Size, typed.Created}
 	case gatewayRow:
