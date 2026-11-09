@@ -43,6 +43,14 @@ func TestTUICompleteLayeredNavigation(t *testing.T) {
 	if err := os.MkdirAll(stubDir, 0700); err != nil {
 		t.Fatal(err)
 	}
+	runsDir := filepath.Join(stateDir, "runs")
+	if err := os.MkdirAll(runsDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	seedRun := `{"id":"run-seed","status":"create-failed","agent":"codex","mode":"standard","model":"test-model","approval":"prompted","sandbox":"run-seed","gateway":"openshell","worktree":"/tmp/run-seed","branch":"agentbox/run-seed"}`
+	if err := os.WriteFile(filepath.Join(runsDir, "run-seed.json"), []byte(seedRun), 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	openshell := `#!/bin/sh
 case "$1" in
@@ -207,6 +215,15 @@ fi
 			// Policies is empty in this fixture and has no action bar.
 			// Tab must remain in the content layer rather than getting stuck.
 			press(t, "\t", "Focus:Content")
+			press(t, "\x1b", "Focus:Pages")
+			continue
+		}
+
+		if page == "Runs" {
+			press(t, "\t", "Focus:Actions")
+			press(t, "\x1b[C", "Focus:Actions") // Move from Start to Attach.
+			press(t, "\r", "Focus:Actions")     // Attach the selected run.
+			press(t, "\x1b", "Focus:Content")
 			press(t, "\x1b", "Focus:Pages")
 			continue
 		}

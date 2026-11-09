@@ -109,6 +109,10 @@ To start it:
 ./agentbox tui
 ```
 
+## Attach behavior
+
+The Runs page selects the first run by default, so the action bar can attach immediately. Attaching opens the run's persistent tmux session. When the agent exits, AgentBox records the finished marker and closes the tmux session so the attaching CLI or TUI returns instead of hanging on a dead pane.
+
 ## State location
 
 AgentBox stores profiles, run records, worktrees, policies, and generated configuration outside this repository.

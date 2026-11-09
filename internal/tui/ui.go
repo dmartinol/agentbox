@@ -478,6 +478,14 @@ func pageTitle(page string) string {
 	}
 }
 
+func (ui *UI) requireRunSelection(id string) bool {
+	if id != "" {
+		return true
+	}
+	ui.message("[yellow]Select a run first.")
+	return false
+}
+
 func (ui *UI) message(format string, args ...any) {
 	ui.footer.SetText(fmt.Sprintf(format, args...))
 }

@@ -94,7 +94,10 @@ func (ui *UI) runsPage() tview.Primitive {
 		return ui.errorPage(err)
 	}
 	rows := newRunRows(runs)
-	var selected string
+	selected := ""
+	if len(rows) > 0 {
+		selected = rows[0].ID
+	}
 	table := newTable(
 		[]string{"ID", "Agent", "Mode", "Approval", "Status", "Synced", "Worktree"},
 		toMatrix(rows),
@@ -106,38 +109,47 @@ func (ui *UI) runsPage() tview.Primitive {
 			selected = rows[row-1].ID
 		}
 	})
+	if len(rows) > 0 {
+		table.Select(1, 0)
+	}
 	actions := tview.NewForm().
 		SetButtonsAlign(tview.AlignCenter).
 		AddButton("Start", func() { ui.show("run-form") }).
 		AddButton("Attach", func() {
-			if selected != "" {
-				ui.suspend(func() error { return ui.app.Attach(ui.ctx, selected) })
+			if !ui.requireRunSelection(selected) {
+				return
 			}
+			ui.suspend(func() error { return ui.app.Attach(ui.ctx, selected) })
 		}).
 		AddButton("Logs", func() {
-			if selected != "" {
-				ui.showLogs(selected)
+			if !ui.requireRunSelection(selected) {
+				return
 			}
+			ui.showLogs(selected)
 		}).
 		AddButton("Sync", func() {
-			if selected != "" {
-				ui.async(func() error { return ui.app.Sync(ui.ctx, selected) })
+			if !ui.requireRunSelection(selected) {
+				return
 			}
+			ui.async(func() error { return ui.app.Sync(ui.ctx, selected) })
 		}).
 		AddButton("Stop", func() {
-			if selected != "" {
-				ui.async(func() error { return ui.app.Stop(ui.ctx, selected) })
+			if !ui.requireRunSelection(selected) {
+				return
 			}
+			ui.async(func() error { return ui.app.Stop(ui.ctx, selected) })
 		}).
 		AddButton("Diff", func() {
-			if selected != "" {
-				ui.showDiff(selected)
+			if !ui.requireRunSelection(selected) {
+				return
 			}
+			ui.showDiff(selected)
 		}).
 		AddButton("Delete", func() {
-			if selected != "" {
-				ui.confirmDelete(selected)
+			if !ui.requireRunSelection(selected) {
+				return
 			}
+			ui.confirmDelete(selected)
 		})
 	actions.SetBorder(true).SetTitle(" Run actions ")
 	ui.registerActions(actions)
@@ -242,7 +254,10 @@ func (ui *UI) profilesPage() tview.Primitive {
 		return ui.errorPage(err)
 	}
 	rows := newProfileRows(profiles)
-	var selected string
+	selected := ""
+	if len(rows) > 0 {
+		selected = rows[0].Name
+	}
 	table := newTable(
 		[]string{"Name", "Agent", "Mode", "Model", "Provider", "Approval"},
 		toMatrix(rows),
@@ -254,6 +269,9 @@ func (ui *UI) profilesPage() tview.Primitive {
 			selected = rows[row-1].Name
 		}
 	})
+	if len(rows) > 0 {
+		table.Select(1, 0)
+	}
 	actions := tview.NewForm().
 		SetButtonsAlign(tview.AlignCenter).
 		AddButton("Create", func() { ui.show("profile-form") }).

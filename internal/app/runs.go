@@ -11,6 +11,18 @@ import (
 	"time"
 )
 
+const bootstrapScript = `#!/bin/sh
+set -eu
+tmux new-session -d -s agent /bin/sh /workspace/state/agent.sh
+tmux set-option -g remain-on-exit on
+tmux pipe-pane -t agent -o 'cat >> /workspace/state/agent.log'
+while [ "$(tmux display-message -p -t agent '#{pane_dead}')" != 1 ]; do sleep 1; done
+touch /workspace/finished
+sleep 1
+tmux kill-session -t agent 2>/dev/null || true
+exec sleep infinity
+`
+
 type StartOptions struct {
 	Profile  string
 	Source   string
@@ -108,7 +120,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if err != nil {
 		return r, err
 	}
-	bootstrap := []byte("#!/bin/sh\nset -eu\ntmux new-session -d -s agent /bin/sh /workspace/state/agent.sh\ntmux set-option -g remain-on-exit on\ntmux pipe-pane -t agent -o 'cat >> /workspace/state/agent.log'\nwhile [ \"$(tmux display-message -p -t agent '#{pane_dead}')\" != 1 ]; do sleep 1; done\ntouch /workspace/finished\nexec sleep infinity\n")
+	bootstrap := []byte(bootstrapScript)
 	bootPath := filepath.Join(config, "bootstrap.sh")
 	if err := os.WriteFile(bootPath, bootstrap, 0700); err != nil {
 		return r, err

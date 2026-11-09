@@ -185,3 +185,11 @@ func TestStartReportsMissingProfileAndPolicy(t *testing.T) {
 		t.Fatalf("missing policy error = %v", err)
 	}
 }
+
+func TestBootstrapKillsAgentSessionWhenAgentExits(t *testing.T) {
+	for _, want := range []string{"touch /workspace/finished", "tmux kill-session -t agent", "exec sleep infinity"} {
+		if !strings.Contains(bootstrapScript, want) {
+			t.Fatalf("bootstrap script missing %q:\n%s", want, bootstrapScript)
+		}
+	}
+}
