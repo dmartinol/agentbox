@@ -522,30 +522,66 @@ func (ui *UI) providerForm() tview.Primitive {
 	return form
 }
 
-func (ui *UI) policyHostForm() tview.Primitive {
+func (ui *UI) policyCreateForm() tview.Primitive {
+	var name string
+	form := tview.NewForm().
+		AddInputField("Name", "", 40, nil, func(text string) { name = text }).
+		AddTextView("Policy help", "Creates a reusable policy with safe defaults. Edit its YAML or add network hosts before applying it to a run.", 100, 2, false, false).
+		AddButton("Create", func() {
+			ui.asyncTo(pagePolicies, func() error {
+				_, err := ui.app.Store.CreatePolicyConfiguration(name)
+				return err
+			})
+		}).
+		AddButton("Cancel", func() { ui.show(pagePolicies) })
+	form.SetBorder(true).SetTitle(" Create policy ")
+	return form
+}
+
+func (ui *UI) policyHostForm(policyName string) tview.Primitive {
+	var host string
+	agent := "codex"
+	agents := []string{"codex", "claude", "opencode"}
+	form := tview.NewForm().
+		AddDropDown("Agent", agents, 0, func(text string, _ int) { agent = text }).
+		AddInputField("Host", "", 50, nil, func(text string) { host = text }).
+		AddTextView("Binary help", "The selected agent's binary is recorded in the reusable policy. When the policy is applied, AgentBox rewrites that agent binary path for the target run's agent.", 100, 3, false, false).
+		AddButton("Allow", func() {
+			ui.asyncTo(pagePolicies, func() error {
+				return ui.app.AddPolicyNetworkRule(policyName, agent, host)
+			})
+		}).
+		AddButton("Cancel", func() { ui.show(pagePolicies) })
+	form.SetBorder(true).SetTitle(" Add network host: " + policyName + " ")
+	return form
+}
+
+func (ui *UI) policyApplyForm(policyName string) tview.Primitive {
 	runs, err := ui.app.Store.ListRuns()
 	if err != nil {
 		return ui.errorPage(err)
 	}
-	var runID, host, binary string
 	runIDs := make([]string, 0, len(runs))
 	for _, run := range runs {
 		runIDs = append(runIDs, run.ID)
 	}
-	defaultRun := ""
-	if len(runIDs) > 0 {
-		defaultRun = runIDs[0]
-		runID = defaultRun
+	if len(runIDs) == 0 {
+		form := tview.NewForm().
+			AddTextView("", "No runs yet. Start a run before applying a policy.", 70, 2, false, false).
+			AddButton("Cancel", func() { ui.show(pagePolicies) })
+		form.SetBorder(true).SetTitle(" Apply policy: " + policyName + " ")
+		return form
 	}
-	binaries := []string{"/usr/local/bin/claude", "/usr/local/bin/codex", "/usr/local/bin/opencode"}
+	runID := runIDs[0]
 	form := tview.NewForm().
-		AddFormItem(autocompleteInput("Run ID", defaultRun, 40, uniqueSorted(runIDs), func(text string) { runID = text })).
-		AddInputField("Host", "", 50, nil, func(text string) { host = text }).
-		AddFormItem(autocompleteInput("Binary path", "", 70, binaries, func(text string) { binary = text })).
-		AddButton("Allow", func() {
-			ui.asyncTo(pagePolicies, func() error { return ui.app.PolicyEdit(ui.ctx, runID, host, binary, false) })
+		AddFormItem(autocompleteInput("Run ID", runID, 40, uniqueSorted(runIDs), func(text string) { runID = text })).
+		AddTextView("Apply help", "Network changes are applied live when OpenShell accepts them. Filesystem, Landlock, and process changes are stored as pending policy for the run. Agent binary paths are adapted to the selected run.", 100, 3, false, false).
+		AddButton("Apply", func() {
+			ui.runTask("Apply policy", pagePolicies, true, func(ctx context.Context, a *app.App, _ io.Writer) error {
+				return a.ApplyPolicyConfiguration(ctx, policyName, runID)
+			})
 		}).
 		AddButton("Cancel", func() { ui.show(pagePolicies) })
-	form.SetBorder(true).SetTitle(" Allow network host ")
+	form.SetBorder(true).SetTitle(" Apply policy: " + policyName + " ")
 	return form
 }

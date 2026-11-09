@@ -153,6 +153,12 @@ func (ui *UI) runsPage() tview.Primitive {
 			}
 			ui.showDiff(selected)
 		}).
+		AddButton("Policy", func() {
+			if !ui.requireRunSelection(selected) {
+				return
+			}
+			ui.showPolicyInspect(selected)
+		}).
 		AddButton("Delete", func() {
 			if !ui.requireRunSelection(selected) {
 				return
@@ -164,7 +170,7 @@ func (ui *UI) runsPage() tview.Primitive {
 	return tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(table, 0, 4, true).
-		AddItem(actions, 6, 0, false)
+		AddItem(actions, 7, 0, false)
 }
 
 func (ui *UI) imagesPage() tview.Primitive {
@@ -283,19 +289,59 @@ func (ui *UI) gatewaysPage() tview.Primitive {
 }
 
 func (ui *UI) policiesPage() tview.Primitive {
-	runs, err := ui.app.Store.ListRuns()
+	policies, err := ui.app.Store.ListPolicyConfigurations()
 	if err != nil {
 		return ui.errorPage(err)
 	}
-	if len(runs) == 0 {
-		return ui.emptyPage("No runs yet. Start a run to inspect policies.")
+	rows := newPolicyRows(policies)
+	selected := ""
+	if len(rows) > 0 {
+		selected = rows[0].Name
 	}
-	policies, err := ui.app.PolicyShow(ui.ctx, runs[0].ID)
+	table := newTable([]string{"Name", "Path", "Used by profiles"}, toMatrix(rows))
+	table.SetBorder(true).SetTitle(" Policies ")
+	ui.registerContent(table)
+	table.SetSelectionChangedFunc(func(row, col int) {
+		if row > 0 && row-1 < len(rows) {
+			selected = rows[row-1].Name
+		}
+	})
+	if len(rows) > 0 {
+		table.Select(1, 0)
+	}
+	form := tview.NewForm().
+		SetButtonsAlign(tview.AlignCenter).
+		AddButton("Create", func() { ui.show("policy-create-form") }).
+		AddButton("Add host", func() {
+			if selected != "" {
+				ui.showPolicyHost(selected)
+			}
+		}).
+		AddButton("Edit YAML", func() {
+			if selected == "" {
+				return
+			}
+			ui.suspend(func() error { return ui.app.Store.EditPolicyConfiguration(ui.ctx, selected) })
+		}).
+		AddButton("Apply", func() {
+			if selected != "" {
+				ui.showPolicyApply(selected)
+			}
+		})
+	form.SetBorder(true).SetTitle(" Policy actions ")
+	ui.registerActions(form)
+	return tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(table, 0, 4, true).
+		AddItem(form, 6, 0, false)
+}
+
+func (ui *UI) policyInspectPage(runID string) tview.Primitive {
+	policies, err := ui.app.PolicyShow(ui.ctx, runID)
 	if err != nil {
 		return ui.errorPage(err)
 	}
 	left := tview.NewFlex().SetDirection(tview.FlexRow)
-	ui.registerContent(left)
 	for _, key := range sortedJSONKeys(policies) {
 		tree, err := jsonTree(policies[key], strings.Title(key))
 		if err != nil {
@@ -304,14 +350,15 @@ func (ui *UI) policiesPage() tview.Primitive {
 		tree.SetBorder(true).SetTitle(" " + strings.Title(key) + " ")
 		left.AddItem(tree, 0, 1, true)
 	}
-	form := tview.NewForm().
+	ui.registerContent(left)
+	actions := tview.NewForm().
 		SetButtonsAlign(tview.AlignCenter).
-		AddButton("Allow host", func() { ui.show("policy-host-form") }).
-		AddButton("Edit YAML", func() { ui.suspend(func() error { return ui.app.PolicyEdit(ui.ctx, runs[0].ID, "", "", false) }) })
-	form.SetBorder(true).SetTitle(" Policy actions ")
+		AddButton("Refresh", func() { ui.showPolicyInspect(runID) })
+	actions.SetBorder(true).SetTitle(" Policy inspection actions ")
+	ui.registerActions(actions)
 	return tview.NewFlex().
 		AddItem(left, 0, 4, true).
-		AddItem(form, 24, 0, false)
+		AddItem(actions, 24, 0, false)
 }
 
 func (ui *UI) showProfileEdit(name string) {
@@ -535,6 +582,8 @@ func rowToStrings[T any](row T) []string {
 		return []string{typed.Name, typed.Active, typed.Endpoint, typed.Type, typed.Auth, typed.Source}
 	case projectRow:
 		return []string{typed.Name, typed.Root, typed.Isolation}
+	case policyRow:
+		return []string{typed.Name, typed.Path, typed.UsedBy}
 	case profileRow:
 		return []string{typed.Name, typed.Agent, typed.Mode, typed.Model, typed.Provider, typed.Approval}
 	case doctorRow:

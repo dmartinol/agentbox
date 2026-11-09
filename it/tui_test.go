@@ -47,8 +47,26 @@ func TestTUICompleteLayeredNavigation(t *testing.T) {
 	if err := os.MkdirAll(runsDir, 0700); err != nil {
 		t.Fatal(err)
 	}
+	policiesDir := filepath.Join(stateDir, "policies")
+	if err := os.MkdirAll(policiesDir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	seedRun := `{"id":"run-seed","status":"create-failed","agent":"codex","mode":"standard","model":"test-model","approval":"prompted","sandbox":"run-seed","gateway":"openshell","worktree":"/tmp/run-seed","branch":"agentbox/run-seed"}`
 	if err := os.WriteFile(filepath.Join(runsDir, "run-seed.json"), []byte(seedRun), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(policiesDir, "standard.yaml"), []byte(`version: 1
+filesystem_policy:
+  include_workdir: true
+  read_only: [/usr]
+  read_write: [/workspace, /tmp]
+landlock:
+  compatibility: hard_requirement
+process:
+  run_as_user: sandbox
+  run_as_group: sandbox
+network_policies: {}
+`), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -225,9 +243,13 @@ fi
 		press(t, "\r", "AgentBox/"+page, "Focus:Content")
 
 		if page == "Policies" {
-			// Policies is empty in this fixture and has no action bar.
-			// Tab must remain in the content layer rather than getting stuck.
-			press(t, "\t", "Focus:Content")
+			// Reusable policies have both content and reachable action layers.
+			press(t, "\t", "Focus:Actions")
+			press(t, "\x1b[C", "Focus:Actions") // Create -> Add host.
+			press(t, "\x1b[C", "Focus:Actions") // Add host -> Edit YAML.
+			press(t, "\x1b[C", "Focus:Actions") // Edit YAML -> Apply.
+			press(t, "\r", "AgentBox/Policies/Applypolicy", "Focus:Content")
+			press(t, "\x1b", "AgentBox/Policies", "Focus:Content")
 			press(t, "\x1b", "Focus:Pages")
 			continue
 		}
@@ -247,6 +269,12 @@ fi
 		}
 
 		if page == "Runs" {
+			press(t, "\t", "Focus:Actions")
+			for i := 0; i < 6; i++ {
+				press(t, "\x1b[C", "Focus:Actions") // Move from Start to Policy.
+			}
+			press(t, "\r", "AgentBox/Runs/Policyinspection", "Focus:Content")
+			press(t, "\x1b", "AgentBox/Runs", "Focus:Content")
 			press(t, "\t", "Focus:Actions")
 			press(t, "\x1b[C", "Focus:Actions") // Move from Start to Attach.
 			press(t, "\r", "ATTACH_DONE", "Focus:Content")

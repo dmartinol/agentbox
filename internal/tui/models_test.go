@@ -74,6 +74,29 @@ func TestProjectRowsRenderAsTableColumns(t *testing.T) {
 	}
 }
 
+func TestPolicyRowsRenderReusableConfigurations(t *testing.T) {
+	rows := newPolicyRows([]app.PolicyConfiguration{
+		{Name: "standard", Path: "/tmp/standard.yaml", UsedBy: []string{"alpha", "beta"}},
+		{Name: "isolated", Path: "/tmp/isolated.yaml"},
+	})
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d; want 2", len(rows))
+	}
+	got := rowToStrings(rows[0])
+	want := []string{"standard", "/tmp/standard.yaml", "alpha, beta"}
+	if len(got) != len(want) {
+		t.Fatalf("cells = %#v; want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("cell %d = %q; want %q", i, got[i], want[i])
+		}
+	}
+	if row := rowToStrings(rows[1]); row[2] != "-" {
+		t.Fatalf("unused policy rendered as %q; want -", row[2])
+	}
+}
+
 func TestNewSummaryCountsRuns(t *testing.T) {
 	runs := []app.Run{
 		{Status: "running", Synced: true},

@@ -170,6 +170,24 @@ func newProjectRows(projects []app.Project) []projectRow {
 	return out
 }
 
+type policyRow struct {
+	Name   string
+	Path   string
+	UsedBy string
+}
+
+func newPolicyRows(policies []app.PolicyConfiguration) []policyRow {
+	out := make([]policyRow, 0, len(policies))
+	for _, policy := range policies {
+		usedBy := strings.Join(policy.UsedBy, ", ")
+		if usedBy == "" {
+			usedBy = "-"
+		}
+		out = append(out, policyRow{Name: policy.Name, Path: policy.Path, UsedBy: usedBy})
+	}
+	return out
+}
+
 type profileRow struct {
 	Name     string
 	Agent    string

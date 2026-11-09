@@ -256,3 +256,23 @@ func TestImageNamesUsesCanonicalLocalReferences(t *testing.T) {
 		t.Fatalf("image names = %#v; want one canonical local reference", names)
 	}
 }
+
+func TestPoliciesPageRegistersReachableActions(t *testing.T) {
+	ui := &UI{
+		ctx: context.Background(),
+		app: &app.App{Store: app.Store{Base: t.TempDir()}},
+	}
+	primitive := ui.policiesPage()
+	if primitive == nil {
+		t.Fatal("policies page is nil")
+	}
+	if ui.contentFocus == nil {
+		t.Fatal("policies page did not register content focus")
+	}
+	if ui.currentActions == nil {
+		t.Fatal("policies page did not register action focus")
+	}
+	if ui.currentActions.GetButtonCount() == 0 {
+		t.Fatal("policies page has no action buttons")
+	}
+}

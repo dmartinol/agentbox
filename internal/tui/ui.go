@@ -340,8 +340,8 @@ func (ui *UI) render(page string) {
 		primitive = ui.gatewayInfoForm()
 	case "provider-form":
 		primitive = ui.providerForm()
-	case "policy-host-form":
-		primitive = ui.policyHostForm()
+	case "policy-create-form":
+		primitive = ui.policyCreateForm()
 	case "profile-form":
 		primitive = ui.profileForm()
 	case "project-form":
@@ -364,16 +364,42 @@ func (ui *UI) render(page string) {
 }
 
 func (ui *UI) showDynamic(page string, primitive tview.Primitive) {
+	ui.showDynamicWithFocus(page, primitive, primitive, nil)
+}
+
+func (ui *UI) showDynamicWithFocus(page string, primitive, content tview.Primitive, actions *tview.Form) {
 	ui.history = pushNavigation(ui.history, ui.current, page)
 	ui.dynamicPages[page] = primitive
 	ui.current = page
 	ui.currentContent = primitive
-	ui.contentFocus = primitive
-	ui.currentActions = nil
+	ui.contentFocus = content
+	ui.currentActions = actions
 	ui.pages.AddAndSwitchToPage(page, primitive, true)
 	ui.tapp.SetFocus(ui.contentFocus)
 	ui.header.SetText(ui.headerText())
 	ui.footer.SetText(helpFor(page))
+}
+
+func (ui *UI) showPolicyInspect(runID string) {
+	page := "policy-inspect:" + runID
+	ui.currentActions = nil
+	ui.contentFocus = nil
+	primitive := ui.policyInspectPage(runID)
+	content := ui.contentFocus
+	if content == nil {
+		content = primitive
+	}
+	ui.showDynamicWithFocus(page, primitive, content, ui.currentActions)
+}
+
+func (ui *UI) showPolicyHost(policyName string) {
+	primitive := ui.policyHostForm(policyName)
+	ui.showDynamic("policy-host:"+policyName, primitive)
+}
+
+func (ui *UI) showPolicyApply(policyName string) {
+	primitive := ui.policyApplyForm(policyName)
+	ui.showDynamic("policy-apply:"+policyName, primitive)
 }
 
 func (ui *UI) back() {
@@ -427,7 +453,7 @@ func parentSection(page string) string {
 		return "Profiles"
 	case "project-form":
 		return "Projects"
-	case "policy-host-form":
+	case "policy-create-form":
 		return "Policies"
 	default:
 		if strings.HasPrefix(page, "profile-edit:") {
@@ -442,16 +468,25 @@ func parentSection(page string) string {
 		if strings.HasPrefix(page, "logs:") || strings.HasPrefix(page, "diff:") {
 			return "Runs"
 		}
+		if strings.HasPrefix(page, "policy-inspect:") {
+			return "Runs"
+		}
+		if strings.HasPrefix(page, "policy-host:") || strings.HasPrefix(page, "policy-apply:") {
+			return "Policies"
+		}
 		return ""
 	}
 }
 
 func isFormPage(page string) bool {
 	switch page {
-	case "run-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-host-form", "profile-form", "project-form", pageSettings:
+	case "run-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-create-form", "profile-form", "project-form", pageSettings:
 		return true
 	default:
-		return strings.HasPrefix(page, "profile-edit:") || strings.HasPrefix(page, "project-edit:")
+		return strings.HasPrefix(page, "profile-edit:") ||
+			strings.HasPrefix(page, "project-edit:") ||
+			strings.HasPrefix(page, "policy-host:") ||
+			strings.HasPrefix(page, "policy-apply:")
 	}
 }
 
@@ -495,8 +530,8 @@ func pageTitle(page string) string {
 		return "Inspect gateway"
 	case "provider-form":
 		return "Set up provider"
-	case "policy-host-form":
-		return "Allow network host"
+	case "policy-create-form":
+		return "Create policy"
 	case "profile-form":
 		return "Create profile"
 	case "project-form":
@@ -516,6 +551,15 @@ func pageTitle(page string) string {
 		}
 		if strings.HasPrefix(page, "gateway-info:") {
 			return "Gateway info"
+		}
+		if strings.HasPrefix(page, "policy-inspect:") {
+			return "Policy inspection"
+		}
+		if strings.HasPrefix(page, "policy-host:") {
+			return "Add network host"
+		}
+		if strings.HasPrefix(page, "policy-apply:") {
+			return "Apply policy"
 		}
 		return "Unknown"
 	}

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -45,6 +47,12 @@ type Binary struct {
 	Path string `yaml:"path"`
 }
 
+type PolicyConfiguration struct {
+	Name   string   `json:"name"`
+	Path   string   `json:"path"`
+	UsedBy []string `json:"used_by,omitempty"`
+}
+
 func ParsePolicy(b []byte) (Policy, error) {
 	var p Policy
 	dec := yaml.NewDecoder(bytes.NewReader(b))
@@ -80,6 +88,147 @@ func ParsePolicy(b []byte) (Policy, error) {
 
 func DefaultPolicy() []byte {
 	return []byte("version: 1\nfilesystem_policy:\n  include_workdir: true\n  read_only:\n    - /usr\n    - /lib\n    - /etc\n    - /proc\n    - /dev/urandom\n  read_write:\n    - /workspace\n    - /tmp\n    - /dev/null\n    - /dev/pts\n    - /dev/ptmx\nlandlock:\n  compatibility: hard_requirement\nprocess:\n  run_as_user: sandbox\n  run_as_group: sandbox\nnetwork_policies: {}\n")
+}
+
+func (s Store) ListPolicyConfigurations() ([]PolicyConfiguration, error) {
+	entries, err := os.ReadDir(s.PolicyDir())
+	if errors.Is(err, os.ErrNotExist) {
+		return []PolicyConfiguration{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	runs, err := s.ListRuns()
+	if err != nil {
+		return nil, err
+	}
+	profiles, err := s.ListProfiles()
+	if err != nil {
+		return nil, err
+	}
+	runPolicies := make(map[string]struct{})
+	for _, run := range runs {
+		runPolicies[run.Policy] = struct{}{}
+		if run.PendingPolicy != "" {
+			runPolicies[run.PendingPolicy] = struct{}{}
+		}
+	}
+	usedBy := make(map[string][]string)
+	for _, profile := range profiles {
+		usedBy[profile.Policy] = append(usedBy[profile.Policy], profile.Name)
+	}
+	var out []PolicyConfiguration
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		name := strings.TrimSuffix(entry.Name(), ".yaml")
+		if !safeName.MatchString(name) {
+			continue
+		}
+		path := filepath.Join(s.PolicyDir(), entry.Name())
+		if _, ok := runPolicies[path]; ok {
+			continue
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := ParsePolicy(b); err != nil {
+			return nil, fmt.Errorf("policy %s: %w", name, err)
+		}
+		users := append([]string(nil), usedBy[path]...)
+		sort.Strings(users)
+		out = append(out, PolicyConfiguration{Name: name, Path: path, UsedBy: users})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (s Store) PolicyConfigurationPath(name string) (string, error) {
+	if !safeName.MatchString(name) {
+		return "", fmt.Errorf("invalid policy name")
+	}
+	return filepath.Join(s.PolicyDir(), name+".yaml"), nil
+}
+
+func (s Store) CreatePolicyConfiguration(name string) (PolicyConfiguration, error) {
+	path, err := s.PolicyConfigurationPath(name)
+	if err != nil {
+		return PolicyConfiguration{}, err
+	}
+	if err := s.Ensure(); err != nil {
+		return PolicyConfiguration{}, err
+	}
+	if _, err := os.Stat(path); err == nil {
+		return PolicyConfiguration{}, fmt.Errorf("policy %q already exists", name)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return PolicyConfiguration{}, err
+	}
+	if err := atomicWrite(path, DefaultPolicy()); err != nil {
+		return PolicyConfiguration{}, err
+	}
+	return PolicyConfiguration{Name: name, Path: path}, nil
+}
+
+func (s Store) EditPolicyConfiguration(ctx context.Context, name string) error {
+	path, err := s.PolicyConfigurationPath(name)
+	if err != nil {
+		return err
+	}
+	old, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if _, err := ParsePolicy(old); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(s.PolicyDir(), "edit-*.yaml")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(old); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := RunEditor(ctx, tmp.Name()); err != nil {
+		return err
+	}
+	next, err := os.ReadFile(tmp.Name())
+	if err != nil {
+		return err
+	}
+	if _, err := ParsePolicy(next); err != nil {
+		return err
+	}
+	return atomicWrite(path, next)
+}
+
+func (a *App) AddPolicyNetworkRule(policyName, agent, host string) error {
+	path, err := a.Store.PolicyConfigurationPath(policyName)
+	if err != nil {
+		return err
+	}
+	old, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if _, err := ParsePolicy(old); err != nil {
+		return err
+	}
+	next, err := addNetworkRule(old, agent, host, "")
+	if err != nil {
+		return err
+	}
+	return atomicWrite(path, next)
 }
 
 func (a *App) PolicyShow(ctx context.Context, runID string) (map[string]json.RawMessage, error) {
@@ -197,6 +346,59 @@ func addNetworkRule(old []byte, agent, host, binary string) ([]byte, error) {
 	net[name] = map[string]any{"name": name, "endpoints": []map[string]any{{"host": host, "port": 443, "protocol": "tcp"}}, "binaries": []map[string]any{{"path": binary}}}
 	root["network_policies"] = net
 	return yaml.Marshal(root)
+}
+
+func PolicyForAgent(policy []byte, agent string) ([]byte, error) {
+	parsed, err := ParsePolicy(policy)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := agentPackage(agent); err != nil {
+		return nil, err
+	}
+	agentBinary := "/usr/local/bin/" + agentCommand(agent)
+	for _, rule := range parsed.Network {
+		for i := range rule.Binaries {
+			if isAgentBinary(rule.Binaries[i].Path) {
+				rule.Binaries[i].Path = agentBinary
+			}
+		}
+	}
+	return yaml.Marshal(parsed)
+}
+
+func isAgentBinary(path string) bool {
+	return path == "/usr/local/bin/claude" || path == "/usr/local/bin/codex" || path == "/usr/local/bin/opencode"
+}
+
+func (a *App) ApplyPolicyConfiguration(ctx context.Context, policyName, runID string) error {
+	path, err := a.Store.PolicyConfigurationPath(policyName)
+	if err != nil {
+		return err
+	}
+	config, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if _, err := ParsePolicy(config); err != nil {
+		return err
+	}
+	run, err := a.Store.LoadRun(runID)
+	if err != nil {
+		return err
+	}
+	next, err := PolicyForAgent(config, run.Agent)
+	if err != nil {
+		return err
+	}
+	old, err := os.ReadFile(run.Policy)
+	if err != nil {
+		return err
+	}
+	if _, err := ParsePolicy(old); err != nil {
+		return err
+	}
+	return a.savePolicyEdit(ctx, run, old, next)
 }
 
 func policyHasStaticChanges(oldPolicy, newPolicy Policy) bool {

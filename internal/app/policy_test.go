@@ -46,6 +46,127 @@ func TestAddNetworkRuleProducesValidRuleAndRejectsBadInputs(t *testing.T) {
 	}
 }
 
+func TestListPolicyConfigurationsExcludesRunCopies(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	policyPath := filepath.Join(store.PolicyDir(), "standard.yaml")
+	if err := os.WriteFile(policyPath, DefaultPolicy(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runPolicy := filepath.Join(store.PolicyDir(), "run-unit123.yaml")
+	if err := os.WriteFile(runPolicy, DefaultPolicy(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	pendingPolicy := filepath.Join(store.PolicyDir(), "run-unit123-pending.yaml")
+	if err := os.WriteFile(pendingPolicy, DefaultPolicy(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	profile := Profile{
+		Version: 1, Name: "dev", Agent: "codex", Mode: "standard",
+		Provider: "provider", Policy: policyPath, Approval: "prompted",
+	}
+	if err := store.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(Run{ID: "run-unit123", Policy: runPolicy, PendingPolicy: pendingPolicy}); err != nil {
+		t.Fatal(err)
+	}
+	policies, err := store.ListPolicyConfigurations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(policies) != 1 {
+		t.Fatalf("policies = %#v; want only standard", policies)
+	}
+	if policies[0].Name != "standard" || policies[0].Path != policyPath {
+		t.Fatalf("unexpected policy: %+v", policies[0])
+	}
+	if len(policies[0].UsedBy) != 1 || policies[0].UsedBy[0] != "dev" {
+		t.Fatalf("policy users = %#v; want dev", policies[0].UsedBy)
+	}
+}
+
+func TestPolicyForAgentRewritesOnlyAgentBinary(t *testing.T) {
+	policy := strings.Replace(string(DefaultPolicy()), "network_policies: {}", `network_policies:
+  host-api:
+    name: host-api
+    endpoints:
+      - host: api.example.test
+        port: 443
+        protocol: tcp
+    binaries:
+      - path: /usr/local/bin/codex
+      - path: /usr/bin/curl
+`, 1)
+	got, err := PolicyForAgent([]byte(policy), "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParsePolicy(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := parsed.Network["host-api"]
+	if rule.Binaries[0].Path != "/usr/local/bin/claude" {
+		t.Fatalf("agent binary = %q; want claude", rule.Binaries[0].Path)
+	}
+	if rule.Binaries[1].Path != "/usr/bin/curl" {
+		t.Fatalf("tool binary changed: %q", rule.Binaries[1].Path)
+	}
+}
+
+func TestApplyPolicyConfigurationAdaptsAgentAndAppliesNetwork(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(store.PolicyDir(), "standard.yaml")
+	config := strings.Replace(string(DefaultPolicy()), "network_policies: {}", `network_policies:
+  host-api:
+    name: host-api
+    endpoints:
+      - host: api.example.test
+        port: 443
+        protocol: tcp
+    binaries:
+      - path: /usr/local/bin/codex
+      - path: /usr/bin/curl
+`, 1)
+	if err := os.WriteFile(configPath, []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runPolicy := filepath.Join(store.PolicyDir(), "run-unit123.yaml")
+	if err := os.WriteFile(runPolicy, DefaultPolicy(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run := Run{ID: "run-unit123", Policy: runPolicy, Sandbox: "sandbox-unit123", Gateway: "gateway-one", Agent: "claude"}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	app := App{Store: store, Runner: runner}
+	if err := app.ApplyPolicyConfiguration(context.Background(), "standard", run.ID); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := os.ReadFile(runPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParsePolicy(applied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := parsed.Network["host-api"]
+	if rule.Binaries[0].Path != "/usr/local/bin/claude" || rule.Binaries[1].Path != "/usr/bin/curl" {
+		t.Fatalf("applied binaries were not adapted correctly: %+v", rule.Binaries)
+	}
+	if len(runner.outputs) != 1 || runner.outputs[0].name != "openshell" || !commandHasArg(runner.outputs[0], "--wait") {
+		t.Fatalf("policy was not applied live: %#v", runner.outputs)
+	}
+}
+
 func TestSavePolicyEditDefersStaticChanges(t *testing.T) {
 	store := Store{Base: t.TempDir()}
 	if err := store.Ensure(); err != nil {

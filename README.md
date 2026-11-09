@@ -245,10 +245,13 @@ Keyboard navigation is available throughout the TUI:
 The TUI is organized around structured widgets rather than raw JSON output:
 
 - Tables for runs, images, gateways, profiles, projects, and doctor checks
-- Forms for creating profiles and projects, starting runs, building images, connecting gateways, setting up providers, and editing policies
+- Forms for creating profiles, projects, and reusable policies, starting runs, building images, connecting gateways, setting up providers, adding network hosts, and applying policies to runs
+- A Policies page for reusable policy configurations; per-run policy copies and pending policies are not listed as reusable configurations
+- A Runs → Policy action for inspecting the base, effective, and global policy of the selected run
+- Policy application that rewrites known agent binary paths for the selected run's agent while leaving tool binary paths unchanged
 - Start-run forms that show the selected profile's runtime values read-only; image, mode, model, and approval overrides are disabled until **Override profile** is enabled and start at `<None>`
 - A task console for long-running image, gateway, provider, and run operations, with captured command output, elapsed status, and Stop for cancellable commands
-- Tree views for nested gateway and policy data
+- Tree views for nested gateway data and the base, effective, and global policies for a selected run
 - Modal dialogs for destructive actions
 - Direct calls to the internal application layer instead of shelling out to the CLI binary
 - Autocomplete suggestions for saved profiles, local images, gateways, providers, policies, run IDs, and models

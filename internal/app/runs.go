@@ -67,6 +67,10 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 		}
 		return Run{}, err
 	}
+	policy, err = PolicyForAgent(policy, p.Agent)
+	if err != nil {
+		return Run{}, err
+	}
 	if _, err := ParsePolicy(policy); err != nil {
 		return Run{}, err
 	}

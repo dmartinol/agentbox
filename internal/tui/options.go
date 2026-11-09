@@ -2,8 +2,6 @@ package tui
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -105,16 +103,13 @@ func (ui *UI) modelSuggestions() []string {
 }
 
 func (ui *UI) policyPaths() []string {
-	entries, err := os.ReadDir(ui.app.Store.PolicyDir())
+	policies, err := ui.app.Store.ListPolicyConfigurations()
 	if err != nil {
 		return nil
 	}
 	var paths []string
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
-			continue
-		}
-		paths = append(paths, filepath.Join(ui.app.Store.PolicyDir(), entry.Name()))
+	for _, policy := range policies {
+		paths = append(paths, policy.Path)
 	}
 	return uniqueSorted(paths)
 }
