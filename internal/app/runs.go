@@ -13,7 +13,7 @@ import (
 
 const bootstrapScript = `#!/bin/sh
 set -eu
-tmux new-session -d -s agent /bin/sh /workspace/state/agent.sh
+tmux new-session -d -s agent /bin/sh /workspace/state/session.sh
 tmux set-option -g remain-on-exit on
 tmux pipe-pane -t agent -o 'cat >> /workspace/state/agent.log'
 while [ "$(tmux display-message -p -t agent '#{pane_dead}')" != 1 ]; do sleep 1; done

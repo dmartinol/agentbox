@@ -129,3 +129,16 @@ func TestProviderSetupKeepsCredentialValueOutOfGeneratedData(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionScriptOffersIdleReattach(t *testing.T) {
+	for _, want := range []string{
+		"Keep this run idle for reattach?",
+		"Restart: /bin/sh /workspace/state/agent.sh",
+		"Detach: Ctrl-b d",
+		"touch /workspace/finished",
+	} {
+		if !strings.Contains(sessionScript, want) {
+			t.Fatalf("session script missing %q:\n%s", want, sessionScript)
+		}
+	}
+}

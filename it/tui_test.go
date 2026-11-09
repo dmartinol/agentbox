@@ -53,6 +53,17 @@ func TestTUICompleteLayeredNavigation(t *testing.T) {
 	}
 
 	openshell := `#!/bin/sh
+is_sandbox_exec=0
+has_sandbox=0
+has_exec=0
+for arg in "$@"; do
+  [ "$arg" = "sandbox" ] && has_sandbox=1
+  [ "$arg" = "exec" ] && has_exec=1
+done
+if [ "$has_sandbox" = 1 ] && [ "$has_exec" = 1 ]; then
+  printf '%s\n' 'ATTACH_DONE'
+  exit 0
+fi
 case "$1" in
   status)
     printf '%s\n' '{"status":"connected","version":"test"}'
@@ -222,8 +233,7 @@ fi
 		if page == "Runs" {
 			press(t, "\t", "Focus:Actions")
 			press(t, "\x1b[C", "Focus:Actions") // Move from Start to Attach.
-			press(t, "\r", "Focus:Actions")     // Attach the selected run.
-			press(t, "\x1b", "Focus:Content")
+			press(t, "\r", "ATTACH_DONE", "Focus:Content")
 			press(t, "\x1b", "Focus:Pages")
 			continue
 		}

@@ -111,7 +111,7 @@ To start it:
 
 ## Attach behavior
 
-The Runs page selects the first run by default, so the action bar can attach immediately. Attaching opens the run's persistent tmux session. When the agent exits, AgentBox records the finished marker and closes the tmux session so the attaching CLI or TUI returns instead of hanging on a dead pane.
+The Runs page selects the first run by default, so the action bar can attach immediately. Attaching opens the run's persistent tmux session. When the agent exits, the session asks whether to keep the run idle for later reattachment or finish it. Keeping it idle leaves an interactive shell in the run checkout, with instructions for restarting the agent. Choosing finish writes the finished marker and closes the tmux session so the attaching CLI or TUI returns.
 
 ## State location
 

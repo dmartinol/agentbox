@@ -187,7 +187,7 @@ func TestStartReportsMissingProfileAndPolicy(t *testing.T) {
 }
 
 func TestBootstrapKillsAgentSessionWhenAgentExits(t *testing.T) {
-	for _, want := range []string{"touch /workspace/finished", "tmux kill-session -t agent", "exec sleep infinity"} {
+	for _, want := range []string{"/workspace/state/session.sh", "touch /workspace/finished", "tmux kill-session -t agent", "exec sleep infinity"} {
 		if !strings.Contains(bootstrapScript, want) {
 			t.Fatalf("bootstrap script missing %q:\n%s", want, bootstrapScript)
 		}

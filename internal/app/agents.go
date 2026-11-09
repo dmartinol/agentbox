@@ -14,6 +14,38 @@ import (
 const enmaasHost = "api.enmaas.devshift.net"
 const enmaasURL = "https://api.enmaas.devshift.net"
 
+const sessionScript = `#!/bin/sh
+set -u
+cd /workspace/project
+/bin/sh /workspace/state/agent.sh
+status=$?
+while :; do
+  echo
+  echo "Agent session ended."
+  printf "Keep this run idle for reattach? [y]es/[f]inish: "
+  if ! IFS= read -r answer; then
+    answer=f
+  fi
+  case "$answer" in
+    y|Y|yes|YES)
+      echo
+      echo "Run kept idle. You can inspect or restart the agent here."
+      echo "Restart: /bin/sh /workspace/state/agent.sh"
+      echo "Detach: Ctrl-b d. Finish later by exiting this shell and choosing f."
+      /bin/sh
+      ;;
+    f|F|finish|FINISH|n|N|no|NO)
+      break
+      ;;
+    *)
+      echo "Enter y to keep the run idle or f to finish."
+      ;;
+  esac
+done
+touch /workspace/finished
+exit "$status"
+`
+
 func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string) (string, error) {
 	dir := filepath.Join(a.Store.RunsDir(), r.ID+"-config")
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -76,6 +108,9 @@ func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string)
 		return "", err
 	}
 	if err := os.WriteFile(filepath.Join(dir, "agent.sh"), []byte(script), 0700); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "session.sh"), []byte(sessionScript), 0700); err != nil {
 		return "", err
 	}
 	return dir, nil
