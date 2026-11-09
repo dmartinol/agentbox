@@ -80,11 +80,12 @@ func (ui *UI) runForm() tview.Primitive {
 	images := ui.imageNames()
 	gateways := ui.gatewayNames()
 	models := ui.modelSuggestions()
-
-	gateway := "openshell"
-	if len(gateways) > 0 {
-		gateway = gateways[0]
+	if len(gateways) == 0 {
+		gateways = []string{"openshell"}
 	}
+
+	const useProfile = "<None>"
+	gateway := gateways[0]
 	var (
 		profile  string
 		source   = "."
@@ -95,47 +96,94 @@ func (ui *UI) runForm() tview.Primitive {
 		prompt   string
 	)
 
-	modeOptions := []string{"", "standard", "enmaas"}
-	approvalOptions := []string{"", "prompted", "unattended"}
+	profileValues := tview.NewTextView().
+		SetLabel("Profile values (RO)").
+		SetScrollable(false).
+		SetWrap(true).
+		SetSize(5, 100)
 
+	profileDropdown := tview.NewDropDown().SetLabel("Profile")
+	sourceField := tview.NewInputField().SetLabel("Source checkout").SetText(source).SetFieldWidth(60)
+	gatewayDropdown := tview.NewDropDown().SetLabel("Gateway").SetOptions(gateways, func(text string, _ int) {
+		gateway = text
+	})
+
+	overrideValue := func(text string) string {
+		if text == useProfile {
+			return ""
+		}
+		return text
+	}
+	imageOptions := append([]string{useProfile}, images...)
+	modelOptions := append([]string{useProfile}, models...)
+	modeOptions := []string{useProfile, "standard", "enmaas"}
+	approvalOptions := []string{useProfile, "prompted", "unattended"}
+
+	imageDropdown := tview.NewDropDown().
+		SetLabel("Image override").
+		SetOptions(imageOptions, func(text string, _ int) { image = overrideValue(text) })
 	modeDropdown := tview.NewDropDown().
 		SetLabel("Mode override").
-		SetOptions(modeOptions, func(text string, _ int) { mode = text }).
-		SetCurrentOption(0)
+		SetOptions(modeOptions, func(text string, _ int) { mode = overrideValue(text) })
+	modelDropdown := tview.NewDropDown().
+		SetLabel("Model override").
+		SetOptions(modelOptions, func(text string, _ int) { model = overrideValue(text) })
 	approvalDropdown := tview.NewDropDown().
 		SetLabel("Approval override").
-		SetOptions(approvalOptions, func(text string, _ int) { approval = text }).
-		SetCurrentOption(0)
+		SetOptions(approvalOptions, func(text string, _ int) { approval = overrideValue(text) })
 
-	profileField := autocompleteInput("Profile", "", 40, profiles, nil)
-	sourceField := tview.NewInputField().SetLabel("Source checkout").SetText(source).SetFieldWidth(60)
-	gatewayField := autocompleteInput("Gateway", gateway, 40, gateways, nil)
-	imageField := autocompleteInput("Image override", "", 60, images, func(text string) { image = text })
-	modelField := autocompleteInput("Model override", "", 50, models, func(text string) { model = text })
-	profileField.SetChangedFunc(func(text string) {
-		profile = text
-		if saved, err := ui.app.Store.LoadProfile(text); err == nil {
-			imageField.SetText(saved.Image)
-			modelField.SetText(saved.Model)
-			modeDropdown.SetCurrentOption(optionIndex(modeOptions, saved.Mode))
-			approvalDropdown.SetCurrentOption(optionIndex(approvalOptions, saved.Approval))
-		}
-	})
-	sourceField.SetChangedFunc(func(text string) { source = text })
-	gatewayField.SetChangedFunc(func(text string) { gateway = text })
-	if len(profiles) > 0 {
-		profileField.SetText(profiles[0])
+	resetOverrides := func() {
+		imageDropdown.SetCurrentOption(0)
+		modeDropdown.SetCurrentOption(0)
+		modelDropdown.SetCurrentOption(0)
+		approvalDropdown.SetCurrentOption(0)
+		image, mode, model, approval = "", "", "", ""
 	}
+	setOverridesEnabled := func(enabled bool) {
+		for _, dropdown := range []*tview.DropDown{imageDropdown, modeDropdown, modelDropdown, approvalDropdown} {
+			dropdown.SetDisabled(!enabled)
+		}
+		if !enabled {
+			resetOverrides()
+		}
+	}
+	overrideCheckbox := tview.NewCheckbox().
+		SetLabel("Override profile").
+		SetChecked(false).
+		SetChangedFunc(func(checked bool) { setOverridesEnabled(checked) })
+	applyProfile := func(name string) {
+		profile = name
+		saved, err := ui.app.Store.LoadProfile(name)
+		if err != nil {
+			profileValues.SetText("(profile values unavailable)")
+			resetOverrides()
+			return
+		}
+		profileValues.SetText(profileValueSummary(saved))
+		resetOverrides()
+	}
+	profileDropdown.SetOptions(profiles, func(text string, _ int) { applyProfile(text) })
+	profileDropdown.SetCurrentOption(0)
+	sourceField.SetChangedFunc(func(text string) { source = text })
+	gatewayDropdown.SetCurrentOption(0)
+	imageDropdown.SetCurrentOption(0)
+	modeDropdown.SetCurrentOption(0)
+	modelDropdown.SetCurrentOption(0)
+	approvalDropdown.SetCurrentOption(0)
+	setOverridesEnabled(false)
 
 	form := tview.NewForm().
-		AddFormItem(profileField).
+		AddFormItem(profileDropdown).
 		AddFormItem(sourceField).
-		AddFormItem(gatewayField).
-		AddFormItem(imageField).
-		AddFormItem(modeDropdown).
-		AddFormItem(modelField).
-		AddFormItem(approvalDropdown).
+		AddFormItem(gatewayDropdown).
+		AddFormItem(profileValues).
 		AddInputField("Prompt", "", 80, nil, func(text string) { prompt = text }).
+		AddFormItem(overrideCheckbox).
+		AddTextView("Overrides", "Enable Override profile to edit.", 100, 1, false, false).
+		AddFormItem(imageDropdown).
+		AddFormItem(modeDropdown).
+		AddFormItem(modelDropdown).
+		AddFormItem(approvalDropdown).
 		AddButton("Start", func() {
 			ui.asyncTo(pageRuns, func() error {
 				_, err := ui.app.Start(ui.ctx, app.StartOptions{
@@ -153,7 +201,23 @@ func (ui *UI) runForm() tview.Primitive {
 		}).
 		AddButton("Cancel", func() { ui.show(pageRuns) })
 	form.SetBorder(true).SetTitle(" Start run ")
+	form.SetItemPadding(0)
 	return form
+}
+
+func profileValueSummary(p app.Profile) string {
+	return fmt.Sprintf("Agent: %s\nMode: %s    Model: %s\nApproval: %s\nImage: %s\nProvider: %s",
+		p.Agent, p.Mode, shortenValue(p.Model, 16), p.Approval, shortenValue(p.Image, 20), shortenValue(p.Provider, 20))
+}
+
+func shortenValue(value string, max int) string {
+	if len(value) <= max {
+		return value
+	}
+	if max <= 3 {
+		return value[:max]
+	}
+	return "..." + value[len(value)-(max-3):]
 }
 
 func (ui *UI) imageVersionForm() tview.Primitive {

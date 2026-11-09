@@ -175,6 +175,7 @@ The TUI is organized around structured widgets rather than raw JSON output:
 
 - Tables for runs, images, gateways, profiles, and doctor checks
 - Forms for creating profiles, starting runs, building images, connecting gateways, setting up providers, and editing policies
+- Start-run forms that show the selected profile's runtime values read-only; image, mode, model, and approval overrides are disabled until **Override profile** is enabled and start at `<None>`
 - Tree views for nested gateway and policy data
 - Modal dialogs for destructive actions
 - Direct calls to the internal application layer instead of shelling out to the CLI binary
