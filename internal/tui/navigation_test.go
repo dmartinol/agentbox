@@ -45,6 +45,28 @@ func TestPushNavigationCoalescesAndBoundsHistory(t *testing.T) {
 	}
 }
 
+func TestSectionPagesFollowFunctionalPriority(t *testing.T) {
+	want := []string{
+		pageDashboard,
+		pageRuns,
+		pageProjects,
+		pageProfiles,
+		pageImages,
+		pageGateways,
+		pagePolicies,
+		pageSettings,
+		pageDoctor,
+	}
+	if len(sectionPages) != len(want) {
+		t.Fatalf("section pages = %#v; want %#v", sectionPages, want)
+	}
+	for i := range want {
+		if sectionPages[i] != want[i] {
+			t.Fatalf("section page %d = %q; want %q", i, sectionPages[i], want[i])
+		}
+	}
+}
+
 func TestBreadcrumbAndParentSection(t *testing.T) {
 	cases := map[string]string{
 		pageDashboard:        "AgentBox / Dashboard",

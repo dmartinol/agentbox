@@ -26,11 +26,11 @@ const (
 var sectionPages = []string{
 	pageDashboard,
 	pageRuns,
+	pageProjects,
+	pageProfiles,
 	pageImages,
 	pageGateways,
 	pagePolicies,
-	pageProfiles,
-	pageProjects,
 	pageSettings,
 	pageDoctor,
 }
@@ -86,11 +86,11 @@ func (ui *UI) buildLayout() {
 		ShowSecondaryText(true).
 		AddItem("Dashboard", "Overview", 'd', func() { ui.show(pageDashboard) }).
 		AddItem("Runs", "Workloads", 'r', func() { ui.show(pageRuns) }).
+		AddItem("Projects", "Configuration", 'j', func() { ui.show(pageProjects) }).
+		AddItem("Profiles", "Configuration", 'o', func() { ui.show(pageProfiles) }).
 		AddItem("Images", "Workloads", 'i', func() { ui.show(pageImages) }).
 		AddItem("Gateways", "Infrastructure", 'g', func() { ui.show(pageGateways) }).
 		AddItem("Policies", "Infrastructure", 'p', func() { ui.show(pagePolicies) }).
-		AddItem("Profiles", "Configuration", 'o', func() { ui.show(pageProfiles) }).
-		AddItem("Projects", "Configuration", 'j', func() { ui.show(pageProjects) }).
 		AddItem("Settings", "Configuration", 's', func() { ui.show(pageSettings) }).
 		AddItem("Doctor", "Diagnostics", 'x', func() { ui.show(pageDoctor) })
 	ui.navigation.SetBorder(true).SetTitle(" Navigation ")

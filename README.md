@@ -240,7 +240,7 @@ Keyboard navigation is available throughout the TUI:
 - `Enter` selects or activates the focused element
 - The header shows the breadcrumb, history affordances, and the current focus layer
 - The focused layer is color-coded: pages are orange, content is blue, and actions are green
-- The navigation sidebar groups sections by purpose: overview, workloads, infrastructure, configuration, and diagnostics. **Settings** manages global worktree placement and branch naming.
+- The navigation sidebar follows functional priority: overview and runs first, project/profile setup next, then image, gateway, and policy dependencies, followed by settings and diagnostics. **Settings** manages global worktree placement and branch naming.
 
 The TUI is organized around structured widgets rather than raw JSON output:
 

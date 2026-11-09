@@ -212,11 +212,11 @@ fi
 	// Visit every main section. Each non-empty page has content and action layers.
 	pages := []string{
 		"Runs",
+		"Projects",
+		"Profiles",
 		"Images",
 		"Gateways",
 		"Policies",
-		"Profiles",
-		"Projects",
 		"Settings",
 		"Doctor",
 	}
@@ -271,7 +271,7 @@ fi
 		}
 
 		if page == "Settings" {
-			press(t, "\x1b", "AgentBox/Projects", "Focus:Content")
+			press(t, "\x1b", "AgentBox/Policies", "Focus:Content")
 			press(t, "\x1b", "Focus:Pages")
 			continue
 		}
@@ -285,12 +285,12 @@ fi
 
 	// Open a form from the Runs action bar and return with Esc.
 	press(t, "\x1b[A") // Doctor -> Settings
-	press(t, "\x1b[A") // Settings -> Projects
-	press(t, "\x1b[A") // Projects -> Profiles
-	press(t, "\x1b[A") // Profiles -> Policies
+	press(t, "\x1b[A") // Settings -> Policies
 	press(t, "\x1b[A") // Policies -> Gateways
 	press(t, "\x1b[A") // Gateways -> Images
-	press(t, "\x1b[A") // Images -> Runs
+	press(t, "\x1b[A") // Images -> Profiles
+	press(t, "\x1b[A") // Profiles -> Projects
+	press(t, "\x1b[A") // Projects -> Runs
 	press(t, "\r", "AgentBox/Runs", "Focus:Content")
 	press(t, "\t", "Focus:Actions")
 	press(t, "\x1b[C", "Focus:Actions")
