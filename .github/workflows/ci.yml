@@ -7,7 +7,13 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,4 +34,4 @@ jobs:
         run: go test -race ./...
 
       - name: Build
-        run: go build -o /tmp/agentbox ./cmd/agentbox
+        run: go build -o "$RUNNER_TEMP/agentbox" ./cmd/agentbox

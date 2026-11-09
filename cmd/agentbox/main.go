@@ -7,10 +7,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	"github.com/dmartinol/agentbox/internal/app"
 	"github.com/dmartinol/agentbox/internal/tui"
+)
+
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
 )
 
 func main() {
@@ -34,6 +41,10 @@ func flags(name string) *flag.FlagSet {
 func dispatch(ctx context.Context, a *app.App, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
 		usage()
+		return nil
+	}
+	if args[0] == "version" || args[0] == "--version" || args[0] == "-version" {
+		fmt.Println(versionString())
 		return nil
 	}
 	switch args[0] {
@@ -76,6 +87,7 @@ func dispatch(ctx context.Context, a *app.App, args []string) error {
 
 func usage() {
 	fmt.Println("AgentBox — OpenShell agent runner")
+	fmt.Println("  version")
 	fmt.Println("  doctor [--json]")
 	fmt.Println("  profile create|edit|show|list")
 	fmt.Println("  image versions|build|list|push|pull")
@@ -84,6 +96,21 @@ func usage() {
 	fmt.Println("  policy show|edit")
 	fmt.Println("  run start|list|show|attach|logs|stop|sync|diff|delete")
 	fmt.Println("  tui")
+}
+
+func versionString() string {
+	v := version
+	if v == "dev" {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			if info.Main.Version != "" && info.Main.Version != "(devel)" {
+				v = info.Main.Version
+			}
+		}
+	}
+	if commit != "" && commit != "none" {
+		return fmt.Sprintf("%s (commit %s, built %s)", v, commit, date)
+	}
+	return v
 }
 
 func need(pos []string, n int) error {

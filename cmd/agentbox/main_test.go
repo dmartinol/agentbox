@@ -67,3 +67,14 @@ func (*appfakeRunner) Output(context.Context, string, ...string) ([]byte, error)
 func (*appfakeRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error {
 	return nil
 }
+
+func TestVersionOutputIsParseable(t *testing.T) {
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	output, err := captureStdout(t, func() error { return dispatch(context.Background(), a, []string{"--version"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output == "" {
+		t.Fatal("version output is empty")
+	}
+}

@@ -18,16 +18,50 @@ The current implementation provides:
 
 Unit tests cover the core behavior with temporary repositories and fake command runners. Live gateway, registry, policy-enforcement, and real-agent validation are not yet exercised.
 
-## Prerequisites
+## Install
 
-- Go 1.26 or newer
+### Go install
+
+Requires Go 1.26 or newer:
+
+```sh
+go install github.com/dmartinol/agentbox/cmd/agentbox@latest
+```
+
+Ensure Go's binary directory is on `PATH`:
+
+```sh
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+### GitHub Releases
+
+Download the archive for the current platform from:
+
+```text
+https://github.com/dmartinol/agentbox/releases
+```
+
+Release archives include the `agentbox` binary, README, and license, plus a `checksums.txt` file for verification.
+
+### First run
+
+```sh
+agentbox doctor
+agentbox tui
+```
+
+## Runtime prerequisites
+
+The installed binary still requires:
+
 - Git
 - Podman
 - OpenShell CLI
 - An OpenShell gateway
 - For image builds: Node.js and npm
 
-## Build
+## Build from source
 
 ```sh
 make build
@@ -43,7 +77,7 @@ make vet
 make race
 ```
 
-`go test ./...` also runs a PTY-driven TUI integration test that verifies direct section navigation, back/forward history, and quitting with `q`.
+`go test ./...` also runs a PTY-driven TUI integration test covering the layered pages/content/actions navigation model.
 
 ## Usage
 
