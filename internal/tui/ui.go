@@ -11,13 +11,14 @@ import (
 )
 
 const (
-	pageDashboard = "dashboard"
-	pageRuns      = "runs"
-	pageImages    = "images"
-	pageGateways  = "gateways"
-	pagePolicies  = "policies"
-	pageProfiles  = "profiles"
-	pageDoctor    = "doctor"
+	pageDashboard     = "dashboard"
+	pageRuns          = "runs"
+	pageImages        = "images"
+	pageGateways      = "gateways"
+	pagePolicies      = "policies"
+	pageProfiles      = "profiles"
+	pageDoctor        = "doctor"
+	pageImageRegistry = "image-registry"
 )
 
 var sectionPages = []string{
@@ -45,6 +46,7 @@ type UI struct {
 	currentContent tview.Primitive
 	contentFocus   tview.Primitive
 	currentActions *tview.Form
+	registryImages []string
 }
 
 // Run starts the AgentBox terminal user interface.
@@ -130,7 +132,7 @@ func (ui *UI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 			ui.setFocusLayer(1)
 			return nil
 		}
-		if isFormPage(ui.current) {
+		if isFormPage(ui.current) || parentSection(ui.current) != "" {
 			ui.back()
 			return nil
 		}
@@ -303,6 +305,8 @@ func (ui *UI) render(page string) {
 		primitive = ui.profilesPage()
 	case pageDoctor:
 		primitive = ui.doctorPage()
+	case pageImageRegistry:
+		primitive = ui.imageRegistryPage()
 	case "run-form":
 		primitive = ui.runForm()
 	case "image-version-form":
@@ -396,7 +400,7 @@ func parentSection(page string) string {
 	switch page {
 	case "run-form":
 		return "Runs"
-	case "image-version-form", "image-build-form", "image-push-form", "image-pull-form":
+	case "image-version-form", "image-build-form", "image-push-form", "image-pull-form", pageImageRegistry:
 		return "Images"
 	case "gateway-form", "gateway-info-form":
 		return "Gateways"
@@ -444,6 +448,8 @@ func pageTitle(page string) string {
 		return "Profiles"
 	case pageDoctor:
 		return "Doctor"
+	case pageImageRegistry:
+		return "Registry"
 	case "run-form":
 		return "Start run"
 	case "image-version-form":

@@ -171,3 +171,29 @@ func optionIndex(options []string, value string) int {
 	}
 	return 0
 }
+
+func (ui *UI) registryReferences() []string {
+	registry, err := ui.app.Registry()
+	if err != nil {
+		return nil
+	}
+	var refs []string
+	if registry.Reference != "" {
+		refs = append(refs, registry.NormalizedReference())
+	}
+	refs = append(refs, ui.registryImages...)
+	return uniqueSorted(refs)
+}
+
+func remoteRegistryReference(base, local string) string {
+	base = strings.TrimSuffix(strings.TrimSpace(base), "/")
+	if base == "" || local == "" {
+		return ""
+	}
+	tag := "latest"
+	lastSlash := strings.LastIndex(local, "/")
+	if colon := strings.LastIndex(local, ":"); colon > lastSlash {
+		tag = local[colon+1:]
+	}
+	return base + ":" + tag
+}

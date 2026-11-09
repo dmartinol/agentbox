@@ -230,6 +230,18 @@ fi
 			continue
 		}
 
+		if page == "Images" {
+			press(t, "\t", "Focus:Actions")
+			press(t, "\x1b[C", "Focus:Actions")
+			press(t, "\x1b[C", "Focus:Actions")
+			press(t, "\x1b[C", "Focus:Actions")
+			press(t, "\x1b[C", "Focus:Actions")
+			press(t, "\r", "AgentBox/Images/Registry", "Focus:Content")
+			press(t, "\x1b", "AgentBox/Images", "Focus:Content")
+			press(t, "\x1b", "Focus:Pages")
+			continue
+		}
+
 		if page == "Runs" {
 			press(t, "\t", "Focus:Actions")
 			press(t, "\x1b[C", "Focus:Actions") // Move from Start to Attach.

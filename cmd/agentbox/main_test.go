@@ -78,3 +78,27 @@ func TestVersionOutputIsParseable(t *testing.T) {
 		t.Fatal("version output is empty")
 	}
 }
+
+func TestImageRegistryShowSetClear(t *testing.T) {
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	if err := dispatch(context.Background(), a, []string{"image", "registry", "set", "quay.io/team/agentbox"}); err != nil {
+		t.Fatal(err)
+	}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"image", "registry", "show", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var registry app.Registry
+	if err := json.Unmarshal([]byte(output), &registry); err != nil || registry.Reference != "quay.io/team/agentbox" {
+		t.Fatalf("registry output = %s, %v", output, err)
+	}
+	if err := dispatch(context.Background(), a, []string{"image", "registry", "clear"}); err != nil {
+		t.Fatal(err)
+	}
+	registry, err = a.Registry()
+	if err != nil || registry.Reference != "" {
+		t.Fatalf("registry after clear = %+v, %v", registry, err)
+	}
+}

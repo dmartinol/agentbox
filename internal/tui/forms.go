@@ -189,10 +189,20 @@ func (ui *UI) imageBuildForm() tview.Primitive {
 
 func (ui *UI) imagePushForm() tview.Primitive {
 	images := ui.imageNames()
+	registry, _ := ui.app.Registry()
 	var localTag, remote string
+	remoteField := autocompleteInput("Remote reference", "", 90, ui.registryReferences(), func(text string) { remote = text })
+	localField := autocompleteInput("Local tag", "", 70, images, func(text string) {
+		localTag = text
+		if registry.Reference != "" {
+			if suggested := remoteRegistryReference(registry.NormalizedReference(), text); suggested != "" {
+				remoteField.SetText(suggested)
+			}
+		}
+	})
 	form := tview.NewForm().
-		AddFormItem(autocompleteInput("Local tag", "", 70, images, func(text string) { localTag = text })).
-		AddInputField("Remote reference", "", 80, nil, func(text string) { remote = text }).
+		AddFormItem(localField).
+		AddFormItem(remoteField).
 		AddButton("Push", func() {
 			ui.asyncTo(pageImages, func() error { return ui.app.ImagePush(ui.ctx, localTag, remote, false) })
 		}).
@@ -204,7 +214,7 @@ func (ui *UI) imagePushForm() tview.Primitive {
 func (ui *UI) imagePullForm() tview.Primitive {
 	var ref string
 	form := tview.NewForm().
-		AddInputField("Remote reference", "", 80, nil, func(text string) { ref = text }).
+		AddFormItem(autocompleteInput("Remote reference", "", 90, ui.registryReferences(), func(text string) { ref = text })).
 		AddButton("Pull", func() {
 			ui.asyncTo(pageImages, func() error { return ui.app.ImagePull(ui.ctx, ref, false) })
 		}).

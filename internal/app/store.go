@@ -318,3 +318,73 @@ func atomicWrite(path string, b []byte) error {
 }
 
 func runtimeGOOS() string { return runtime.GOOS }
+
+type Registry struct {
+	Reference string `yaml:"reference" json:"reference"`
+}
+
+func (s Store) RegistryPath() string { return filepath.Join(s.Base, "registry.yaml") }
+
+func (s Store) LoadRegistry() (Registry, error) {
+	b, err := os.ReadFile(s.RegistryPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return Registry{}, nil
+	}
+	if err != nil {
+		return Registry{}, err
+	}
+	var registry Registry
+	if err := yaml.Unmarshal(b, &registry); err != nil {
+		return Registry{}, err
+	}
+	if err := registry.Validate(); err != nil {
+		return Registry{}, err
+	}
+	return registry, nil
+}
+
+func (s Store) SaveRegistry(registry Registry) error {
+	if err := registry.Validate(); err != nil {
+		return err
+	}
+	if err := s.Ensure(); err != nil {
+		return err
+	}
+	b, err := yaml.Marshal(registry)
+	if err != nil {
+		return err
+	}
+	return atomicWrite(s.RegistryPath(), b)
+}
+
+func (s Store) ClearRegistry() error {
+	if err := os.Remove(s.RegistryPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func (r Registry) Validate() error {
+	reference := strings.TrimSpace(r.Reference)
+	if reference == "" {
+		return fmt.Errorf("registry reference is required")
+	}
+	if strings.Contains(reference, "://") || strings.ContainsAny(reference, " \t\r\n") {
+		return fmt.Errorf("registry reference must be an OCI repository without a scheme or spaces")
+	}
+	if strings.Contains(reference, "@") {
+		return fmt.Errorf("registry reference must not include a digest")
+	}
+	if !strings.Contains(reference, "/") {
+		return fmt.Errorf("registry reference must include a registry and repository path")
+	}
+	lastSlash := strings.LastIndex(reference, "/")
+	if strings.Contains(reference[lastSlash+1:], ":") {
+		return fmt.Errorf("registry reference must not include a tag")
+	}
+	return nil
+}
+
+func (r Registry) NormalizedReference() string {
+	return strings.TrimSuffix(strings.TrimSpace(r.Reference), "/")
+}

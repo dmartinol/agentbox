@@ -90,7 +90,7 @@ func usage() {
 	fmt.Println("  version")
 	fmt.Println("  doctor [--json]")
 	fmt.Println("  profile create|edit|show|list")
-	fmt.Println("  image versions|build|list|push|pull")
+	fmt.Println("  image versions|build|list|push|pull|registry")
 	fmt.Println("  gateway list|connect|start|info")
 	fmt.Println("  provider setup")
 	fmt.Println("  policy show|edit")
@@ -285,8 +285,71 @@ func imageCmd(ctx context.Context, a *app.App, args []string) error {
 			return err
 		}
 		return a.ImagePull(ctx, f.Args()[0], *dry)
+	case "registry":
+		return imageRegistryCmd(ctx, a, args[1:])
 	default:
 		return fmt.Errorf("unknown image command")
+	}
+}
+
+func imageRegistryCmd(ctx context.Context, a *app.App, args []string) error {
+	if len(args) == 0 {
+		args = []string{"show"}
+	}
+	switch args[0] {
+	case "show":
+		f := flags("image registry show")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		registry, err := a.Registry()
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(registry)
+		}
+		if registry.Reference == "" {
+			fmt.Println("no external registry configured")
+			return nil
+		}
+		fmt.Println(registry.NormalizedReference())
+		return nil
+	case "set":
+		f := flags("image registry set")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		return a.SetRegistry(f.Args()[0])
+	case "clear":
+		f := flags("image registry clear")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		return a.ClearRegistry()
+	case "discover":
+		f := flags("image registry discover")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		images, err := a.RegistryDiscover(ctx)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(images)
+		}
+		for _, image := range images {
+			fmt.Println(image)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown image registry command")
 	}
 }
 

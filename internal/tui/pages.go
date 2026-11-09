@@ -179,13 +179,68 @@ func (ui *UI) imagesPage() tview.Primitive {
 		AddButton("Discover", func() { ui.show("image-version-form") }).
 		AddButton("Build", func() { ui.show("image-build-form") }).
 		AddButton("Push", func() { ui.show("image-push-form") }).
-		AddButton("Pull", func() { ui.show("image-pull-form") })
+		AddButton("Pull", func() { ui.show("image-pull-form") }).
+		AddButton("Registry", func() { ui.show(pageImageRegistry) })
 	actions.SetBorder(true).SetTitle(" Image actions ")
 	ui.registerActions(actions)
 	return tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(table, 0, 4, true).
 		AddItem(actions, 5, 0, false)
+}
+
+func (ui *UI) imageRegistryPage() tview.Primitive {
+	registry, err := ui.app.Registry()
+	if err != nil {
+		return ui.errorPage(err)
+	}
+	reference := registry.NormalizedReference()
+	rows := make([][]string, 0, len(ui.registryImages))
+	for _, image := range ui.registryImages {
+		rows = append(rows, []string{image})
+	}
+	table := newTable([]string{"Discovered image"}, rows)
+	table.SetBorder(true).SetTitle(" External registry images ")
+	ui.registerContent(table)
+
+	referenceField := tview.NewInputField().
+		SetLabel("Registry repository").
+		SetText(reference).
+		SetFieldWidth(80)
+	form := tview.NewForm().
+		AddFormItem(referenceField).
+		AddButton("Save", func() {
+			value := strings.TrimSpace(referenceField.GetText())
+			ui.asyncTo(pageImageRegistry, func() error { return ui.app.SetRegistry(value) })
+		}).
+		AddButton("Discover", func() {
+			value := strings.TrimSpace(referenceField.GetText())
+			ui.asyncTo(pageImageRegistry, func() error {
+				if err := ui.app.SetRegistry(value); err != nil {
+					return err
+				}
+				images, err := ui.app.RegistryDiscover(ui.ctx)
+				if err != nil {
+					return err
+				}
+				ui.registryImages = images
+				return nil
+			})
+		}).
+		AddButton("Clear", func() {
+			ui.asyncTo(pageImageRegistry, func() error {
+				ui.registryImages = nil
+				return ui.app.ClearRegistry()
+			})
+		}).
+		AddButton("Cancel", func() { ui.show(pageImages) })
+	form.SetBorder(true).SetTitle(" Registry actions ")
+	ui.registerActions(form)
+
+	return tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(table, 0, 4, true).
+		AddItem(form, 8, 0, false)
 }
 
 func (ui *UI) gatewaysPage() tview.Primitive {

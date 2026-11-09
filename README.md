@@ -133,6 +133,17 @@ Build an image with a pinned version:
 ./agentbox image build --version 0.167.0 codex
 ```
 
+Configure an external image registry:
+
+```sh
+./agentbox image registry set quay.io/team/agentbox
+./agentbox image registry discover --json
+./agentbox image registry show --json
+./agentbox image registry clear
+```
+
+The registry setting is stored in the private AgentBox state directory. Discovery and push/pull use Podman's existing registry login. In the TUI, open **Images → Registry** to set the registry and discover tags.
+
 Start a run:
 
 ```sh
@@ -182,7 +193,7 @@ The Runs page selects the first run by default, so the action bar can attach imm
 
 ## State location
 
-AgentBox stores profiles, run records, worktrees, policies, and generated configuration outside this repository.
+AgentBox stores profiles, run records, worktrees, policies, registry settings, and generated configuration outside this repository.
 
 On macOS:
 
