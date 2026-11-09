@@ -15,8 +15,8 @@ func TestUniqueSorted(t *testing.T) {
 }
 
 func TestOptionIndex(t *testing.T) {
-	options := []string{"", "standard", "enmaas"}
-	if got := optionIndex(options, "enmaas"); got != 2 {
+	options := []string{"", "standard", "gateway"}
+	if got := optionIndex(options, "gateway"); got != 2 {
 		t.Fatalf("optionIndex = %d; want 2", got)
 	}
 	if got := optionIndex(options, "missing"); got != 0 {

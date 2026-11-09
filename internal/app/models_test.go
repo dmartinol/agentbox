@@ -26,10 +26,10 @@ func TestFetchModelIDs(t *testing.T) {
 	}
 }
 
-func TestEnMaaSMoelsWithoutKeyIsEmpty(t *testing.T) {
-	t.Setenv("ENMAAS_KEY", "")
+func TestGatewayModelsWithoutKeyIsEmpty(t *testing.T) {
+	t.Setenv("UNIT_MODEL_KEY", "")
 	app := App{}
-	ids, err := app.EnMaaSMoels(context.Background())
+	ids, err := app.GatewayModels(context.Background(), "https://models.example.test/v1", "UNIT_MODEL_KEY")
 	if err != nil {
 		t.Fatal(err)
 	}

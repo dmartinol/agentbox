@@ -119,7 +119,6 @@ fi
 		"AGENTBOX_HOME="+stateDir,
 		"PATH="+stubDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"TERM=xterm-256color",
-		"ENMAAS_KEY=",
 	)
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 140})

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,18 +20,21 @@ import (
 
 var safeName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 var secretName = regexp.MustCompile(`(?i)(key|token|secret|password|credential)`)
+var envName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
 type Profile struct {
-	Version  int      `yaml:"version" json:"version"`
-	Name     string   `yaml:"name" json:"name"`
-	Agent    string   `yaml:"agent" json:"agent"`
-	Image    string   `yaml:"image" json:"image"`
-	Mode     string   `yaml:"mode" json:"mode"`
-	Model    string   `yaml:"model" json:"model"`
-	Provider string   `yaml:"provider" json:"provider"`
-	Policy   string   `yaml:"policy" json:"policy"`
-	Approval string   `yaml:"approval" json:"approval"`
-	Args     []string `yaml:"args,omitempty" json:"args,omitempty"`
+	Version   int      `yaml:"version" json:"version"`
+	Name      string   `yaml:"name" json:"name"`
+	Agent     string   `yaml:"agent" json:"agent"`
+	Image     string   `yaml:"image" json:"image"`
+	Mode      string   `yaml:"mode" json:"mode"`
+	Model     string   `yaml:"model" json:"model"`
+	Provider  string   `yaml:"provider" json:"provider"`
+	Policy    string   `yaml:"policy" json:"policy"`
+	Approval  string   `yaml:"approval" json:"approval"`
+	BaseURL   string   `yaml:"base_url,omitempty" json:"base_url,omitempty"`
+	APIKeyEnv string   `yaml:"api_key_env,omitempty" json:"api_key_env,omitempty"`
+	Args      []string `yaml:"args,omitempty" json:"args,omitempty"`
 }
 
 func (p Profile) Validate() error {
@@ -40,8 +44,8 @@ func (p Profile) Validate() error {
 	if p.Agent != "claude" && p.Agent != "codex" && p.Agent != "opencode" {
 		return fmt.Errorf("agent must be claude, codex, or opencode")
 	}
-	if p.Mode != "standard" && p.Mode != "enmaas" {
-		return fmt.Errorf("mode must be standard or enmaas")
+	if p.Mode != "standard" && p.Mode != "gateway" {
+		return fmt.Errorf("mode must be standard or gateway")
 	}
 	if p.Approval != "prompted" && p.Approval != "unattended" {
 		return fmt.Errorf("approval must be prompted or unattended")
@@ -52,8 +56,17 @@ func (p Profile) Validate() error {
 	if p.Policy == "" {
 		return fmt.Errorf("policy path is required")
 	}
-	if p.Mode == "enmaas" && p.Model == "" {
-		return fmt.Errorf("enmaas mode requires an exact model ID")
+	if p.Mode == "gateway" {
+		if p.Model == "" {
+			return fmt.Errorf("gateway mode requires an exact model ID")
+		}
+		endpoint, err := url.Parse(p.BaseURL)
+		if p.BaseURL == "" || err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
+			return fmt.Errorf("gateway mode requires an absolute model API base URL")
+		}
+		if !envName.MatchString(p.APIKeyEnv) {
+			return fmt.Errorf("gateway mode requires an API key environment variable name")
+		}
 	}
 	for _, arg := range p.Args {
 		if strings.ContainsRune(arg, 0) || secretName.MatchString(arg) {

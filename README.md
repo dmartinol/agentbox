@@ -211,11 +211,59 @@ Configure global worktree placement and branch naming:
 New isolated runs use `<worktree-root>/<project>/<run-name>` and
 `<branch-prefix>/<project>/<run-name>`.
 
+### Model gateway configuration
+
+Gateway-mode profiles route agent model traffic through an OpenShell
+inference provider instead of a direct model-provider credential. Configuration
+is environment-agnostic: the gateway host, API base URL, and credential
+environment variable name are supplied per setup, never hard-coded.
+
+First create the OpenShell provider. `gateway-bearer` matches OpenAI-compatible
+APIs (Codex, OpenCode); `gateway-header` matches Anthropic-compatible APIs
+(Claude):
+
+```sh
+export MY_GATEWAY_KEY='...'
+./agentbox provider setup \
+  --type gateway-bearer \
+  --host models.example.com \
+  --credential MY_GATEWAY_KEY \
+  --gateway openshell \
+  my-gateway
+```
+
+Use `--dry-run` to preview the generated OpenShell provider profile. The
+credential is always referenced by environment variable name; its value is
+never written to AgentBox state or command arguments.
+
+Then create a profile that uses the provider:
+
+```sh
+./agentbox profile create \
+  --agent codex \
+  --image localhost/openshell:codex-0.167.0-r3 \
+  --mode gateway \
+  --model exact-model-id \
+  --base-url https://models.example.com/v1 \
+  --api-key-env MY_GATEWAY_KEY \
+  --provider my-gateway \
+  --approval unattended \
+  codex-gateway
+```
+
+`--base-url` is the OpenAI-compatible API base (typically ending in `/v1`).
+`--api-key-env` names the environment variable that holds the gateway key in
+the environment where the OpenShell gateway runs. For Claude profiles, the
+Anthropic-compatible base URL is derived by removing a trailing `/v1`.
+
+The `openai` and `anthropic` provider types remain available for `standard`
+mode profiles that use direct model-provider credentials.
+
 Start a run from a registered project:
 
 ```sh
-./agentbox run start --project dev --profile codex-enmaas --gateway openshell
-./agentbox run start --project dev --profile codex-enmaas --name auth-refactor --gateway openshell
+./agentbox run start --project dev --profile codex-gateway --gateway openshell
+./agentbox run start --project dev --profile codex-gateway --name auth-refactor --gateway openshell
 ```
 
 A run name is optional, must be unique within the project, and defaults to the
@@ -255,7 +303,7 @@ The TUI is organized around structured widgets rather than raw JSON output:
 - Modal dialogs for destructive actions
 - Direct calls to the internal application layer instead of shelling out to the CLI binary
 - Autocomplete suggestions for saved profiles, local images, gateways, providers, policies, run IDs, and models
-- EnMaaS model discovery from the configured endpoint when `ENMAAS_KEY` is available
+- Model discovery from the OpenAI-compatible discovery endpoint of saved gateway profiles when their API key environment variable is available
 
 To start it:
 

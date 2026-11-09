@@ -71,16 +71,18 @@ func (ui *UI) profileFormFor(existing *app.Profile) tview.Primitive {
 	policies := ui.policyPaths()
 
 	var (
-		name     string
-		agent    = "codex"
-		image    string
-		mode     = "standard"
-		model    string
-		provider string
-		policy   string
-		approval = "prompted"
-		title    = " Create profile "
-		args     []string
+		name      string
+		agent     = "codex"
+		image     string
+		mode      = "standard"
+		model     string
+		provider  string
+		policy    string
+		approval  = "prompted"
+		baseURL   string
+		apiKeyEnv string
+		title     = " Create profile "
+		args      []string
 	)
 	if existing != nil {
 		name = existing.Name
@@ -91,6 +93,8 @@ func (ui *UI) profileFormFor(existing *app.Profile) tview.Primitive {
 		provider = existing.Provider
 		policy = existing.Policy
 		approval = existing.Approval
+		baseURL = existing.BaseURL
+		apiKeyEnv = existing.APIKeyEnv
 		args = append([]string(nil), existing.Args...)
 		title = " Edit profile: " + name + " "
 	}
@@ -108,11 +112,13 @@ func (ui *UI) profileFormFor(existing *app.Profile) tview.Primitive {
 		AddFormItem(nameField).
 		AddDropDown("Agent", agents, optionIndex(agents, agent), func(text string, _ int) { agent = text }).
 		AddFormItem(autocompleteInput("Image", image, 60, images, func(text string) { image = text })).
-		AddDropDown("Mode", []string{"standard", "enmaas"}, optionIndex([]string{"standard", "enmaas"}, mode), func(text string, _ int) { mode = text }).
+		AddDropDown("Mode", []string{"standard", "gateway"}, optionIndex([]string{"standard", "gateway"}, mode), func(text string, _ int) { mode = text }).
 		AddFormItem(autocompleteInput("Model", model, 50, models, func(text string) { model = text })).
 		AddFormItem(autocompleteInput("Provider", provider, 40, providers, func(text string) { provider = text })).
 		AddFormItem(autocompleteInput("Policy", policy, 80, policies, func(text string) { policy = text })).
 		AddDropDown("Approval", []string{"prompted", "unattended"}, optionIndex([]string{"prompted", "unattended"}, approval), func(text string, _ int) { approval = text }).
+		AddInputField("Base URL", baseURL, 60, nil, func(text string) { baseURL = text }).
+		AddInputField("API key env", apiKeyEnv, 30, nil, func(text string) { apiKeyEnv = text }).
 		AddButton("Save", func() {
 			ui.asyncTo(pageProfiles, func() error {
 				if policy == "" {
@@ -129,16 +135,18 @@ func (ui *UI) profileFormFor(existing *app.Profile) tview.Primitive {
 					return fmt.Errorf("policy file does not exist: %s", policy)
 				}
 				return ui.app.Store.SaveProfile(app.Profile{
-					Version:  1,
-					Name:     name,
-					Agent:    agent,
-					Image:    image,
-					Mode:     mode,
-					Model:    model,
-					Provider: provider,
-					Policy:   policy,
-					Approval: approval,
-					Args:     args,
+					Version:   1,
+					Name:      name,
+					Agent:     agent,
+					Image:     image,
+					Mode:      mode,
+					Model:     model,
+					Provider:  provider,
+					Policy:    policy,
+					Approval:  approval,
+					BaseURL:   baseURL,
+					APIKeyEnv: apiKeyEnv,
+					Args:      args,
 				})
 			})
 		}).
@@ -226,7 +234,7 @@ func (ui *UI) runForm() tview.Primitive {
 	}
 	imageOptions := append([]string{useProfile}, images...)
 	modelOptions := append([]string{useProfile}, models...)
-	modeOptions := []string{useProfile, "standard", "enmaas"}
+	modeOptions := []string{useProfile, "standard", "gateway"}
 	approvalOptions := []string{useProfile, "prompted", "unattended"}
 
 	imageDropdown := tview.NewDropDown().
@@ -507,14 +515,17 @@ func (ui *UI) providerForm() tview.Primitive {
 	if len(gateways) > 0 {
 		gateway = gateways[0]
 	}
-	var kind, name = "enmaas-bearer", ""
+	var kind, name, host = "gateway-bearer", "", ""
+	credential := "AGENTBOX_MODEL_KEY"
 	form := tview.NewForm().
-		AddDropDown("Type", []string{"enmaas-bearer", "enmaas-header", "openai", "anthropic"}, 0, func(text string, _ int) { kind = text }).
+		AddDropDown("Type", []string{"gateway-bearer", "gateway-header", "openai", "anthropic"}, 0, func(text string, _ int) { kind = text }).
 		AddInputField("Provider name", "", 30, nil, func(text string) { name = text }).
+		AddInputField("Gateway host", host, 50, nil, func(text string) { host = text }).
+		AddInputField("API key env", credential, 30, nil, func(text string) { credential = text }).
 		AddFormItem(autocompleteInput("Gateway", gateway, 40, gateways, func(text string) { gateway = text })).
 		AddButton("Set up", func() {
 			ui.runTask("Set up provider", pageProfiles, true, func(ctx context.Context, a *app.App, _ io.Writer) error {
-				return a.ProviderSetup(ctx, kind, name, gateway, false, false)
+				return a.ProviderSetup(ctx, kind, name, host, credential, gateway, false, false)
 			})
 		}).
 		AddButton("Cancel", func() { ui.show(pageProfiles) })

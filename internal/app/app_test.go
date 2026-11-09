@@ -22,7 +22,7 @@ func cmd(t *testing.T, dir, name string, args ...string) string {
 
 func TestProfileValidationAndStorage(t *testing.T) {
 	s := Store{Base: filepath.Join(t.TempDir(), "state")}
-	p := Profile{Version: 1, Name: "dev", Agent: "codex", Image: "localhost/openshell-codex:1.2.3-r1", Mode: "enmaas", Model: "rits/zai-org/glm-5-3", Provider: "enmaas-bearer", Policy: "/tmp/policy.yaml", Approval: "prompted"}
+	p := Profile{Version: 1, Name: "dev", Agent: "codex", Image: "localhost/openshell-codex:1.2.3-r1", Mode: "gateway", Model: "unit-model", Provider: "unit-provider", Policy: "/tmp/policy.yaml", Approval: "prompted", BaseURL: "https://models.example.test/v1", APIKeyEnv: "UNIT_MODEL_KEY"}
 	if err := s.SaveProfile(p); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestDirtySourceSnapshot(t *testing.T) {
 }
 
 func TestAgentScriptPromptAndPermission(t *testing.T) {
-	p := Profile{Version: 1, Name: "dev", Agent: "codex", Mode: "enmaas", Model: "rits/zai-org/glm-5-3", Provider: "enmaas-bearer", Policy: "/tmp/p", Approval: "prompted"}
+	p := Profile{Version: 1, Name: "dev", Agent: "codex", Mode: "gateway", Model: "unit-model", Provider: "unit-provider", Policy: "/tmp/p", Approval: "prompted", BaseURL: "https://models.example.test/v1", APIKeyEnv: "UNIT_MODEL_KEY"}
 	s, err := agentScript(p, "say 'ok'")
 	if err != nil {
 		t.Fatal(err)

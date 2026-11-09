@@ -32,7 +32,6 @@ func (runFormRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, st
 }
 
 func TestRunFormShowsReadOnlyProfileValuesAndNoneOverrides(t *testing.T) {
-	t.Setenv("ENMAAS_KEY", "")
 	store := app.Store{Base: t.TempDir()}
 	worktree := true
 	if err := store.SaveProject(app.Project{Version: 1, Name: "repo", Root: t.TempDir(), Worktree: &worktree}); err != nil {
@@ -40,7 +39,7 @@ func TestRunFormShowsReadOnlyProfileValuesAndNoneOverrides(t *testing.T) {
 	}
 	for _, profile := range []app.Profile{
 		{Version: 1, Name: "alpha", Agent: "codex", Image: "image-a", Mode: "standard", Model: "model-a", Provider: "provider-a", Policy: "/tmp/alpha.yaml", Approval: "prompted"},
-		{Version: 1, Name: "beta", Agent: "claude", Image: "image-b", Mode: "enmaas", Model: "model-b", Provider: "provider-b", Policy: "/tmp/beta.yaml", Approval: "unattended"},
+		{Version: 1, Name: "beta", Agent: "claude", Image: "image-b", Mode: "gateway", Model: "model-b", Provider: "provider-b", Policy: "/tmp/beta.yaml", Approval: "unattended", BaseURL: "https://models.example.test/v1", APIKeyEnv: "UNIT_MODEL_KEY"},
 	} {
 		if err := store.SaveProfile(profile); err != nil {
 			t.Fatal(err)
@@ -95,8 +94,8 @@ func TestRunFormShowsReadOnlyProfileValuesAndNoneOverrides(t *testing.T) {
 
 	mode := form.GetFormItemByLabel("Mode override").(*tview.DropDown)
 	mode.SetCurrentOption(2)
-	if _, value := mode.GetCurrentOption(); value != "enmaas" {
-		t.Fatalf("mode override = %q; want enmaas", value)
+	if _, value := mode.GetCurrentOption(); value != "gateway" {
+		t.Fatalf("mode override = %q; want gateway", value)
 	}
 
 	profile := form.GetFormItemByLabel("Profile").(*tview.DropDown)
@@ -105,7 +104,7 @@ func TestRunFormShowsReadOnlyProfileValuesAndNoneOverrides(t *testing.T) {
 	}
 	profile.SetCurrentOption(1)
 	text = details.GetText(true)
-	for _, want := range []string{"Agent: claude", "Image: image-b", "Mode: enmaas", "Model: model-b", "Approval: unattended"} {
+	for _, want := range []string{"Agent: claude", "Image: image-b", "Mode: gateway", "Model: model-b", "Approval: unattended"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("updated profile summary %q does not contain %q", text, want)
 		}
@@ -116,12 +115,11 @@ func TestRunFormShowsReadOnlyProfileValuesAndNoneOverrides(t *testing.T) {
 }
 
 func TestProfileEditFormIsPrefilled(t *testing.T) {
-	t.Setenv("ENMAAS_KEY", "")
 	store := app.Store{Base: t.TempDir()}
 	profile := app.Profile{
 		Version: 1, Name: "dev", Agent: "claude", Image: "image-dev",
-		Mode: "enmaas", Model: "model-dev", Provider: "provider-dev",
-		Policy: "/tmp/dev-policy.yaml", Approval: "unattended", Args: []string{"--flag"},
+		Mode: "gateway", Model: "model-dev", Provider: "provider-dev",
+		Policy: "/tmp/dev-policy.yaml", Approval: "unattended", BaseURL: "https://models.example.test/v1", APIKeyEnv: "UNIT_MODEL_KEY", Args: []string{"--flag"},
 	}
 	if err := store.SaveProfile(profile); err != nil {
 		t.Fatal(err)
@@ -150,7 +148,7 @@ func TestProfileEditFormIsPrefilled(t *testing.T) {
 	if got := form.GetFormItemByLabel("Policy").(*tview.InputField).GetText(); got != "/tmp/dev-policy.yaml" {
 		t.Fatalf("policy = %q", got)
 	}
-	for label, want := range map[string]string{"Agent": "claude", "Mode": "enmaas", "Approval": "unattended"} {
+	for label, want := range map[string]string{"Agent": "claude", "Mode": "gateway", "Approval": "unattended"} {
 		if _, got := form.GetFormItemByLabel(label).(*tview.DropDown).GetCurrentOption(); got != want {
 			t.Fatalf("%s = %q; want %q", label, got, want)
 		}
@@ -187,7 +185,6 @@ func TestImageBuildFormIncludesDiscoverLatestVersion(t *testing.T) {
 }
 
 func TestRunFormUsesProjectInsteadOfSourceCheckout(t *testing.T) {
-	t.Setenv("ENMAAS_KEY", "")
 	store := app.Store{Base: t.TempDir()}
 	worktree := false
 	if err := store.SaveProject(app.Project{Version: 1, Name: "repo", Root: t.TempDir(), Worktree: &worktree}); err != nil {

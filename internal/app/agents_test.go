@@ -11,21 +11,23 @@ import (
 
 func testProfile(agent, mode, approval string) Profile {
 	return Profile{
-		Version:  1,
-		Name:     "unit-profile",
-		Agent:    agent,
-		Image:    "localhost/openshell-" + agent + ":1.2.3-r3",
-		Mode:     mode,
-		Model:    "rits/zai-org/glm-5-3",
-		Provider: "unit-provider",
-		Policy:   "/tmp/unit-policy.yaml",
-		Approval: approval,
+		Version:   1,
+		Name:      "unit-profile",
+		Agent:     agent,
+		Image:     "localhost/openshell-" + agent + ":1.2.3-r3",
+		Mode:      mode,
+		Model:     "unit-model",
+		Provider:  "unit-provider",
+		Policy:    "/tmp/unit-policy.yaml",
+		Approval:  approval,
+		BaseURL:   "https://models.example.test/v1",
+		APIKeyEnv: "UNIT_MODEL_KEY",
 	}
 }
 
 func TestPrepareAgentGeneratesIsolatedConfigForEachAgentMode(t *testing.T) {
 	for _, agent := range []string{"claude", "codex", "opencode"} {
-		for _, mode := range []string{"standard", "enmaas"} {
+		for _, mode := range []string{"standard", "gateway"} {
 			t.Run(agent+"/"+mode, func(t *testing.T) {
 				store := Store{Base: t.TempDir()}
 				app := App{Store: store}
@@ -47,22 +49,22 @@ func TestPrepareAgentGeneratesIsolatedConfigForEachAgentMode(t *testing.T) {
 				if strings.Contains(string(script), "dangerously") || strings.Contains(string(script), "--auto") {
 					t.Fatalf("prompted config bypasses approval: %s", script)
 				}
-				if mode == "enmaas" {
+				if mode == "gateway" {
 					switch agent {
 					case "codex":
 						config, err := os.ReadFile(filepath.Join(dir, "home", ".codex", "config.toml"))
-						if err != nil || !strings.Contains(string(config), "ENMAAS_KEY") || !strings.Contains(string(config), enmaasURL+"/v1") {
-							t.Fatalf("Codex EnMaaS config lacks endpoint/reference: %v %s", err, config)
+						if err != nil || !strings.Contains(string(config), "UNIT_MODEL_KEY") || !strings.Contains(string(config), "https://models.example.test/v1") {
+							t.Fatalf("Codex gateway config lacks endpoint/reference: %v %s", err, config)
 						}
 					case "opencode":
 						config, err := os.ReadFile(filepath.Join(dir, "config", "opencode", "opencode.json"))
-						if err != nil || !json.Valid(config) || !strings.Contains(string(config), "ENMAAS_KEY") || !strings.Contains(string(config), enmaasURL+"/v1") {
-							t.Fatalf("OpenCode EnMaaS config lacks endpoint/reference: %v %s", err, config)
+						if err != nil || !json.Valid(config) || !strings.Contains(string(config), "UNIT_MODEL_KEY") || !strings.Contains(string(config), "https://models.example.test/v1") {
+							t.Fatalf("OpenCode gateway config lacks endpoint/reference: %v %s", err, config)
 						}
 					case "claude":
 						settings, err := os.ReadFile(filepath.Join(dir, "home", ".claude", "settings.json"))
-						if err != nil || !json.Valid(settings) || !strings.Contains(string(settings), enmaasURL) {
-							t.Fatalf("Claude EnMaaS endpoint missing: %v %s", err, settings)
+						if err != nil || !json.Valid(settings) || !strings.Contains(string(settings), "https://models.example.test") {
+							t.Fatalf("Claude gateway endpoint missing: %v %s", err, settings)
 						}
 					}
 				}
@@ -107,18 +109,18 @@ func TestAgentScriptApprovalModesAndArgumentGuards(t *testing.T) {
 
 func TestProviderSetupKeepsCredentialValueOutOfGeneratedData(t *testing.T) {
 	const sentinel = "unit-secret-must-not-be-written"
-	t.Setenv("ENMAAS_KEY", sentinel)
+	t.Setenv("UNIT_MODEL_KEY", sentinel)
 	runner := &fakeRunner{}
 	store := Store{Base: t.TempDir()}
 	app := App{Store: store, Runner: runner}
-	if err := app.ProviderSetup(context.Background(), "enmaas-bearer", "unit-provider", "gateway-one", false, false); err != nil {
+	if err := app.ProviderSetup(context.Background(), "gateway-bearer", "unit-provider", "models.example.test", "UNIT_MODEL_KEY", "gateway-one", false, false); err != nil {
 		t.Fatal(err)
 	}
-	provider, err := os.ReadFile(filepath.Join(store.ProfilesDir(), "agentbox-enmaas-bearer-provider.yaml"))
+	provider, err := os.ReadFile(filepath.Join(store.ProfilesDir(), "agentbox-gateway-bearer-models-example-test-provider.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(provider), sentinel) || !strings.Contains(string(provider), "ENMAAS_KEY") {
+	if strings.Contains(string(provider), sentinel) || !strings.Contains(string(provider), "UNIT_MODEL_KEY") {
 		t.Fatalf("provider profile leaked or omitted credential reference: %s", provider)
 	}
 	for _, call := range runner.outputs {

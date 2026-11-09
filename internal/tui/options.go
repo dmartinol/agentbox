@@ -96,8 +96,12 @@ func (ui *UI) modelSuggestions() []string {
 			}
 		}
 	}
-	if discovered, err := ui.app.EnMaaSMoels(ui.ctx); err == nil {
-		models = append(models, discovered...)
+	for _, profile := range profiles {
+		if profile.Mode == "gateway" && profile.BaseURL != "" && profile.APIKeyEnv != "" {
+			if discovered, err := ui.app.GatewayModels(ui.ctx, profile.BaseURL, profile.APIKeyEnv); err == nil {
+				models = append(models, discovered...)
+			}
+		}
 	}
 	return uniqueSorted(models)
 }

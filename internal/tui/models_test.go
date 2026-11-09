@@ -8,14 +8,14 @@ import (
 
 func TestNewRunRowsFormatsStructuredData(t *testing.T) {
 	runs := []app.Run{
-		{ID: "run-1", Agent: "codex", Mode: "enmaas", Approval: "unattended", Status: "running", Synced: false, Worktree: "/tmp/worktree"},
+		{ID: "run-1", Agent: "codex", Mode: "gateway", Approval: "unattended", Status: "running", Synced: false, Worktree: "/tmp/worktree"},
 	}
 	rows := newRunRows(runs)
 	if len(rows) != 1 {
 		t.Fatalf("rows = %d, want 1", len(rows))
 	}
 	row := rows[0]
-	if row.ID != "run-1" || row.Agent != "codex" || row.Mode != "enmaas" || row.Approval != "unattended" || row.Status != "running" || row.Synced != "no" || row.Worktree != "/tmp/worktree" {
+	if row.ID != "run-1" || row.Agent != "codex" || row.Mode != "gateway" || row.Approval != "unattended" || row.Status != "running" || row.Synced != "no" || row.Worktree != "/tmp/worktree" {
 		t.Fatalf("unexpected row: %+v", row)
 	}
 }

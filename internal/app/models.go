@@ -11,18 +11,16 @@ import (
 	"time"
 )
 
-const enmaasModelsURL = "https://api.enmaas.devshift.net/v1/models"
-
-// EnMaaSMoels returns model IDs advertised by the EnMaaS endpoint. It is a
-// best-effort convenience for form suggestions; missing credentials simply
-// produce an empty list rather than an error.
-func (a *App) EnMaaSMoels(ctx context.Context) ([]string, error) {
-	key := os.Getenv("ENMAAS_KEY")
+// GatewayModels returns model IDs advertised by a gateway's OpenAI-compatible
+// discovery endpoint. It is a best-effort convenience for form suggestions;
+// missing credentials simply produce an empty list rather than an error.
+func (a *App) GatewayModels(ctx context.Context, baseURL, keyEnv string) ([]string, error) {
+	key := os.Getenv(keyEnv)
 	if key == "" {
 		return nil, nil
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
-	return fetchModelIDs(ctx, client, enmaasModelsURL, key)
+	return fetchModelIDs(ctx, client, strings.TrimRight(baseURL, "/")+"/models", key)
 }
 
 func fetchModelIDs(ctx context.Context, client *http.Client, url, key string) ([]string, error) {

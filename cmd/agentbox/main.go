@@ -262,11 +262,13 @@ func profileCmd(ctx context.Context, a *app.App, args []string) error {
 		f := flags("profile create")
 		agent := f.String("agent", "", "claude, codex, opencode")
 		image := f.String("image", "", "local image reference")
-		mode := f.String("mode", "standard", "standard or enmaas")
+		mode := f.String("mode", "standard", "standard or gateway")
 		model := f.String("model", "", "exact default model")
 		provider := f.String("provider", "", "OpenShell provider name")
 		policy := f.String("policy", "", "sandbox policy path")
 		approval := f.String("approval", "prompted", "prompted or unattended")
+		baseURL := f.String("base-url", "", "gateway model API base URL")
+		apiKeyEnv := f.String("api-key-env", "", "environment variable holding the gateway API key")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -288,7 +290,7 @@ func profileCmd(ctx context.Context, a *app.App, args []string) error {
 		if _, err := os.Stat(*policy); err != nil {
 			return fmt.Errorf("policy file does not exist: %s", *policy)
 		}
-		p := app.Profile{Version: 1, Name: name, Agent: *agent, Image: *image, Mode: *mode, Model: *model, Provider: *provider, Policy: *policy, Approval: *approval}
+		p := app.Profile{Version: 1, Name: name, Agent: *agent, Image: *image, Mode: *mode, Model: *model, Provider: *provider, Policy: *policy, Approval: *approval, BaseURL: *baseURL, APIKeyEnv: *apiKeyEnv}
 		if err := a.Store.SaveProfile(p); err != nil {
 			return err
 		}
@@ -621,7 +623,9 @@ func providerCmd(ctx context.Context, a *app.App, args []string) error {
 		return fmt.Errorf("provider setup required")
 	}
 	f := flags("provider setup")
-	kind := f.String("type", "enmaas-bearer", "enmaas-bearer, enmaas-header, openai, or anthropic")
+	kind := f.String("type", "gateway-bearer", "gateway-bearer, gateway-header, openai, or anthropic")
+	host := f.String("host", "", "gateway host (gateway provider types)")
+	credential := f.String("credential", "AGENTBOX_MODEL_KEY", "environment variable holding the API key")
 	gateway := f.String("gateway", "", "gateway name")
 	dry := f.Bool("dry-run", false, "preview")
 	update := f.Bool("update", false, "update an existing AgentBox provider profile")
@@ -631,7 +635,7 @@ func providerCmd(ctx context.Context, a *app.App, args []string) error {
 	if err := need(f.Args(), 1); err != nil {
 		return err
 	}
-	return a.ProviderSetup(ctx, *kind, f.Args()[0], *gateway, *dry, *update)
+	return a.ProviderSetup(ctx, *kind, f.Args()[0], *host, *credential, *gateway, *dry, *update)
 }
 
 func policyCmd(ctx context.Context, a *app.App, args []string) error {

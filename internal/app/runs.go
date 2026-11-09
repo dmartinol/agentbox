@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -206,7 +207,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", prep); err != nil {
 		return r, err
 	}
-	if err := a.VerifyEffectivePolicy(ctx, r); err != nil {
+	if err := a.VerifyEffectivePolicy(ctx, r, p); err != nil {
 		r.Status = "policy-blocked"
 		_ = a.Store.SaveRun(r)
 		return r, err
@@ -218,18 +219,22 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	return r, a.Store.SaveRun(r)
 }
 
-func (a *App) VerifyEffectivePolicy(ctx context.Context, r Run) error {
+func (a *App) VerifyEffectivePolicy(ctx context.Context, r Run, p Profile) error {
 	b, err := a.Runner.Output(ctx, "openshell", "policy", "get", r.Sandbox, "--full", "-o", "json", "--gateway", r.Gateway)
 	if err != nil {
 		return err
 	}
 	s := strings.ToLower(string(b))
-	if r.Mode == "enmaas" {
-		if !strings.Contains(s, enmaasHost) {
-			return fmt.Errorf("effective policy lacks EnMaaS endpoint; provider not ready")
+	if r.Mode == "gateway" {
+		endpoint, err := url.Parse(p.BaseURL)
+		if err != nil || endpoint.Host == "" {
+			return fmt.Errorf("gateway profile lacks a valid model API base URL")
+		}
+		if !strings.Contains(s, strings.ToLower(endpoint.Host)) {
+			return fmt.Errorf("effective policy lacks gateway endpoint %q; provider not ready", endpoint.Host)
 		}
 		if strings.Contains(s, "api.openai.com") || strings.Contains(s, "api.anthropic.com") {
-			return fmt.Errorf("effective policy allows direct model-provider egress in EnMaaS mode")
+			return fmt.Errorf("effective policy allows direct model-provider egress in gateway mode")
 		}
 	}
 	if r.Approval == "unattended" {

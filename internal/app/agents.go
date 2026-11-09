@@ -4,15 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
-
-const enmaasHost = "api.enmaas.devshift.net"
-const enmaasURL = "https://api.enmaas.devshift.net"
 
 const sessionScript = `#!/bin/sh
 set -u
@@ -61,13 +59,13 @@ func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string)
 		if err := os.MkdirAll(config, 0700); err != nil {
 			return "", err
 		}
-		if p.Mode == "enmaas" {
-			body := fmt.Sprintf("[model_providers.enmaas]\nname = \"EnMaaS\"\nbase_url = \"%s/v1\"\nenv_key = \"ENMAAS_KEY\"\nwire_api = \"responses\"\nrequires_openai_auth = false\n", enmaasURL)
+		if p.Mode == "gateway" {
+			body := fmt.Sprintf("[model_providers.gateway]\nname = \"Model gateway\"\nbase_url = %q\nenv_key = %q\nwire_api = \"responses\"\nrequires_openai_auth = false\n", p.BaseURL, p.APIKeyEnv)
 			if err := os.WriteFile(filepath.Join(config, "config.toml"), []byte(body), 0600); err != nil {
 				return "", err
 			}
-			profile := fmt.Sprintf("model = %q\nmodel_provider = \"enmaas\"\nweb_search = \"disabled\"\n", p.Model)
-			if err := os.WriteFile(filepath.Join(config, "enmaas.config.toml"), []byte(profile), 0600); err != nil {
+			profile := fmt.Sprintf("model = %q\nmodel_provider = \"gateway\"\nweb_search = \"disabled\"\n", p.Model)
+			if err := os.WriteFile(filepath.Join(config, "gateway.config.toml"), []byte(profile), 0600); err != nil {
 				return "", err
 			}
 		}
@@ -76,9 +74,9 @@ func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string)
 		if err := os.MkdirAll(xdg, 0700); err != nil {
 			return "", err
 		}
-		if p.Mode == "enmaas" {
+		if p.Mode == "gateway" {
 			model := p.Model
-			settings := map[string]any{"$schema": "https://opencode.ai/config.json", "model": "enmaas/" + model, "update": "disable", "providers": map[string]any{"enmaas": map[string]any{"name": "EnMaaS", "env": []string{"ENMAAS_KEY"}, "package": "@opencode/ai/providers/openai-compatible", "settings": map[string]any{"baseURL": enmaasURL + "/v1"}, "models": map[string]any{model: map[string]any{"name": model}}}}}
+			settings := map[string]any{"$schema": "https://opencode.ai/config.json", "model": "gateway/" + model, "update": "disable", "providers": map[string]any{"gateway": map[string]any{"name": "Model gateway", "env": []string{p.APIKeyEnv}, "package": "@opencode/ai/providers/openai-compatible", "settings": map[string]any{"baseURL": p.BaseURL}, "models": map[string]any{model: map[string]any{"name": model}}}}}
 			b, err := json.MarshalIndent(settings, "", "  ")
 			if err != nil {
 				return "", err
@@ -88,12 +86,12 @@ func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string)
 			}
 		}
 	case "claude":
-		if p.Mode == "enmaas" {
+		if p.Mode == "gateway" {
 			claude := filepath.Join(home, ".claude")
 			if err := os.MkdirAll(claude, 0700); err != nil {
 				return "", err
 			}
-			settings := map[string]any{"env": map[string]string{"ANTHROPIC_BASE_URL": enmaasURL, "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"}}
+			settings := map[string]any{"env": map[string]string{"ANTHROPIC_BASE_URL": gatewaySiteURL(p.BaseURL), "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"}}
 			b, err := json.MarshalIndent(settings, "", "  ")
 			if err != nil {
 				return "", err
@@ -121,14 +119,14 @@ func agentScript(p Profile, prompt string) (string, error) {
 		return "", err
 	}
 	args := []string{agentCommand(p.Agent)}
-	if p.Mode == "enmaas" {
+	if p.Mode == "gateway" {
 		switch p.Agent {
 		case "codex":
-			args = append(args, "--profile", "enmaas")
+			args = append(args, "--profile", "gateway")
 		case "claude":
 			args = append(args, "--model", p.Model)
 		case "opencode":
-			args = append(args, "--standalone", "--model", "enmaas/"+p.Model)
+			args = append(args, "--standalone", "--model", "gateway/"+p.Model)
 		}
 	} else if p.Model != "" {
 		args = append(args, "--model", p.Model)
@@ -175,10 +173,13 @@ func agentScript(p Profile, prompt string) (string, error) {
 	}
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\nset -eu\ncd /workspace/project\nexport HOME=/workspace/state/home\nexport XDG_CONFIG_HOME=/workspace/state/config\nexport XDG_DATA_HOME=/workspace/state/data\nexport CODEX_HOME=/workspace/state/home/.codex\nexport CLAUDE_CONFIG_DIR=/workspace/state/home/.claude\n")
-	if p.Mode == "enmaas" {
+	if p.Mode == "gateway" {
 		b.WriteString("unset CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID ANTHROPIC_VERTEX_REGION CLOUD_ML_REGION\n")
 		if p.Agent == "claude" {
-			b.WriteString("export ANTHROPIC_BASE_URL=" + enmaasURL + "\n")
+			b.WriteString("export ANTHROPIC_BASE_URL=" + shellQuote(gatewaySiteURL(p.BaseURL)) + "\n")
+			if p.APIKeyEnv != "ANTHROPIC_API_KEY" {
+				b.WriteString("export ANTHROPIC_API_KEY=\"" + p.APIKeyEnv + "\"\n")
+			}
 		}
 	}
 	b.WriteString("exec")
@@ -192,18 +193,51 @@ func agentScript(p Profile, prompt string) (string, error) {
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 
-func (a *App) ProviderSetup(ctx context.Context, kind, name, gateway string, dry, update bool) error {
-	if kind != "enmaas-header" && kind != "enmaas-bearer" && kind != "openai" && kind != "anthropic" {
-		return fmt.Errorf("provider type must be enmaas-header, enmaas-bearer, openai, or anthropic")
+func gatewaySiteURL(baseURL string) string {
+	trimmed := strings.TrimRight(baseURL, "/")
+	return strings.TrimSuffix(trimmed, "/v1")
+}
+
+func gatewayProfileSlug(host string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(host) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+func (a *App) ProviderSetup(ctx context.Context, kind, name, host, credential, gateway string, dry, update bool) error {
+	if kind != "gateway-bearer" && kind != "gateway-header" && kind != "openai" && kind != "anthropic" {
+		return fmt.Errorf("provider type must be gateway-bearer, gateway-header, openai, or anthropic")
 	}
 	if !safeName.MatchString(name) {
 		return fmt.Errorf("invalid provider name")
 	}
-	credential := "ENMAAS_KEY"
-	if kind == "openai" {
-		credential = "OPENAI_API_KEY"
+	if kind == "gateway-bearer" || kind == "gateway-header" {
+		if host == "" {
+			return fmt.Errorf("gateway provider type requires a host")
+		}
+		if strings.ContainsAny(host, "/?#") {
+			return fmt.Errorf("invalid gateway host")
+		}
+		if parsed, err := url.Parse("https://" + host); err != nil || parsed.Hostname() == "" {
+			return fmt.Errorf("invalid gateway host")
+		}
+		if !envName.MatchString(credential) {
+			return fmt.Errorf("gateway provider type requires an API key environment variable name")
+		}
 	}
-	if kind == "anthropic" {
+	switch kind {
+	case "openai":
+		host = "api.openai.com"
+		credential = "OPENAI_API_KEY"
+	case "anthropic":
+		host = "api.anthropic.com"
 		credential = "ANTHROPIC_API_KEY"
 	}
 	if os.Getenv(credential) == "" {
@@ -212,19 +246,26 @@ func (a *App) ProviderSetup(ctx context.Context, kind, name, gateway string, dry
 	if err := a.Store.Ensure(); err != nil {
 		return err
 	}
-	var authStyle, header, envName, host string
+	var authStyle, header, envNameValue string
 	switch kind {
-	case "enmaas-header":
-		authStyle, header, envName, host = "header", "x-api-key", "ENMAAS_KEY, ANTHROPIC_API_KEY", enmaasHost
-	case "enmaas-bearer":
-		authStyle, header, envName, host = "bearer", "authorization", "ENMAAS_KEY", enmaasHost
+	case "gateway-bearer":
+		authStyle, header, envNameValue = "bearer", "authorization", credential
+	case "gateway-header":
+		authStyle, header, envNameValue = "header", "x-api-key", credential
 	case "openai":
-		authStyle, header, envName, host = "bearer", "authorization", "OPENAI_API_KEY", "api.openai.com"
+		authStyle, header, envNameValue = "bearer", "authorization", "OPENAI_API_KEY"
 	case "anthropic":
-		authStyle, header, envName, host = "header", "x-api-key", "ANTHROPIC_API_KEY", "api.anthropic.com"
+		authStyle, header, envNameValue = "header", "x-api-key", "ANTHROPIC_API_KEY"
 	}
 	profileID := "agentbox-" + kind
-	profile := fmt.Sprintf("id: %s\ndisplay_name: AgentBox %s\ncategory: inference\ninference_capable: true\ncredentials:\n  - name: api_key\n    env_vars: [%s]\n    required: true\n    auth_style: %s\n    header_name: %s\nendpoints:\n  - host: %s\n    port: 443\n    path: /v1/**\n    protocol: rest\n    access: full\n    enforcement: enforce\nbinaries:\n  - /usr/local/bin/claude\n  - /usr/local/bin/codex\n  - /usr/local/bin/opencode\n  - /usr/local/bin/node\n  - /usr/local/lib/node_modules/@openai/codex/**/bin/codex\n  - /usr/local/lib/node_modules/@opencode/**/bin/opencode\n  - /usr/local/lib/node_modules/@anthropic-ai/claude-code/**\n", profileID, kind, envName, authStyle, header, host)
+	if kind == "gateway-bearer" || kind == "gateway-header" {
+		profileID += "-" + gatewayProfileSlug(host)
+	}
+	displayName := "AgentBox " + kind
+	if strings.HasPrefix(kind, "gateway-") {
+		displayName += " (" + host + ")"
+	}
+	profile := fmt.Sprintf("id: %s\ndisplay_name: %s\ncategory: inference\ninference_capable: true\ncredentials:\n  - name: api_key\n    env_vars: [%s]\n    required: true\n    auth_style: %s\n    header_name: %s\nendpoints:\n  - host: %s\n    port: 443\n    path: /v1/**\n    protocol: rest\n    access: full\n    enforcement: enforce\nbinaries:\n  - /usr/local/bin/claude\n  - /usr/local/bin/codex\n  - /usr/local/bin/opencode\n  - /usr/local/bin/node\n  - /usr/local/lib/node_modules/@openai/codex/**/bin/codex\n  - /usr/local/lib/node_modules/@opencode/**/bin/opencode\n  - /usr/local/lib/node_modules/@anthropic-ai/claude-code/**\n", profileID, displayName, envNameValue, authStyle, header, host)
 	path := filepath.Join(a.Store.ProfilesDir(), profileID+"-provider.yaml")
 	if dry {
 		fmt.Print(profile)
