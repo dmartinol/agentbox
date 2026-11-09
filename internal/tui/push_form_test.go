@@ -24,6 +24,9 @@ func (pushFormRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, s
 
 func TestImagePushUsesDropdownForLocalImages(t *testing.T) {
 	store := app.Store{Base: t.TempDir()}
+	if err := store.SaveRegistry(app.Registry{Reference: "quay.io/team/openshell"}); err != nil {
+		t.Fatal(err)
+	}
 	ui := &UI{
 		ctx: context.Background(),
 		app: &app.App{Store: store, Runner: pushFormRunner{images: `[
@@ -43,5 +46,12 @@ func TestImagePushUsesDropdownForLocalImages(t *testing.T) {
 	index, value := dropdown.GetCurrentOption()
 	if index != 0 || value != "localhost/openshell-claude:2.0.0-r3" {
 		t.Fatalf("current local tag = %d %q", index, value)
+	}
+	remoteField, ok := form.GetFormItemByLabel("Remote reference").(*tview.InputField)
+	if !ok {
+		t.Fatal("remote reference field missing")
+	}
+	if got := remoteField.GetText(); got != "quay.io/team/openshell:claude-2.0.0-r3" {
+		t.Fatalf("remote reference = %q", got)
 	}
 }

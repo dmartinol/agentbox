@@ -46,7 +46,7 @@ type UI struct {
 	currentContent tview.Primitive
 	contentFocus   tview.Primitive
 	currentActions *tview.Form
-	registryImages []string
+	registryImages []app.ImageArtifact
 }
 
 // Run starts the AgentBox terminal user interface.
@@ -418,6 +418,9 @@ func parentSection(page string) string {
 	case "policy-host-form":
 		return "Policies"
 	default:
+		if strings.HasPrefix(page, "profile-edit:") {
+			return "Profiles"
+		}
 		if strings.HasPrefix(page, "gateway-info:") {
 			return "Gateways"
 		}
@@ -433,7 +436,7 @@ func isFormPage(page string) bool {
 	case "run-form", "image-version-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-host-form", "profile-form":
 		return true
 	default:
-		return false
+		return strings.HasPrefix(page, "profile-edit:")
 	}
 }
 
@@ -480,6 +483,9 @@ func pageTitle(page string) string {
 	case "profile-form":
 		return "Create profile"
 	default:
+		if strings.HasPrefix(page, "profile-edit:") {
+			return "Edit profile"
+		}
 		if strings.HasPrefix(page, "logs:") {
 			return "Logs"
 		}

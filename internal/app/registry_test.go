@@ -41,8 +41,8 @@ func TestRegistryDiscoverParsesPodmanTags(t *testing.T) {
 			t.Fatalf("unexpected podman args: %#v", call.args)
 		}
 		return []byte(`[
-			{"Name":"quay.io/team/agentbox","Tag":"v0.1.0","Description":""},
-			{"Name":"quay.io/team/agentbox","Tag":"v0.2.0","Description":""}
+			{"Name":"quay.io/team/openshell","Tag":"codex-0.167.0-r3-linux-arm64","Description":""},
+			{"Name":"quay.io/team/openshell","Tag":"claude-2.1.319-r3","Description":""}
 		]`), nil
 	}}
 	store := Store{Base: t.TempDir()}
@@ -54,8 +54,14 @@ func TestRegistryDiscoverParsesPodmanTags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"quay.io/team/agentbox:v0.1.0", "quay.io/team/agentbox:v0.2.0"}; !reflect.DeepEqual(images, want) {
-		t.Fatalf("images = %#v; want %#v", images, want)
+	if len(images) != 2 {
+		t.Fatalf("images = %#v; want 2", images)
+	}
+	if images[0].Agent != "claude" || images[0].Version != "2.1.319" || images[0].Recipe != 3 || images[0].Reference != "quay.io/team/openshell:claude-2.1.319-r3" {
+		t.Fatalf("unexpected claude image: %+v", images[0])
+	}
+	if images[1].Agent != "codex" || images[1].Version != "0.167.0" || images[1].Recipe != 3 || images[1].OS != "linux" || images[1].Arch != "arm64" || images[1].Reference != "quay.io/team/openshell:codex-0.167.0-r3-linux-arm64" {
+		t.Fatalf("unexpected codex image: %+v", images[1])
 	}
 }
 

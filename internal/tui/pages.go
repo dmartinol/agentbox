@@ -197,9 +197,9 @@ func (ui *UI) imageRegistryPage() tview.Primitive {
 	reference := registry.NormalizedReference()
 	rows := make([][]string, 0, len(ui.registryImages))
 	for _, image := range ui.registryImages {
-		rows = append(rows, []string{image})
+		rows = append(rows, []string{image.Agent, image.Version, itoa(image.Recipe), image.OS, image.Arch, image.Reference})
 	}
-	table := newTable([]string{"Discovered image"}, rows)
+	table := newTable([]string{"Agent", "Version", "Recipe", "OS", "Arch", "Reference"}, rows)
 	table.SetBorder(true).SetTitle(" External registry images ")
 	ui.registerContent(table)
 
@@ -303,6 +303,15 @@ func (ui *UI) policiesPage() tview.Primitive {
 		AddItem(form, 24, 0, false)
 }
 
+func (ui *UI) showProfileEdit(name string) {
+	profile, err := ui.app.Store.LoadProfile(name)
+	if err != nil {
+		ui.message("[red]Error: %s", err)
+		return
+	}
+	ui.showDynamic("profile-edit:"+name, ui.profileEditForm(profile))
+}
+
 func (ui *UI) profilesPage() tview.Primitive {
 	profiles, err := ui.app.Store.ListProfiles()
 	if err != nil {
@@ -332,7 +341,7 @@ func (ui *UI) profilesPage() tview.Primitive {
 		AddButton("Create", func() { ui.show("profile-form") }).
 		AddButton("Edit", func() {
 			if selected != "" {
-				ui.suspend(func() error { return ui.app.Store.EditProfile(ui.ctx, selected) })
+				ui.showProfileEdit(selected)
 			}
 		}).
 		AddButton("Provider setup", func() { ui.show("provider-form") })

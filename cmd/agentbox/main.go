@@ -345,9 +345,31 @@ func imageRegistryCmd(ctx context.Context, a *app.App, args []string) error {
 			return app.PrintJSON(images)
 		}
 		for _, image := range images {
-			fmt.Println(image)
+			arch := strings.Trim(strings.Join([]string{image.OS, image.Arch}, "/"), "/")
+			fmt.Printf("%-8s %-16s r%-4d %-16s %s\n", image.Agent, image.Version, image.Recipe, arch, image.Reference)
 		}
 		return nil
+	case "push":
+		f := flags("image registry push")
+		dry := f.Bool("dry-run", false, "preview")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		registry, err := a.Registry()
+		if err != nil {
+			return err
+		}
+		if registry.Reference == "" {
+			return fmt.Errorf("no external registry configured")
+		}
+		artifact, err := a.LocalImage(ctx, f.Args()[0])
+		if err != nil {
+			return err
+		}
+		return a.ImagePush(ctx, artifact.Reference, app.RemoteReference(registry.NormalizedReference(), artifact), *dry)
 	default:
 		return fmt.Errorf("unknown image registry command")
 	}

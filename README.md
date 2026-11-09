@@ -136,13 +136,49 @@ Build an image with a pinned version:
 Configure an external image registry:
 
 ```sh
-./agentbox image registry set quay.io/team/agentbox
+./agentbox image registry set quay.io/dmartino/openshell
+./agentbox image registry discover
 ./agentbox image registry discover --json
+./agentbox image registry push localhost/openshell-codex:0.167.0-r3
 ./agentbox image registry show --json
 ./agentbox image registry clear
 ```
 
 The registry setting is stored in the private AgentBox state directory. Discovery and push/pull use Podman's existing registry login. In the TUI, open **Images → Registry** to set the registry and discover tags.
+
+### Registry image model
+
+One registry repository holds all AgentBox agent images. The agent, version, recipe, and architecture are encoded in the tag:
+
+```text
+<registry>/<namespace>/<project>:<agent>-<version>-r<recipe>-<os>-<arch>
+```
+
+Example:
+
+```text
+quay.io/dmartino/openshell:codex-0.167.0-r3-linux-arm64
+quay.io/dmartino/openshell:claude-2.1.319-r3-linux-arm64
+quay.io/dmartino/openshell:opencode-2.2.6-r3-linux-arm64
+```
+
+The `-<os>-<arch>` suffix is used for single-architecture images. A future multi-architecture manifest may publish the architecture-free tag as an additional alias.
+
+Local images keep their existing names:
+
+```text
+localhost/openshell-codex:0.167.0-r3
+```
+
+AgentBox derives the remote reference from the local image metadata and OCI labels. In **Images → Push**, the local image is selected from a dropdown and the remote reference is derived read-only from the configured registry.
+
+Community consumers can discover all agents in one repository:
+
+```sh
+./agentbox image registry discover --json
+```
+
+The JSON result includes `agent`, `version`, `recipe`, `os`, `arch`, `digest` when available, and the full `reference` field.
 
 Start a run:
 

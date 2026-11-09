@@ -252,8 +252,11 @@ func (ui *UI) imageBuildForm() tview.Primitive {
 }
 
 func (ui *UI) imagePushForm() tview.Primitive {
-	images := ui.imageNames()
-	if len(images) == 0 {
+	artifacts, err := ui.app.LocalImages(ui.ctx)
+	if err != nil {
+		return ui.errorPage(err)
+	}
+	if len(artifacts) == 0 {
 		form := tview.NewForm().
 			AddTextView("", "No local AgentBox images found. Build an image before pushing.", 70, 2, false, false).
 			AddButton("Build image", func() { ui.show("image-build-form") }).
@@ -261,18 +264,35 @@ func (ui *UI) imagePushForm() tview.Primitive {
 		form.SetBorder(true).SetTitle(" Push image ")
 		return form
 	}
-	registry, _ := ui.app.Registry()
+	registry, err := ui.app.Registry()
+	if err != nil {
+		return ui.errorPage(err)
+	}
+	if registry.Reference == "" {
+		form := tview.NewForm().
+			AddTextView("", "No external registry configured. Configure it before pushing images.", 70, 2, false, false).
+			AddButton("Registry", func() { ui.show(pageImageRegistry) }).
+			AddButton("Cancel", func() { ui.show(pageImages) })
+		form.SetBorder(true).SetTitle(" Push image ")
+		return form
+	}
+	refs := make([]string, 0, len(artifacts))
+	byReference := make(map[string]app.ImageArtifact, len(artifacts))
+	for _, artifact := range artifacts {
+		refs = append(refs, artifact.Reference)
+		byReference[artifact.Reference] = artifact
+	}
 	var localTag, remote string
-	remoteField := autocompleteInput("Remote reference", "", 90, ui.registryReferences(), func(text string) { remote = text })
+	remoteField := tview.NewInputField().SetLabel("Remote reference").SetFieldWidth(90)
+	remoteField.SetDisabled(true)
 	localField := tview.NewDropDown().
 		SetLabel("Local tag").
 		SetFieldWidth(70).
-		SetOptions(images, func(text string, _ int) {
+		SetOptions(refs, func(text string, _ int) {
 			localTag = text
-			if registry.Reference != "" && text != "" {
-				if suggested := remoteRegistryReference(registry.NormalizedReference(), text); suggested != "" {
-					remoteField.SetText(suggested)
-				}
+			if artifact, ok := byReference[text]; ok {
+				remote = app.RemoteReference(registry.NormalizedReference(), artifact)
+				remoteField.SetText(remote)
 			}
 		})
 	localField.SetCurrentOption(0)

@@ -181,19 +181,10 @@ func (ui *UI) registryReferences() []string {
 	if registry.Reference != "" {
 		refs = append(refs, registry.NormalizedReference())
 	}
-	refs = append(refs, ui.registryImages...)
+	for _, image := range ui.registryImages {
+		if image.Reference != "" {
+			refs = append(refs, image.Reference)
+		}
+	}
 	return uniqueSorted(refs)
-}
-
-func remoteRegistryReference(base, local string) string {
-	base = strings.TrimSuffix(strings.TrimSpace(base), "/")
-	if base == "" || local == "" {
-		return ""
-	}
-	tag := "latest"
-	lastSlash := strings.LastIndex(local, "/")
-	if colon := strings.LastIndex(local, ":"); colon > lastSlash {
-		tag = local[colon+1:]
-	}
-	return base + ":" + tag
 }

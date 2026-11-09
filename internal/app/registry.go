@@ -20,9 +20,9 @@ func (a *App) ClearRegistry() error {
 	return a.Store.ClearRegistry()
 }
 
-// RegistryDiscover lists tags for the configured registry repository.
+// RegistryDiscover lists AgentBox image tags for the configured repository.
 // It uses Podman's existing login state and does not handle credentials.
-func (a *App) RegistryDiscover(ctx context.Context) ([]string, error) {
+func (a *App) RegistryDiscover(ctx context.Context) ([]ImageArtifact, error) {
 	registry, err := a.Store.LoadRegistry()
 	if err != nil {
 		return nil, err
@@ -42,36 +42,81 @@ func (a *App) RegistryDiscover(ctx context.Context) ([]string, error) {
 	return images, nil
 }
 
-func parseRegistrySearch(data []byte, fallbackReference string) ([]string, error) {
+func parseRegistrySearch(data []byte, fallbackReference string) ([]ImageArtifact, error) {
+	tags, err := registryTags(data, fallbackReference)
+	if err != nil {
+		return nil, err
+	}
+	var images []ImageArtifact
+	for _, tag := range tags {
+		artifact, ok := ParseRemoteTag(tag)
+		if !ok {
+			continue
+		}
+		artifact.Reference = firstTagReference(data, tag, fallbackReference)
+		images = append(images, artifact)
+	}
+	sort.Slice(images, func(i, j int) bool {
+		if images[i].Agent != images[j].Agent {
+			return images[i].Agent < images[j].Agent
+		}
+		if images[i].Version != images[j].Version {
+			return images[i].Version < images[j].Version
+		}
+		return images[i].Reference < images[j].Reference
+	})
+	return images, nil
+}
+
+func registryTags(data []byte, fallbackReference string) ([]string, error) {
 	var rows []map[string]any
 	if err := json.Unmarshal(data, &rows); err == nil {
-		var images []string
+		var tags []string
 		for _, row := range rows {
-			name := firstString(row, "Name", "name", "Repository", "repository")
-			if name == "" {
-				name = fallbackReference
-			}
 			tag := firstString(row, "Tag", "tag")
-			image := name
-			if tag != "" && !strings.HasSuffix(name, ":"+tag) {
-				image = name + ":" + tag
+			if tag == "" {
+				name := firstString(row, "Name", "name", "Repository", "repository")
+				if name != "" {
+					if idx := strings.LastIndex(name, ":"); idx > strings.LastIndex(name, "/") {
+						tag = name[idx+1:]
+					}
+				}
 			}
-			if image != "" {
-				images = append(images, image)
+			if tag != "" {
+				tags = append(tags, tag)
 			}
 		}
-		return uniqueSortedStrings(images), nil
+		return tags, nil
 	}
 	var stringsOnly []string
 	if err := json.Unmarshal(data, &stringsOnly); err != nil {
 		return nil, fmt.Errorf("unrecognized registry discovery output")
 	}
 	for i, image := range stringsOnly {
-		if !strings.Contains(image, ":") && !strings.Contains(image, "@") {
-			stringsOnly[i] = fallbackReference + ":" + image
+		if idx := strings.LastIndex(image, ":"); idx > strings.LastIndex(image, "/") {
+			stringsOnly[i] = image[idx+1:]
 		}
 	}
-	return uniqueSortedStrings(stringsOnly), nil
+	return stringsOnly, nil
+}
+
+func firstTagReference(data []byte, tag, fallbackReference string) string {
+	var rows []map[string]any
+	if err := json.Unmarshal(data, &rows); err == nil {
+		for _, row := range rows {
+			name := firstString(row, "Name", "name", "Repository", "repository")
+			rowTag := firstString(row, "Tag", "tag")
+			if rowTag == tag || (rowTag == "" && strings.HasSuffix(name, ":"+tag)) {
+				if name != "" {
+					if strings.HasSuffix(name, ":"+tag) {
+						return name
+					}
+					return strings.TrimSuffix(name, "/") + ":" + tag
+				}
+			}
+		}
+	}
+	return strings.TrimSuffix(fallbackReference, "/") + ":" + tag
 }
 
 func firstString(row map[string]any, keys ...string) string {
@@ -81,22 +126,4 @@ func firstString(row map[string]any, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func uniqueSortedStrings(values []string) []string {
-	seen := map[string]struct{}{}
-	var out []string
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	sort.Strings(out)
-	return out
 }
