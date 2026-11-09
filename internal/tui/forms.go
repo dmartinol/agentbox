@@ -258,26 +258,39 @@ func shortenValue(value string, max int) string {
 	return "..." + value[len(value)-(max-3):]
 }
 
-func (ui *UI) imageVersionForm() tview.Primitive {
-	var agent = "codex"
-	form := tview.NewForm().
-		AddDropDown("Agent", []string{"codex", "claude", "opencode"}, 0, func(text string, _ int) { agent = text }).
-		AddButton("Discover", func() {
-			ui.asyncTo(pageImages, func() error {
-				_, err := ui.app.ImageVersion(ui.ctx, agent)
-				return err
-			})
-		}).
-		AddButton("Cancel", func() { ui.show(pageImages) })
-	form.SetBorder(true).SetTitle(" Discover image version ")
-	return form
-}
-
 func (ui *UI) imageBuildForm() tview.Primitive {
 	var agent, version = "codex", ""
+	versionField := tview.NewInputField().
+		SetLabel("Exact version").
+		SetFieldWidth(20).
+		SetChangedFunc(func(text string) { version = text })
+	var discoverButton *tview.Button
+	discover := func() {
+		if discoverButton != nil {
+			discoverButton.SetDisabled(true).SetLabel("Discovering...")
+		}
+		ui.footer.SetText("Querying npm for the latest " + agent + " release...")
+		go func() {
+			latest, err := ui.app.ImageVersion(ui.ctx, agent)
+			ui.tapp.QueueUpdateDraw(func() {
+				if discoverButton != nil {
+					discoverButton.SetDisabled(false).SetLabel("Discover latest version")
+				}
+				if err != nil {
+					ui.message("[red]Version discovery failed: %s", err)
+					return
+				}
+				version = latest
+				versionField.SetText(latest)
+				ui.footer.SetText("Latest " + agent + " release: [green]" + latest + "[white] • Press Build to continue")
+			})
+		}()
+	}
 	form := tview.NewForm().
 		AddDropDown("Agent", []string{"codex", "claude", "opencode"}, 0, func(text string, _ int) { agent = text }).
-		AddInputField("Exact version", "", 20, nil, func(text string) { version = text }).
+		AddFormItem(versionField).
+		AddTextView("Version help", "Leave Exact version blank to resolve the latest release at build time. Discover latest version fills it now for inspection.", 100, 2, false, false).
+		AddButton("Discover latest version", discover).
 		AddButton("Build", func() {
 			ui.runTask("Build image", pageImages, true, func(ctx context.Context, a *app.App, out io.Writer) error {
 				record, err := a.ImageBuild(ctx, agent, version, false)
@@ -288,6 +301,7 @@ func (ui *UI) imageBuildForm() tview.Primitive {
 			})
 		}).
 		AddButton("Cancel", func() { ui.show(pageImages) })
+	discoverButton = form.GetButton(0)
 	form.SetBorder(true).SetTitle(" Build image ")
 	return form
 }

@@ -318,8 +318,6 @@ func (ui *UI) render(page string) {
 		primitive = ui.imageRegistryPage()
 	case "run-form":
 		primitive = ui.runForm()
-	case "image-version-form":
-		primitive = ui.imageVersionForm()
 	case "image-build-form":
 		primitive = ui.imageBuildForm()
 	case "image-push-form":
@@ -409,7 +407,7 @@ func parentSection(page string) string {
 	switch page {
 	case "run-form":
 		return "Runs"
-	case "image-version-form", "image-build-form", "image-push-form", "image-pull-form", pageImageRegistry:
+	case "image-build-form", "image-push-form", "image-pull-form", pageImageRegistry:
 		return "Images"
 	case "gateway-form", "gateway-info-form":
 		return "Gateways"
@@ -433,7 +431,7 @@ func parentSection(page string) string {
 
 func isFormPage(page string) bool {
 	switch page {
-	case "run-form", "image-version-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-host-form", "profile-form":
+	case "run-form", "image-build-form", "image-push-form", "image-pull-form", "gateway-form", "gateway-info-form", "provider-form", "policy-host-form", "profile-form":
 		return true
 	default:
 		return strings.HasPrefix(page, "profile-edit:")
@@ -464,8 +462,6 @@ func pageTitle(page string) string {
 		return "Registry"
 	case "run-form":
 		return "Start run"
-	case "image-version-form":
-		return "Discover image version"
 	case "image-build-form":
 		return "Build image"
 	case "image-push-form":

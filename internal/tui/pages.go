@@ -179,7 +179,6 @@ func (ui *UI) imagesPage() tview.Primitive {
 	ui.registerContent(table)
 	actions := tview.NewForm().
 		SetButtonsAlign(tview.AlignCenter).
-		AddButton("Discover", func() { ui.show("image-version-form") }).
 		AddButton("Build", func() { ui.show("image-build-form") }).
 		AddButton("Push", func() { ui.show("image-push-form") }).
 		AddButton("Pull", func() { ui.show("image-pull-form") }).

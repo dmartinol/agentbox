@@ -140,7 +140,7 @@ Image build help and command discovery:
 ./agentbox image build --help
 ```
 
-If `--version` is omitted, AgentBox discovers and uses the latest compatible release for the selected agent. The build pins the Node base image by digest and tags the result as `localhost/openshell:<agent>-<version>-r3`.
+If `--version` is omitted, AgentBox discovers and uses the latest compatible release for the selected agent. In the TUI Build form, **Discover latest version** queries npm and fills the exact version field so it can be inspected before building. The build pins the Node base image by digest and tags the result as `localhost/openshell:<agent>-<version>-r3`.
 
 Configure an external image registry:
 

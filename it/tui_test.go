@@ -235,7 +235,6 @@ fi
 			press(t, "\x1b[C", "Focus:Actions")
 			press(t, "\x1b[C", "Focus:Actions")
 			press(t, "\x1b[C", "Focus:Actions")
-			press(t, "\x1b[C", "Focus:Actions")
 			press(t, "\r", "AgentBox/Images/Registry", "Focus:Content")
 			press(t, "\t", "Focus:Actions")
 			press(t, "quay.io", "quay.io")

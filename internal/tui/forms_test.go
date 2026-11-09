@@ -152,3 +152,31 @@ func TestProfileEditFormIsPrefilled(t *testing.T) {
 	}
 
 }
+
+func TestImageBuildFormIncludesDiscoverLatestVersion(t *testing.T) {
+	ui := &UI{}
+	form, ok := ui.imageBuildForm().(*tview.Form)
+	if !ok {
+		t.Fatal("build form is not a tview form")
+	}
+	if form.GetFormItemByLabel("Exact version") == nil {
+		t.Fatal("exact version field is missing")
+	}
+	help, ok := form.GetFormItemByLabel("Version help").(*tview.TextView)
+	if !ok || !strings.Contains(help.GetText(true), "Discover latest version") {
+		t.Fatalf("version help does not explain discovery: %q", help.GetText(true))
+	}
+	labels := make([]string, 0, form.GetButtonCount())
+	for i := 0; i < form.GetButtonCount(); i++ {
+		labels = append(labels, form.GetButton(i).GetLabel())
+	}
+	found := false
+	for _, label := range labels {
+		if label == "Discover latest version" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("build form buttons = %v; missing Discover latest version", labels)
+	}
+}
