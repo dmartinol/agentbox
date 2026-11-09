@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/dmartinol/agentbox/internal/app"
@@ -100,5 +103,24 @@ func TestImageRegistryShowSetClear(t *testing.T) {
 	registry, err = a.Registry()
 	if err != nil || registry.Reference != "" {
 		t.Fatalf("registry after clear = %+v, %v", registry, err)
+	}
+}
+
+func TestImageBuildHelpReturnsFlagHelp(t *testing.T) {
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	err := dispatch(context.Background(), a, []string{"image", "build", "--help"})
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("image build --help error = %v; want flag.ErrHelp", err)
+	}
+}
+
+func TestImageHelpDoesNotRunCommand(t *testing.T) {
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	output, err := captureStdout(t, func() error { return dispatch(context.Background(), a, []string{"image", "--help"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "image build") {
+		t.Fatalf("image help output = %q", output)
 	}
 }

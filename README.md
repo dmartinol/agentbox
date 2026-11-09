@@ -133,6 +133,15 @@ Build an image with a pinned version:
 ./agentbox image build --version 0.167.0 codex
 ```
 
+Image build help and command discovery:
+
+```sh
+./agentbox image --help
+./agentbox image build --help
+```
+
+If `--version` is omitted, AgentBox discovers and uses the latest compatible release for the selected agent. The build pins the Node base image by digest and tags the result as `localhost/openshell-<agent>:<version>-r3`.
+
 Configure an external image registry:
 
 ```sh

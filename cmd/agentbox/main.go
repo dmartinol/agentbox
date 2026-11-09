@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -26,6 +27,9 @@ func main() {
 		fail(err)
 	}
 	if err := dispatch(context.Background(), a, os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
 		fail(err)
 	}
 }
@@ -212,8 +216,9 @@ func profileCmd(ctx context.Context, a *app.App, args []string) error {
 }
 
 func imageCmd(ctx context.Context, a *app.App, args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("image versions|build|list|push|pull required")
+	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
+		imageUsage()
+		return nil
 	}
 	switch args[0] {
 	case "versions":
@@ -236,6 +241,7 @@ func imageCmd(ctx context.Context, a *app.App, args []string) error {
 		return nil
 	case "build":
 		f := flags("image build")
+		f.Usage = func() { imageBuildUsage(f) }
 		version := f.String("version", "", "exact agent version (default: proposed latest)")
 		dry := f.Bool("dry-run", false, "preview")
 		if err := f.Parse(args[1:]); err != nil {
@@ -373,6 +379,32 @@ func imageRegistryCmd(ctx context.Context, a *app.App, args []string) error {
 	default:
 		return fmt.Errorf("unknown image registry command")
 	}
+}
+
+func imageUsage() {
+	fmt.Println("AgentBox image commands")
+	fmt.Println("  image versions [--json] <claude|codex|opencode>")
+	fmt.Println("  image build [--version EXACT] [--dry-run] <claude|codex|opencode>")
+	fmt.Println("  image list [--json]")
+	fmt.Println("  image push [--dry-run] <local-image> <remote-reference>")
+	fmt.Println("  image pull [--dry-run] <remote-reference>")
+	fmt.Println("  image registry show|set|clear|discover|push")
+	fmt.Println()
+	fmt.Println("Examples:")
+	fmt.Println("  agentbox image versions codex")
+	fmt.Println("  agentbox image build --version 0.167.0 codex")
+	fmt.Println("  agentbox image build --version 0.167.0 --dry-run codex")
+	fmt.Println("  agentbox image list --json")
+}
+
+func imageBuildUsage(f *flag.FlagSet) {
+	fmt.Fprintln(f.Output(), "Build a revisioned AgentBox image for one agent.")
+	fmt.Fprintln(f.Output(), "Usage: agentbox image build [--version EXACT] [--dry-run] <claude|codex|opencode>")
+	fmt.Fprintln(f.Output(), "If --version is omitted, the latest official release is proposed and used.")
+	fmt.Fprintln(f.Output(), "The base image is pinned to a digest and the build is tagged as openshell-<agent>:<version>-r3.")
+	fmt.Fprintln(f.Output())
+	fmt.Fprintln(f.Output(), "Flags:")
+	f.PrintDefaults()
 }
 
 func gatewayCmd(ctx context.Context, a *app.App, args []string) error {
