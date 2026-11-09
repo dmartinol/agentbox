@@ -10,6 +10,14 @@ import (
 )
 
 func (ui *UI) profileForm() tview.Primitive {
+	return ui.profileFormFor(nil)
+}
+
+func (ui *UI) profileEditForm(existing app.Profile) tview.Primitive {
+	return ui.profileFormFor(&existing)
+}
+
+func (ui *UI) profileFormFor(existing *app.Profile) tview.Primitive {
 	images := ui.imageNames()
 	models := ui.modelSuggestions()
 	providers := ui.providerNames("")
@@ -24,16 +32,40 @@ func (ui *UI) profileForm() tview.Primitive {
 		provider string
 		policy   string
 		approval = "prompted"
+		title    = " Create profile "
+		args     []string
 	)
+	if existing != nil {
+		name = existing.Name
+		agent = existing.Agent
+		image = existing.Image
+		mode = existing.Mode
+		model = existing.Model
+		provider = existing.Provider
+		policy = existing.Policy
+		approval = existing.Approval
+		args = append([]string(nil), existing.Args...)
+		title = " Edit profile: " + name + " "
+	}
+
+	nameField := tview.NewInputField().
+		SetLabel("Name").
+		SetText(name).
+		SetFieldWidth(30).
+		SetChangedFunc(func(text string) { name = text })
+	if existing != nil {
+		nameField.SetDisabled(true)
+	}
+	agents := []string{"codex", "claude", "opencode"}
 	form := tview.NewForm().
-		AddInputField("Name", "", 30, nil, func(text string) { name = text }).
-		AddDropDown("Agent", []string{"codex", "claude", "opencode"}, 0, func(text string, _ int) { agent = text }).
-		AddFormItem(autocompleteInput("Image", "", 60, images, func(text string) { image = text })).
-		AddDropDown("Mode", []string{"standard", "enmaas"}, 0, func(text string, _ int) { mode = text }).
-		AddFormItem(autocompleteInput("Model", "", 50, models, func(text string) { model = text })).
-		AddFormItem(autocompleteInput("Provider", "", 40, providers, func(text string) { provider = text })).
-		AddFormItem(autocompleteInput("Policy", "", 80, policies, func(text string) { policy = text })).
-		AddDropDown("Approval", []string{"prompted", "unattended"}, 0, func(text string, _ int) { approval = text }).
+		AddFormItem(nameField).
+		AddDropDown("Agent", agents, optionIndex(agents, agent), func(text string, _ int) { agent = text }).
+		AddFormItem(autocompleteInput("Image", image, 60, images, func(text string) { image = text })).
+		AddDropDown("Mode", []string{"standard", "enmaas"}, optionIndex([]string{"standard", "enmaas"}, mode), func(text string, _ int) { mode = text }).
+		AddFormItem(autocompleteInput("Model", model, 50, models, func(text string) { model = text })).
+		AddFormItem(autocompleteInput("Provider", provider, 40, providers, func(text string) { provider = text })).
+		AddFormItem(autocompleteInput("Policy", policy, 80, policies, func(text string) { policy = text })).
+		AddDropDown("Approval", []string{"prompted", "unattended"}, optionIndex([]string{"prompted", "unattended"}, approval), func(text string, _ int) { approval = text }).
 		AddButton("Save", func() {
 			ui.asyncTo(pageProfiles, func() error {
 				if policy == "" {
@@ -59,11 +91,12 @@ func (ui *UI) profileForm() tview.Primitive {
 					Provider: provider,
 					Policy:   policy,
 					Approval: approval,
+					Args:     args,
 				})
 			})
 		}).
 		AddButton("Cancel", func() { ui.show(pageProfiles) })
-	form.SetBorder(true).SetTitle(" Create profile ")
+	form.SetBorder(true).SetTitle(title)
 	return form
 }
 

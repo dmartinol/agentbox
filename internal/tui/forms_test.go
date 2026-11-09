@@ -109,3 +109,46 @@ func TestRunFormShowsReadOnlyProfileValuesAndNoneOverrides(t *testing.T) {
 		t.Fatalf("profile change did not reset mode override: %d %q", index, value)
 	}
 }
+
+func TestProfileEditFormIsPrefilled(t *testing.T) {
+	t.Setenv("ENMAAS_KEY", "")
+	store := app.Store{Base: t.TempDir()}
+	profile := app.Profile{
+		Version: 1, Name: "dev", Agent: "claude", Image: "image-dev",
+		Mode: "enmaas", Model: "model-dev", Provider: "provider-dev",
+		Policy: "/tmp/dev-policy.yaml", Approval: "unattended", Args: []string{"--flag"},
+	}
+	if err := store.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	ui := &UI{ctx: context.Background(), app: &app.App{Store: store, Runner: runFormRunner{}}}
+	primitive := ui.profileEditForm(profile)
+	form, ok := primitive.(*tview.Form)
+	if !ok {
+		t.Fatalf("edit form type = %T; want *tview.Form", primitive)
+	}
+	if title := form.GetTitle(); title != " Edit profile: dev " {
+		t.Fatalf("edit form title = %q", title)
+	}
+	if got := form.GetFormItemByLabel("Name").(*tview.InputField).GetText(); got != "dev" {
+		t.Fatalf("name = %q; want dev", got)
+	}
+	if got := form.GetFormItemByLabel("Image").(*tview.InputField).GetText(); got != "image-dev" {
+		t.Fatalf("image = %q", got)
+	}
+	if got := form.GetFormItemByLabel("Model").(*tview.InputField).GetText(); got != "model-dev" {
+		t.Fatalf("model = %q", got)
+	}
+	if got := form.GetFormItemByLabel("Provider").(*tview.InputField).GetText(); got != "provider-dev" {
+		t.Fatalf("provider = %q", got)
+	}
+	if got := form.GetFormItemByLabel("Policy").(*tview.InputField).GetText(); got != "/tmp/dev-policy.yaml" {
+		t.Fatalf("policy = %q", got)
+	}
+	for label, want := range map[string]string{"Agent": "claude", "Mode": "enmaas", "Approval": "unattended"} {
+		if _, got := form.GetFormItemByLabel(label).(*tview.DropDown).GetCurrentOption(); got != want {
+			t.Fatalf("%s = %q; want %q", label, got, want)
+		}
+	}
+
+}
