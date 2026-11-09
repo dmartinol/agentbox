@@ -303,6 +303,47 @@ func (a *App) Stop(ctx context.Context, id string) error {
 	return a.Store.SaveRun(r)
 }
 
+const (
+	sandboxDeleteTimeout      = 2 * time.Minute
+	sandboxDeletePollInterval = 2 * time.Second
+)
+
+func (a *App) deleteSandboxAndWait(ctx context.Context, r Run) error {
+	_, err := a.Runner.Output(ctx, "openshell", "sandbox", "delete", r.Sandbox, "--gateway", r.Gateway)
+	if err != nil {
+		if sandboxNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	return a.waitForSandboxDeletedWith(ctx, r, sandboxDeleteTimeout, sandboxDeletePollInterval)
+}
+
+func (a *App) waitForSandboxDeletedWith(ctx context.Context, r Run, timeout, interval time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		_, err := a.Runner.Output(ctx, "openshell", "sandbox", "get", r.Sandbox, "-o", "json", "--gateway", r.Gateway)
+		if err != nil && sandboxNotFound(err) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("sandbox %s deletion still pending after %s; run record retained", r.Sandbox, timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(interval):
+		}
+	}
+}
+
+func sandboxNotFound(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "sandbox not found") ||
+		strings.Contains(message, "was not found") ||
+		strings.Contains(message, "not found")
+}
+
 func (a *App) Delete(ctx context.Context, id string, discard bool) error {
 	r, err := a.Store.LoadRun(id)
 	if err != nil {
@@ -324,7 +365,7 @@ func (a *App) Delete(ctx context.Context, id string, discard bool) error {
 		}
 	}
 	if r.Status != "create-failed" && r.Status != "prepared" {
-		if _, err := a.Runner.Output(ctx, "openshell", "sandbox", "delete", r.Sandbox, "--gateway", r.Gateway); err != nil {
+		if err := a.deleteSandboxAndWait(ctx, r); err != nil {
 			return err
 		}
 	}

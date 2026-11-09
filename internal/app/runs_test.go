@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClassifySandboxStatus(t *testing.T) {
@@ -191,5 +193,27 @@ func TestBootstrapKillsAgentSessionWhenAgentExits(t *testing.T) {
 		if !strings.Contains(bootstrapScript, want) {
 			t.Fatalf("bootstrap script missing %q:\n%s", want, bootstrapScript)
 		}
+	}
+}
+
+func TestWaitForSandboxDeletedPollsUntilGone(t *testing.T) {
+	getCalls := 0
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && commandHasArg(call, "get") {
+			getCalls++
+			if getCalls < 3 {
+				return []byte(`{"phase":"Deleting"}`), nil
+			}
+			return nil, errors.New("sandbox not found")
+		}
+		return nil, nil
+	}}
+	app := App{Runner: runner}
+	run := Run{ID: "run-unit123", Sandbox: "sandbox-unit123", Gateway: "gateway-one"}
+	if err := app.waitForSandboxDeletedWith(context.Background(), run, time.Second, time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	if getCalls != 3 {
+		t.Fatalf("get calls = %d; want 3", getCalls)
 	}
 }
