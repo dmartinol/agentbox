@@ -72,9 +72,16 @@ The live suite checks:
 
 - `doctor` dependencies and gateway connectivity
 - Podman exposure from the active gateway
-- at least one AgentBox image
+- at least one AgentBox image and r3 metadata for all built-in agents
 - real profile validation and a launch preview when `AGENTBOX_LIVE_PROFILE` is set
-- run state and base/effective policy when `AGENTBOX_LIVE_RUN` is set
+- run state, base/effective policy, and loaded policy revision when `AGENTBOX_LIVE_RUN` is set
+- live policy allow/deny behavior when a sandbox network binary is available
+- a complete real run lifecycle when `AGENTBOX_LIVE_NEW_RUN=1` is set
+- concurrent runs when `AGENTBOX_LIVE_CONCURRENT_PROFILES` is set
+- registry push/pull when `AGENTBOX_LIVE_LOCAL_IMAGE` and `AGENTBOX_LIVE_REGISTRY_REF` are set
+- a secret scan of the live state directory when `gitleaks` is installed
+
+See [IT01-REPORT.md](IT01-REPORT.md) for the current live feasibility result.
 
 ## Runtime prerequisites
 ## Runtime prerequisites
