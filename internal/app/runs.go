@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,9 @@ type StartOptions struct {
 func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	p, err := a.Store.LoadProfile(opt.Profile)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Run{}, fmt.Errorf("profile %q not found; create it from the Profiles page or with `agentbox profile create`", opt.Profile)
+		}
 		return Run{}, err
 	}
 	if opt.Image != "" {
@@ -44,6 +48,9 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	}
 	policy, err := os.ReadFile(p.Policy)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Run{}, fmt.Errorf("profile %q references missing policy file %s; edit the profile or restore the policy", p.Name, p.Policy)
+		}
 		return Run{}, err
 	}
 	if _, err := ParsePolicy(policy); err != nil {

@@ -236,7 +236,7 @@ fi
 	press(t, "\t", "Focus:Actions")
 	press(t, "\x1b[C", "Focus:Actions")
 	press(t, "\x1b[D", "Focus:Actions") // Return to the first button.
-	press(t, "\r", "AgentBox/Runs/Startrun", "Focus:Content")
+	press(t, "\r", "AgentBox/Runs/Startrun", "Focus:Content", "Nosavedprofilesfound")
 	press(t, "\x1b", "AgentBox/Runs", "Focus:Content")
 	press(t, "\x1b", "Focus:Pages")
 

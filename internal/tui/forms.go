@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -45,6 +46,8 @@ func (ui *UI) profileForm() tview.Primitive {
 							return err
 						}
 					}
+				} else if _, err := os.Stat(policy); err != nil {
+					return fmt.Errorf("policy file does not exist: %s", policy)
 				}
 				return ui.app.Store.SaveProfile(app.Profile{
 					Version:  1,
@@ -66,6 +69,14 @@ func (ui *UI) profileForm() tview.Primitive {
 
 func (ui *UI) runForm() tview.Primitive {
 	profiles := ui.profileNames()
+	if len(profiles) == 0 {
+		form := tview.NewForm().
+			AddTextView("", "No saved profiles found. Create a profile first; it will provide the image, model, provider, and policy for a run.", 70, 3, false, false).
+			AddButton("Create profile", func() { ui.show("profile-form") }).
+			AddButton("Cancel", func() { ui.show(pageRuns) })
+		form.SetBorder(true).SetTitle(" Start run ")
+		return form
+	}
 	images := ui.imageNames()
 	gateways := ui.gatewayNames()
 	models := ui.modelSuggestions()

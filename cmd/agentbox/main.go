@@ -125,6 +125,9 @@ func profileCmd(ctx context.Context, a *app.App, args []string) error {
 				}
 			}
 		}
+		if _, err := os.Stat(*policy); err != nil {
+			return fmt.Errorf("policy file does not exist: %s", *policy)
+		}
 		p := app.Profile{Version: 1, Name: name, Agent: *agent, Image: *image, Mode: *mode, Model: *model, Provider: *provider, Policy: *policy, Approval: *approval}
 		if err := a.Store.SaveProfile(p); err != nil {
 			return err

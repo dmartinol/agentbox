@@ -158,3 +158,30 @@ func TestListAndReconcileAttemptsSyncWhenCompletedMarkerExists(t *testing.T) {
 		t.Fatal("completed run was not offered to the sync path")
 	}
 }
+
+func TestStartReportsMissingProfileAndPolicy(t *testing.T) {
+	ctx := context.Background()
+	store := Store{Base: t.TempDir()}
+	app := App{Store: store, Runner: &fakeRunner{}}
+
+	if _, err := app.Start(ctx, StartOptions{Profile: "mycodex", Gateway: "openshell"}); err == nil || !strings.Contains(err.Error(), `profile "mycodex" not found`) {
+		t.Fatalf("missing profile error = %v", err)
+	}
+
+	policy := filepath.Join(store.PolicyDir(), "missing.yaml")
+	if err := store.SaveProfile(Profile{
+		Version:  1,
+		Name:     "mycodex",
+		Agent:    "codex",
+		Image:    "localhost/openshell-codex:1.2.3-r3",
+		Mode:     "standard",
+		Provider: "provider",
+		Policy:   policy,
+		Approval: "prompted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.Start(ctx, StartOptions{Profile: "mycodex", Gateway: "openshell"}); err == nil || !strings.Contains(err.Error(), "references missing policy file") {
+		t.Fatalf("missing policy error = %v", err)
+	}
+}
