@@ -30,8 +30,8 @@ func TestImagePushUsesDropdownForLocalImages(t *testing.T) {
 	ui := &UI{
 		ctx: context.Background(),
 		app: &app.App{Store: store, Runner: pushFormRunner{images: `[
-			{"Id":"one","Names":["localhost/openshell-codex:1.0.0-r3"],"Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"1.0.0","agentbox.recipe":"3"}},
-			{"Id":"two","Names":["localhost/openshell-claude:2.0.0-r3"],"Labels":{"agentbox":"true","agentbox.agent":"claude","agentbox.version":"2.0.0","agentbox.recipe":"3"}}
+			{"Id":"one","Names":["localhost/openshell:codex-1.0.0-r3"],"Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"1.0.0","agentbox.recipe":"3"}},
+			{"Id":"two","Names":["localhost/openshell:claude-2.0.0-r3"],"Labels":{"agentbox":"true","agentbox.agent":"claude","agentbox.version":"2.0.0","agentbox.recipe":"3"}}
 		]`}},
 	}
 	primitive := ui.imagePushForm()
@@ -44,7 +44,7 @@ func TestImagePushUsesDropdownForLocalImages(t *testing.T) {
 		t.Fatalf("local tag is %T; want *tview.DropDown", form.GetFormItemByLabel("Local tag"))
 	}
 	index, value := dropdown.GetCurrentOption()
-	if index != 0 || value != "localhost/openshell-claude:2.0.0-r3" {
+	if index != 0 || value != "localhost/openshell:claude-2.0.0-r3" {
 		t.Fatalf("current local tag = %d %q", index, value)
 	}
 	remoteField, ok := form.GetFormItemByLabel("Remote reference").(*tview.InputField)

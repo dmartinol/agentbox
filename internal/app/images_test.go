@@ -80,7 +80,7 @@ func TestImageBuildUsesPinnedDigestAndRecipeTag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.Tag != "localhost/openshell-codex:0.167.0-r3" || record.BaseDigest != "sha256:base123" || record.ImageID != "sha256:image-id" || record.Digest != "sha256:image-digest" {
+	if record.Tag != "localhost/openshell:codex-0.167.0-r3" || record.BaseDigest != "sha256:base123" || record.ImageID != "sha256:image-id" || record.Digest != "sha256:image-digest" {
 		t.Fatalf("unexpected build record: %+v", record)
 	}
 	if len(runner.streams) != 2 || !commandHasArg(runner.streams[1], record.Tag) {
@@ -92,7 +92,7 @@ func TestImageBuildPreviewAndRegistryReferences(t *testing.T) {
 	runner := &fakeRunner{}
 	app := App{Runner: runner}
 	record, err := app.ImageBuild(context.Background(), "claude", "2.1.319", true)
-	if err != nil || record.Tag != "localhost/openshell-claude:2.1.319-r3" {
+	if err != nil || record.Tag != "localhost/openshell:claude-2.1.319-r3" {
 		t.Fatalf("unexpected preview: %+v, %v", record, err)
 	}
 	if len(runner.outputs)+len(runner.streams) != 0 {

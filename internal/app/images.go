@@ -62,7 +62,7 @@ type ImageRecord struct {
 }
 
 func imageTag(agent, version string) string {
-	return "localhost/openshell-" + agent + ":" + version + "-r" + recipeRevision
+	return fmt.Sprintf("localhost/openshell:%s-%s-r%s", agent, version, recipeRevision)
 }
 
 func (a *App) ImageBuild(ctx context.Context, agent, version string, dry bool) (ImageRecord, error) {

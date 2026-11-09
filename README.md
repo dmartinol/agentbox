@@ -140,7 +140,7 @@ Image build help and command discovery:
 ./agentbox image build --help
 ```
 
-If `--version` is omitted, AgentBox discovers and uses the latest compatible release for the selected agent. The build pins the Node base image by digest and tags the result as `localhost/openshell-<agent>:<version>-r3`.
+If `--version` is omitted, AgentBox discovers and uses the latest compatible release for the selected agent. The build pins the Node base image by digest and tags the result as `localhost/openshell:<agent>-<version>-r3`.
 
 Configure an external image registry:
 
@@ -148,7 +148,7 @@ Configure an external image registry:
 ./agentbox image registry set quay.io/dmartino/openshell
 ./agentbox image registry discover
 ./agentbox image registry discover --json
-./agentbox image registry push localhost/openshell-codex:0.167.0-r3
+./agentbox image registry push localhost/openshell:codex-0.167.0-r3
 ./agentbox image registry show --json
 ./agentbox image registry clear
 ```
@@ -173,10 +173,10 @@ quay.io/dmartino/openshell:opencode-2.2.6-r3-linux-arm64
 
 The `-<os>-<arch>` suffix is used for single-architecture images. A future multi-architecture manifest may publish the architecture-free tag as an additional alias.
 
-Local images keep their existing names:
+Local builds use the same agent-in-tag convention:
 
 ```text
-localhost/openshell-codex:0.167.0-r3
+localhost/openshell:codex-0.167.0-r3
 ```
 
 AgentBox derives the remote reference from the local image metadata and OCI labels. In **Images → Push**, the local image is selected from a dropdown and the remote reference is derived read-only from the configured registry.
