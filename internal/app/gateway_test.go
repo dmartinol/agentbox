@@ -48,3 +48,20 @@ func TestGatewayStartCommandFailsClearlyWithoutSupportedDependency(t *testing.T)
 		t.Fatalf("missing service error = %v", err)
 	}
 }
+
+func TestProviderListUsesExplicitGateway(t *testing.T) {
+	runner := &fakeRunner{output: func(recordedCommand) ([]byte, error) {
+		return []byte(`{"providers":[]}`), nil
+	}}
+	app := App{Runner: runner}
+	if _, err := app.ProviderList(context.Background(), "openshell"); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.outputs) != 1 {
+		t.Fatalf("unexpected command count: %#v", runner.outputs)
+	}
+	want := []string{"provider", "list", "-o", "json", "--gateway", "openshell"}
+	if !reflect.DeepEqual(runner.outputs[0].args, want) {
+		t.Fatalf("provider list command = %#v; want %#v", runner.outputs[0].args, want)
+	}
+}

@@ -135,7 +135,27 @@ func agentCommand(agent string) string {
 }
 
 func (a *App) ImageList(ctx context.Context) ([]byte, error) {
-	return a.Runner.Output(ctx, "podman", "images", "--filter", "label=agentbox=true", "--format", "json")
+	raw, err := a.Runner.Output(ctx, "podman", "images", "--format", "json")
+	if err != nil {
+		return nil, err
+	}
+	var records []json.RawMessage
+	if err := json.Unmarshal(raw, &records); err != nil {
+		return nil, err
+	}
+	filtered := make([]json.RawMessage, 0, len(records))
+	for _, record := range records {
+		var meta struct {
+			Labels map[string]string `json:"Labels"`
+		}
+		if err := json.Unmarshal(record, &meta); err != nil {
+			return nil, err
+		}
+		if meta.Labels["agentbox"] == "true" || meta.Labels["ai-sandbox.spike"] == "true" {
+			filtered = append(filtered, record)
+		}
+	}
+	return json.Marshal(filtered)
 }
 
 func (a *App) ImagePush(ctx context.Context, localTag, remote string, dry bool) error {

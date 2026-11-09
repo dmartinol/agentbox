@@ -118,13 +118,27 @@ func TestImageBuildPreviewAndRegistryReferences(t *testing.T) {
 	}
 }
 
-func TestImageListUsesPrototypeLabel(t *testing.T) {
-	runner := &fakeRunner{output: func(recordedCommand) ([]byte, error) { return []byte("[]\n"), nil }}
+func TestImageListFiltersCurrentAndLegacyLabels(t *testing.T) {
+	raw := []byte(`[
+		{"Id":"new","Labels":{"agentbox":"true"}},
+		{"Id":"old","Labels":{"ai-sandbox.spike":"true"}},
+		{"Id":"other","Labels":{"other":"true"}}
+	]`)
+	runner := &fakeRunner{output: func(recordedCommand) ([]byte, error) { return raw, nil }}
 	app := App{Runner: runner}
-	if _, err := app.ImageList(context.Background()); err != nil {
+	got, err := app.ImageList(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.outputs) != 1 || runner.outputs[0].name != "podman" || !commandHasArg(runner.outputs[0], "label=agentbox=true") {
-		t.Fatalf("image list command did not filter prototype images: %#v", runner.outputs)
+	if len(runner.outputs) != 1 || runner.outputs[0].name != "podman" || !commandHasArg(runner.outputs[0], "--format") {
+		t.Fatalf("image list command had unexpected shape: %#v", runner.outputs)
+	}
+	for _, id := range []string{"new", "old"} {
+		if !strings.Contains(string(got), `"Id":"`+id+`"`) {
+			t.Fatalf("filtered images missing %s: %s", id, got)
+		}
+	}
+	if strings.Contains(string(got), `"Id":"other"`) {
+		t.Fatalf("unrelated image was included: %s", got)
 	}
 }

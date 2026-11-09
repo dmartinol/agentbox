@@ -82,6 +82,7 @@ fi
 		"AGENTBOX_HOME="+stateDir,
 		"PATH="+stubDir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"TERM=xterm-256color",
+		"ENMAAS_KEY=",
 	)
 
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 140})
@@ -206,6 +207,14 @@ fi
 			// Policies is empty in this fixture and has no action bar.
 			// Tab must remain in the content layer rather than getting stuck.
 			press(t, "\t", "Focus:Content")
+			press(t, "\x1b", "Focus:Pages")
+			continue
+		}
+
+		if page == "Profiles" {
+			press(t, "\t", "Focus:Actions")
+			press(t, "\r", "AgentBox/Profiles/Createprofile", "Focus:Content")
+			press(t, "\x1b", "AgentBox/Profiles", "Focus:Content")
 			press(t, "\x1b", "Focus:Pages")
 			continue
 		}

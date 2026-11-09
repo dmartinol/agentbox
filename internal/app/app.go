@@ -54,6 +54,14 @@ func PrintJSON(v any) error {
 	return enc.Encode(v)
 }
 
+func (a *App) ProviderList(ctx context.Context, gateway string) ([]byte, error) {
+	args := []string{"provider", "list", "-o", "json"}
+	if gateway != "" {
+		args = append(args, "--gateway", gateway)
+	}
+	return a.Runner.Output(ctx, "openshell", args...)
+}
+
 func (a *App) GatewayList(ctx context.Context) ([]byte, error) {
 	return a.Runner.Output(ctx, "openshell", "gateway", "list", "-o", "json")
 }
