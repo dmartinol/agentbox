@@ -35,3 +35,11 @@ jobs:
 
       - name: Build
         run: go build -o "$RUNNER_TEMP/agentbox" ./cmd/agentbox
+
+      - name: Validate GoReleaser configuration
+        if: matrix.os == 'ubuntu-latest'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: check

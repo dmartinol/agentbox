@@ -51,6 +51,32 @@ agentbox doctor
 agentbox tui
 ```
 
+## Live integration tests
+
+The default test suite uses fake external commands. Live OpenShell checks are opt-in:
+
+```sh
+make test-live
+```
+
+Optional variables:
+
+```sh
+AGENTBOX_LIVE_GATEWAY=openshell
+AGENTBOX_LIVE_SOURCE=/path/to/a/git/repo
+AGENTBOX_LIVE_PROFILE=my-profile
+AGENTBOX_LIVE_RUN=run-abc123
+```
+
+The live suite checks:
+
+- `doctor` dependencies and gateway connectivity
+- Podman exposure from the active gateway
+- at least one AgentBox image
+- real profile validation and a launch preview when `AGENTBOX_LIVE_PROFILE` is set
+- run state and base/effective policy when `AGENTBOX_LIVE_RUN` is set
+
+## Runtime prerequisites
 ## Runtime prerequisites
 
 The installed binary still requires:
