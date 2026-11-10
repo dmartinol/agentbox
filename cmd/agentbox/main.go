@@ -13,7 +13,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/dmartinol/agentbox/internal/app"
-	"github.com/dmartinol/agentbox/internal/tui"
+	"github.com/dmartinol/agentbox/internal/gui"
 )
 
 var (
@@ -87,11 +87,20 @@ func dispatch(ctx context.Context, a *app.App, args []string) error {
 		return policyCmd(ctx, a, args[1:])
 	case "run":
 		return runCmd(ctx, a, args[1:])
-	case "tui":
-		return tui.Run(ctx, a)
+	case "gui":
+		return guiCmd(ctx, a, args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func guiCmd(ctx context.Context, a *app.App, args []string) error {
+	f := flags("gui")
+	address := f.String("address", "127.0.0.1:8080", "GUI listen address")
+	if err := f.Parse(args); err != nil {
+		return err
+	}
+	return gui.Run(ctx, a, *address)
 }
 
 func usage() {
@@ -106,7 +115,7 @@ func usage() {
 	fmt.Println("  provider setup")
 	fmt.Println("  policy show|edit")
 	fmt.Println("  run start|list|show|attach|logs|stop|sync|diff|delete")
-	fmt.Println("  tui")
+	fmt.Println("  gui [--address host:port]")
 }
 
 func versionString() string {

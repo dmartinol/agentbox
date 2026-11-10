@@ -117,7 +117,7 @@ func (s Store) ListPolicyConfigurations() ([]PolicyConfiguration, error) {
 	for _, profile := range profiles {
 		usedBy[profile.Policy] = append(usedBy[profile.Policy], profile.Name)
 	}
-	var out []PolicyConfiguration
+	out := make([]PolicyConfiguration, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
 			continue
@@ -169,6 +169,69 @@ func (s Store) CreatePolicyConfiguration(name string) (PolicyConfiguration, erro
 		return PolicyConfiguration{}, err
 	}
 	return PolicyConfiguration{Name: name, Path: path}, nil
+}
+
+func (s Store) LoadPolicyConfiguration(name string) (PolicyConfiguration, error) {
+	path, err := s.PolicyConfigurationPath(name)
+	if err != nil {
+		return PolicyConfiguration{}, err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return PolicyConfiguration{}, err
+	}
+	if _, err := ParsePolicy(b); err != nil {
+		return PolicyConfiguration{}, err
+	}
+	users, err := s.policyUsers(path)
+	if err != nil {
+		return PolicyConfiguration{}, err
+	}
+	return PolicyConfiguration{Name: name, Path: path, UsedBy: users}, nil
+}
+
+func (s Store) LoadPolicyConfigurationContent(name string) ([]byte, error) {
+	path, err := s.PolicyConfigurationPath(name)
+	if err != nil {
+		return nil, err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := ParsePolicy(b); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func (s Store) SavePolicyConfigurationContent(name string, content []byte) error {
+	path, err := s.PolicyConfigurationPath(name)
+	if err != nil {
+		return err
+	}
+	if _, err := ParsePolicy(content); err != nil {
+		return err
+	}
+	if err := s.Ensure(); err != nil {
+		return err
+	}
+	return atomicWrite(path, content)
+}
+
+func (s Store) policyUsers(path string) ([]string, error) {
+	profiles, err := s.ListProfiles()
+	if err != nil {
+		return nil, err
+	}
+	var users []string
+	for _, profile := range profiles {
+		if profile.Policy == path {
+			users = append(users, profile.Name)
+		}
+	}
+	sort.Strings(users)
+	return users, nil
 }
 
 func (s Store) EditPolicyConfiguration(ctx context.Context, name string) error {

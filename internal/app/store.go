@@ -322,9 +322,12 @@ func (s Store) ListProfiles() ([]Profile, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []Profile
+	out := make([]Profile, 0, len(entries))
 	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".yaml" {
+		// ProviderSetup stores generated OpenShell provider profiles beside
+		// AgentBox profiles. They use a distinct schema and must not be parsed
+		// as app.Profile values.
+		if e.IsDir() || filepath.Ext(e.Name()) != ".yaml" || strings.HasSuffix(e.Name(), "-provider.yaml") {
 			continue
 		}
 		p, err := s.LoadProfile(strings.TrimSuffix(e.Name(), ".yaml"))
@@ -425,7 +428,7 @@ func (s Store) ListProjects() ([]Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []Project
+	out := make([]Project, 0, len(entries))
 	for _, e := range entries {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".yaml" {
 			continue
@@ -498,7 +501,7 @@ func (s Store) ListRuns() ([]Run, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []Run
+	out := make([]Run, 0, len(entries))
 	for _, e := range entries {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
 			continue

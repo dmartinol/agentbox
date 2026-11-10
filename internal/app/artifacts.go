@@ -69,7 +69,7 @@ func (a *App) LocalImages(ctx context.Context) ([]ImageArtifact, error) {
 	if err := json.Unmarshal(data, &records); err != nil {
 		return nil, err
 	}
-	var artifacts []ImageArtifact
+	artifacts := make([]ImageArtifact, 0, len(records))
 	seen := map[string]struct{}{}
 	for _, record := range records {
 		label := func(name string) string {

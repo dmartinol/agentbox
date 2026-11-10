@@ -24,6 +24,30 @@ jobs:
           go-version: '1.26'
           cache: true
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: internal/gui/web/package-lock.json
+
+      - name: Install GUI dependencies
+        run: npm --prefix internal/gui/web ci
+
+      - name: Test GUI
+        run: npm --prefix internal/gui/web run test
+
+      - name: Build GUI
+        run: npm --prefix internal/gui/web run build
+
+      - name: Verify embedded GUI build output
+        run: |
+          test -s internal/gui/web/dist/index.html
+          grep -q 'assets/index-.*\.css' internal/gui/web/dist/index.html
+          grep -q 'assets/index-.*\.js' internal/gui/web/dist/index.html
+          find internal/gui/web/dist/assets -type f -name '*.css' -size +0c
+          find internal/gui/web/dist/assets -type f -name '*.js' -size +0c
+
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
 

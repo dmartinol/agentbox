@@ -47,7 +47,7 @@ func parseRegistrySearch(data []byte, fallbackReference string) ([]ImageArtifact
 	if err != nil {
 		return nil, err
 	}
-	var images []ImageArtifact
+	images := make([]ImageArtifact, 0, len(tags))
 	for _, tag := range tags {
 		artifact, ok := ParseRemoteTag(tag)
 		if !ok {

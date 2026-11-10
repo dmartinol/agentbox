@@ -1,6 +1,6 @@
 # AgentBox
 
-AgentBox is a local CLI and TUI for running multiple coding agents in isolated OpenShell sandboxes. It manages OpenShell-backed images, gateway policies, providers, and concurrent agent runs while keeping each run’s checkout, state, logs, and configuration separate.
+AgentBox is a local CLI and web GUI for running multiple coding agents in isolated OpenShell sandboxes. It manages OpenShell-backed images, gateway policies, providers, and concurrent agent runs while keeping each run’s checkout, state, logs, and configuration separate.
 
 This repository is an autonomous OpenShell spike. It is not a supported product release.
 
@@ -14,7 +14,7 @@ The current implementation provides:
 - `provider` setup for OpenShell inference providers.
 - `policy` commands for showing and editing sandbox policies.
 - `run` commands for start, list, show, attach, logs, stop, sync, diff, and delete.
-- A structured, tview-based terminal UI.
+- A compact React web GUI for the consolidated agent fleet and setup workflows.
 
 Unit tests cover the core behavior with temporary repositories and fake command runners. Live gateway, registry, policy-enforcement, and real-agent validation are not yet exercised.
 
@@ -48,7 +48,7 @@ Release archives include the `agentbox` binary, README, and license, plus a `che
 
 ```sh
 agentbox doctor
-agentbox tui
+agentbox gui
 ```
 
 ## Live integration tests
@@ -84,7 +84,6 @@ The live suite checks:
 See [IT01-REPORT.md](IT01-REPORT.md) for the current live feasibility result.
 
 ## Runtime prerequisites
-## Runtime prerequisites
 
 The installed binary still requires:
 
@@ -100,7 +99,14 @@ The installed binary still requires:
 make build
 ```
 
-This creates an `agentbox` binary in the repository root.
+This creates an `agentbox` binary in the repository root. The binary embeds the compiled GUI in `internal/gui/web/dist`, so installing or building the Go binary does not require npm.
+
+GUI development requires Node.js 22 or newer:
+
+```sh
+make web-build
+make web-test
+```
 
 ## Test
 
@@ -110,7 +116,7 @@ make vet
 make race
 ```
 
-`go test ./...` also runs a PTY-driven TUI integration test covering the layered pages/content/actions navigation model.
+The Go suite covers the API server and application behavior. The GUI suite uses Vitest and Testing Library to cover navigation, page layout, filters, status presentation, forms, API error handling, and the aggregated project/run tree.
 
 ## Usage
 
@@ -140,7 +146,7 @@ Image build help and command discovery:
 ./agentbox image build --help
 ```
 
-If `--version` is omitted, AgentBox discovers and uses the latest compatible release for the selected agent. In the TUI Build form, **Discover latest version** queries npm and fills the exact version field so it can be inspected before building. The build pins the Node base image by digest and tags the result as `localhost/openshell:<agent>-<version>-r3`.
+If `--version` is omitted, AgentBox discovers and uses the latest compatible release for the selected agent. In the GUI build dialog, **Discover latest** queries npm and fills the exact version field so it can be inspected before building. The build pins the Node base image by digest and tags the result as `localhost/openshell:<agent>-<version>-r3`.
 
 Configure an external image registry:
 
@@ -153,7 +159,7 @@ Configure an external image registry:
 ./agentbox image registry clear
 ```
 
-The registry setting is stored in the private AgentBox state directory. Discovery and push/pull use Podman's existing registry login. In the TUI, open **Images → Registry** to set the registry and discover tags.
+The registry setting is stored in the private AgentBox state directory. Discovery and push/pull use Podman's existing registry login. In the GUI, open **Images → Registry** to set the registry and discover tags.
 
 ### Registry image model
 
@@ -257,7 +263,76 @@ the environment where the OpenShell gateway runs. For Claude profiles, the
 Anthropic-compatible base URL is derived by removing a trailing `/v1`.
 
 The `openai` and `anthropic` provider types remain available for `standard`
-mode profiles that use direct model-provider credentials.
+mode profiles that use direct model-provider credentials. In the GUI, selecting
+one of these types prefills and locks the fixed provider host and credential
+environment variable:
+`openai` uses `api.openai.com` and `OPENAI_API_KEY`; `anthropic` uses
+`api.anthropic.com` and `ANTHROPIC_API_KEY`.
+
+EnMaaS uses one key but more than one API authentication dialect. Create two
+provider configurations with the same `ENMAAS_KEY` credential reference when
+supporting multiple agents:
+
+```sh
+export ENMAAS_KEY='...'
+
+# Codex and OpenCode: OpenAI-compatible Responses/Chat Completions
+./agentbox provider setup \
+  --type gateway-bearer \
+  --host api.enmaas.devshift.net \
+  --credential ENMAAS_KEY \
+  --gateway openshell \
+  enmaas-openai
+
+# Claude: Anthropic Messages with x-api-key
+./agentbox provider setup \
+  --type gateway-header \
+  --host api.enmaas.devshift.net \
+  --credential ENMAAS_KEY \
+  --gateway openshell \
+  enmaas-claude
+```
+
+Use `enmaas-openai` in Codex and OpenCode profiles and `enmaas-claude` in
+Claude profiles. Both profile families keep the same model API base URL:
+
+```text
+https://api.enmaas.devshift.net/v1
+```
+
+AgentBox derives Claude's Anthropic-compatible site URL by removing the
+trailing `/v1`. The same EnMaaS key is referenced everywhere; AgentBox never
+stores its value.
+
+#### Troubleshooting provider setup
+
+Provider setup failures are surfaced in three places:
+
+1. The **Set up provider** dialog shows the returned error inline.
+2. The browser developer console logs `[AgentBox] provider setup failed: …`.
+3. The terminal running `agentbox gui` logs the provider kind, name, host,
+   credential environment-variable name, gateway, and underlying error.
+
+The credential value itself is never logged or persisted. If the error says an
+environment reference is missing, export the variable in the GUI process and
+restart the server:
+
+```sh
+export MY_GATEWAY_KEY='...'
+./agentbox gui
+```
+
+OpenShell command failures include the captured stderr in the returned error,
+so the same message should appear in the dialog and the GUI server log.
+
+Provider setup is idempotent. If OpenShell reports that the generated provider
+profile already exists, AgentBox exports the existing profile, preserves its
+`resource_version`, updates the profile, and reuses an existing provider with
+the requested name instead of failing the setup.
+Provider names and provider types are immutable in OpenShell. The GUI edit
+form updates a provider's credential environment-variable reference and target
+gateway. A provider referenced by any AgentBox profile cannot be deleted; edit
+or delete the dependent profile first.
 
 Start a run from a registered project:
 
@@ -269,51 +344,42 @@ Start a run from a registered project:
 A run name is optional, must be unique within the project, and defaults to the
 generated run ID.
 
-Open the TUI:
+Open the GUI:
 
 ```sh
-./agentbox tui
+./agentbox gui
 ```
 
-## Terminal UI
+## Web GUI
 
-AgentBox uses [tview](https://github.com/rivo/tview) for the terminal UI.
-
-Keyboard navigation is available throughout the TUI:
-
-- `Tab` moves inward through the UI layers: pages → page content → action buttons
-- `Shift+Tab` moves outward through the same layers
-- `Esc` moves back one layer: buttons → page content → pages
-- Arrow keys move among the elements in the current layer
-- `Enter` selects or activates the focused element
-- The header shows the breadcrumb, history affordances, and the current focus layer
-- The focused layer is color-coded: pages are orange, content is blue, and actions are green
-- The navigation sidebar follows functional priority: overview and runs first, project/profile setup next, then image, gateway, and policy dependencies, followed by settings and diagnostics. **Settings** manages global worktree placement and branch naming.
-
-The TUI is organized around structured widgets rather than raw JSON output:
-
-- Tables for runs, images, gateways, profiles, projects, and doctor checks
-- Forms for creating profiles, projects, and reusable policies, starting runs, building images, connecting gateways, setting up providers, adding network hosts, and applying policies to runs
-- A Policies page for reusable policy configurations; per-run policy copies and pending policies are not listed as reusable configurations
-- A Runs → Policy action for inspecting the base, effective, and global policy of the selected run
-- Policy application that rewrites known agent binary paths for the selected run's agent while leaving tool binary paths unchanged
-- Start-run forms that show the selected profile's runtime values read-only; image, mode, model, and approval overrides are disabled until **Override profile** is enabled and start at `<None>`
-- A task console for long-running image, gateway, provider, and run operations, with captured command output, elapsed status, and Stop for cancellable commands
-- Tree views for nested gateway data and the base, effective, and global policies for a selected run
-- Modal dialogs for destructive actions
-- Direct calls to the internal application layer instead of shelling out to the CLI binary
-- Autocomplete suggestions for saved profiles, local images, gateways, providers, policies, run IDs, and models
-- Model discovery from the OpenAI-compatible discovery endpoint of saved gateway profiles when their API key environment variable is available
-
-To start it:
+Start the embedded web application:
 
 ```sh
-./agentbox tui
+./agentbox gui
+# or choose a listen address
+./agentbox gui --address 127.0.0.1:9090
 ```
+
+The GUI is a compact, Orca-inspired React single-page application built with Vite, Tailwind CSS, Radix UI, lucide icons, and small shadcn-style local primitives. It intentionally avoids a heavy sidebar/page-model shell: the main screen shows the fleet, while a right-side setup sheet and bottom output drawer keep the common navigation paths short.
+
+The two primary surfaces are:
+
+- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, compact status badges, inline lifecycle actions, and selected-agent metadata. Logs, diffs, and effective policies open in a shared bottom drawer.
+- **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, policies, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. Image build output and stop controls are also routed to the bottom drawer.
+
+The interface defaults to light mode and includes a header theme switcher; the selected theme is remembered locally.
+
+The GUI calls a local JSON API served by the same process. It does not expose the server on the network by default; bind explicitly if remote access is intended and protected.
 
 ## Attach behavior
 
-The Runs page selects the first run by default, so the action bar can attach immediately. Attaching opens the run's persistent tmux session. When the agent exits, the session asks whether to keep the run idle for later reattachment or finish it. Keeping it idle leaves an interactive shell in the run checkout, with instructions for restarting the agent. Choosing finish writes the finished marker and closes the tmux session so the attaching CLI or TUI returns.
+Interactive attach remains a CLI workflow because it needs a real terminal and tmux:
+
+```sh
+./agentbox run attach <run-id>
+```
+
+When the agent exits, the session asks whether to keep the run idle for later reattachment or finish it. Keeping it idle leaves an interactive shell in the run checkout. Choosing finish writes the finished marker and closes the tmux session. The GUI complements this with read-only logs, diff, policy, and lifecycle actions; it does not attempt to embed an interactive terminal.
 
 ## State location
 
@@ -337,7 +403,7 @@ custom layouts. Worktrees then live under `$AGENTBOX_HOME/worktrees`.
 ```text
 cmd/agentbox     CLI entry point
 internal/app     Core application logic
-internal/tui     tview-based terminal user interface
+internal/gui     JSON API and embedded React web GUI
 .github          CI workflow
 Makefile         Build and test targets
 ```
