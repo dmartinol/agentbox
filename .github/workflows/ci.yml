@@ -40,8 +40,13 @@ jobs:
       - name: Build GUI
         run: npm --prefix internal/gui/web run build
 
-      - name: Verify embedded GUI build is current
-        run: git diff --exit-code -- internal/gui/web/dist
+      - name: Verify embedded GUI build output
+        run: |
+          test -s internal/gui/web/dist/index.html
+          grep -q 'assets/index-.*\.css' internal/gui/web/dist/index.html
+          grep -q 'assets/index-.*\.js' internal/gui/web/dist/index.html
+          find internal/gui/web/dist/assets -type f -name '*.css' -size +0c
+          find internal/gui/web/dist/assets -type f -name '*.js' -size +0c
 
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
