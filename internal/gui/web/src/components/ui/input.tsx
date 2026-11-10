@@ -3,9 +3,9 @@ import type { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes 
 import { cn } from '../../lib/utils';
 
 const controlClass = cn(
-  'h-8 w-full min-w-0 rounded-md border border-zinc-700 bg-zinc-900 px-2 text-zinc-100',
-  'placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30',
-  'disabled:cursor-not-allowed disabled:opacity-60 read-only:text-zinc-400'
+  'h-9 w-full min-w-0 rounded-md border border-border bg-surface px-2 text-foreground',
+  'placeholder:text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30',
+  'disabled:cursor-not-allowed disabled:opacity-60 read-only:text-muted'
 );
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...props }, ref) {
@@ -17,5 +17,5 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
 });
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, ...props }, ref) {
-  return <textarea ref={ref} className={cn(controlClass, 'h-auto min-h-20 py-1.5 font-mono text-xs leading-5', className)} {...props} />;
+  return <textarea ref={ref} className={cn(controlClass, 'h-auto min-h-20 py-1.5 font-mono text-sm leading-5', className)} {...props} />;
 });

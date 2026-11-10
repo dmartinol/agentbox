@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, CircleSlash, Loader2, RefreshCw, Search, Settings, Terminal } from 'lucide-react';
+import { Bot, CircleSlash, Loader2, RefreshCw, Search, Terminal } from 'lucide-react';
 import { api } from '../api';
 import type { Overview, Profile, Run, StartRunRequest } from '../types';
 import { Badge } from '../components/ui/badge';
@@ -16,11 +16,9 @@ import type { LogDrawerState } from '../components/LogDrawer';
 const allProjects = 'All projects';
 
 export function FleetView({
-  onOpenSetup,
   openLog,
   updateLog
 }: {
-  onOpenSetup: () => void;
   openLog: (state: Omit<LogDrawerState, 'open'>) => void;
   updateLog: (state: Partial<LogDrawerState>) => void;
 }) {
@@ -128,9 +126,9 @@ export function FleetView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-950/90 px-3">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background/90 px-3">
         <div className="relative min-w-56 flex-1">
-          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-zinc-500" />
+          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
           <Input
             aria-label="Search agents"
             className="pl-7"
@@ -145,7 +143,6 @@ export function FleetView({
         <Button variant="ghost" size="icon" aria-label="Refresh agents" onClick={() => void load()}>
           {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
         </Button>
-        <Button variant="outline" onClick={onOpenSetup}><Settings className="size-3.5" /> Setup</Button>
         <Button onClick={() => setStartOpen(true)}><Bot className="size-3.5" /> New agent</Button>
       </div>
 
@@ -190,14 +187,14 @@ export function FleetView({
                     {projectAgents.map((agent) => (
                       <TR
                         key={agent.id}
-                        className={selected?.id === agent.id ? 'bg-indigo-500/10' : undefined}
+                        className={selected?.id === agent.id ? 'bg-accent/10' : undefined}
                         onClick={() => setSelected(agent)}
                       >
                         <TD className="truncate font-medium" onClick={(event) => { event.stopPropagation(); setSelected(agent); }}>{agent.name || agent.id}</TD>
                         <TD>{agent.agent}</TD>
                         <TD><StatusBadge status={agent.status} /></TD>
-                        <TD className={agent.synced ? 'text-emerald-300' : 'text-amber-300'}>{agent.synced ? 'Synced' : 'Unsynced'}</TD>
-                        <TD className="truncate font-mono text-[11px] text-zinc-400">{agent.branch}</TD>
+                        <TD className={agent.synced ? 'text-success' : 'text-warning'}>{agent.synced ? 'Synced' : 'Unsynced'}</TD>
+                        <TD className="truncate font-mono text-xs text-muted">{agent.branch}</TD>
                         <TD>
                           <div className="flex flex-wrap gap-1">
                             <Button size="xs" variant="ghost" onClick={(event) => { event.stopPropagation(); void openDetail(agent, 'logs'); }}><Terminal className="size-3" /> Logs</Button>
@@ -215,17 +212,17 @@ export function FleetView({
           )}
         </div>
 
-        <aside className="hidden w-80 shrink-0 border-l border-zinc-800 bg-zinc-950/70 md:block">
+        <aside className="hidden w-80 shrink-0 border-l border-border bg-background/70 md:block">
           {selected ? (
             <div className="space-y-3 p-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold">{selected.name || selected.id}</div>
-                  <div className="text-xs text-zinc-500">{selected.project || 'Unassigned'} · {selected.agent}</div>
+                  <div className="text-sm text-muted">{selected.project || 'Unassigned'} · {selected.agent}</div>
                 </div>
                 <StatusBadge status={selected.status} />
               </div>
-              <dl className="space-y-1.5 rounded-lg border border-zinc-800 bg-zinc-900/50 p-2.5 text-xs">
+              <dl className="space-y-1.5 rounded-lg border border-border bg-surface/50 p-2.5 text-sm">
                 {[
                   ['ID', selected.id],
                   ['Agent type', selected.agent],
@@ -237,8 +234,8 @@ export function FleetView({
                   ['Worktree', selected.worktree]
                 ].map(([label, value]) => (
                   <div key={label} className="grid grid-cols-[5.5rem_1fr] gap-2">
-                    <dt className="text-zinc-500">{label}</dt>
-                    <dd className="min-w-0 truncate text-zinc-300">{value}</dd>
+                    <dt className="text-muted">{label}</dt>
+                    <dd className="min-w-0 truncate text-foreground">{value}</dd>
                   </div>
                 ))}
               </dl>
@@ -256,7 +253,7 @@ export function FleetView({
       </div>
 
       {(notice || actionError) ? (
-        <div className={`h-8 shrink-0 border-t px-3 text-xs leading-8 ${actionError ? 'border-red-500/30 bg-red-500/10 text-red-200' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'}`}>
+        <div className={`h-8 shrink-0 border-t px-3 text-sm leading-8 ${actionError ? 'border-danger/30 bg-danger/10 text-danger' : 'border-success/30 bg-success/10 text-success'}`}>
           {actionError || notice}
         </div>
       ) : null}
@@ -303,18 +300,18 @@ export function FleetView({
           <Field label="Prompt" htmlFor="new-agent-prompt" className="sm:col-span-2">
             <Textarea id="new-agent-prompt" rows={4} value={startForm.prompt} onChange={(event) => setStartForm({ ...startForm, prompt: event.target.value })} />
           </Field>
-          <div className="sm:col-span-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-2.5 text-xs text-zinc-400">
+          <div className="sm:col-span-2 rounded-lg border border-border bg-surface/40 p-2.5 text-sm text-muted">
             {selectedProfile ? (
               <div className="space-y-1">
-                <div>Image: <span className="text-zinc-200">{selectedProfile.image}</span></div>
-                <div>Model: <span className="text-zinc-200">{selectedProfile.model || '-'}</span></div>
-                <div>Provider: <span className="text-zinc-200">{selectedProfile.provider}</span></div>
-                <div>Approval: <span className="text-zinc-200">{selectedProfile.approval}</span></div>
+                <div>Image: <span className="text-foreground">{selectedProfile.image}</span></div>
+                <div>Model: <span className="text-foreground">{selectedProfile.model || '-'}</span></div>
+                <div>Provider: <span className="text-foreground">{selectedProfile.provider}</span></div>
+                <div>Approval: <span className="text-foreground">{selectedProfile.approval}</span></div>
               </div>
             ) : 'Select a profile to see defaults.'}
           </div>
-          <label className="flex items-center gap-2 text-xs text-zinc-400 sm:col-span-2">
-            <input type="checkbox" checked={useOverrides} onChange={(event) => setUseOverrides(event.target.checked)} className="size-3.5 accent-indigo-500" />
+          <label className="flex items-center gap-2 text-sm text-muted sm:col-span-2">
+            <input type="checkbox" checked={useOverrides} onChange={(event) => setUseOverrides(event.target.checked)} className="size-3.5 accent-accent" />
             Override image, model, and approval
           </label>
           {useOverrides ? (

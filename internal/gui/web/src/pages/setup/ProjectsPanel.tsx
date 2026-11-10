@@ -58,7 +58,7 @@ export function ProjectsPanel({ onChanged }: { onChanged?: () => void }) {
             {projects.map((project) => (
               <TR key={project.name}>
                 <TD className="truncate font-medium">{project.name}</TD>
-                <TD className="truncate font-mono text-[11px] text-zinc-400">{project.root}</TD>
+                <TD className="truncate font-mono text-xs text-muted">{project.root}</TD>
                 <TD>{project.worktree === false ? 'direct' : 'worktree'}</TD>
                 <TD><Button size="xs" variant="ghost" onClick={() => { setForm(project); setOpen(true); }}>Edit</Button></TD>
               </TR>
@@ -76,8 +76,8 @@ export function ProjectsPanel({ onChanged }: { onChanged?: () => void }) {
         <div className="grid gap-3">
           <Field label="Name" htmlFor="project-name" required><Input id="project-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></Field>
           <Field label="Git root" htmlFor="project-root" required><Input id="project-root" value={form.root} onChange={(event) => setForm({ ...form, root: event.target.value })} /></Field>
-          <label className="flex items-center gap-2 text-xs text-zinc-400">
-            <input type="checkbox" className="size-3.5 accent-indigo-500" checked={form.worktree !== false} onChange={(event) => setForm({ ...form, worktree: event.target.checked })} />
+          <label className="flex items-center gap-2 text-sm text-muted">
+            <input type="checkbox" className="size-3.5 accent-accent" checked={form.worktree !== false} onChange={(event) => setForm({ ...form, worktree: event.target.checked })} />
             Use isolated Git worktrees
           </label>
         </div>

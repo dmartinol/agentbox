@@ -95,7 +95,7 @@ export function ImagesPanel({
           <TBody>
             {images.map((image) => (
               <TR key={image.reference}>
-                <TD className="truncate font-mono text-[11px]">{image.reference}</TD>
+                <TD className="truncate font-mono text-xs">{image.reference}</TD>
                 <TD>{image.agent}</TD>
                 <TD>{image.version}</TD>
                 <TD>r{image.recipe}</TD>
@@ -106,7 +106,7 @@ export function ImagesPanel({
         </Table>
       )}
 
-      <div className="rounded-lg border border-zinc-800 p-3">
+      <div className="rounded-lg border border-border p-3">
         <div className="flex items-end gap-2">
           <Field label="Registry repository" htmlFor="registry-reference" className="flex-1">
             <Input id="registry-reference" value={registry.reference} onChange={(event) => setRegistry({ reference: event.target.value })} />
@@ -121,7 +121,7 @@ export function ImagesPanel({
             <THead><TR><TH className="w-[12%]">Agent</TH><TH className="w-[12%]">Version</TH><TH>Reference</TH></TR></THead>
             <TBody>
               {registryImages.map((image) => (
-                <TR key={image.reference}><TD>{image.agent}</TD><TD>{image.version}</TD><TD className="truncate font-mono text-[11px]">{image.reference}</TD></TR>
+                <TR key={image.reference}><TD>{image.agent}</TD><TD>{image.version}</TD><TD className="truncate font-mono text-xs">{image.reference}</TD></TR>
               ))}
             </TBody>
           </Table>
@@ -137,14 +137,14 @@ export function ImagesPanel({
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Agent" htmlFor="image-agent" required>
-            <select id="image-agent" className="h-8 rounded-md border border-zinc-700 bg-zinc-900 px-2" value={buildForm.agent} onChange={(event) => setBuildForm({ ...buildForm, agent: event.target.value })}>
+            <select id="image-agent" className="h-8 rounded-md border border-border bg-surface px-2" value={buildForm.agent} onChange={(event) => setBuildForm({ ...buildForm, agent: event.target.value })}>
               {['codex', 'claude', 'opencode'].map((agent) => <option key={agent} value={agent}>{agent}</option>)}
             </select>
           </Field>
           <Field label="Exact version" htmlFor="image-version" helper="Blank resolves latest."><Input id="image-version" value={buildForm.version} onChange={(event) => setBuildForm({ ...buildForm, version: event.target.value })} /></Field>
           <Button variant="outline" onClick={() => void action(async () => setBuildForm({ ...buildForm, version: (await api.imageVersion(buildForm.agent)).version }), 'Version discovered')}>Discover latest</Button>
         </div>
-        {task ? <div className="mt-3 flex items-center gap-2 text-xs text-zinc-400"><StatusBadge status={task.status} /> Build output opens in the log drawer.</div> : null}
+        {task ? <div className="mt-3 flex items-center gap-2 text-sm text-muted"><StatusBadge status={task.status} /> Build output opens in the log drawer.</div> : null}
       </Modal>
 
       <Modal

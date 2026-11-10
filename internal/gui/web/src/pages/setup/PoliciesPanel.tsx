@@ -64,8 +64,8 @@ export function PoliciesPanel() {
             {policies.map((policy) => (
               <TR key={policy.name}>
                 <TD className="truncate font-medium">{policy.name}</TD>
-                <TD className="truncate text-zinc-400">{policy.used_by?.join(', ') || '—'}</TD>
-                <TD className="truncate font-mono text-[11px] text-zinc-500">{policy.path}</TD>
+                <TD className="truncate text-muted">{policy.used_by?.join(', ') || '—'}</TD>
+                <TD className="truncate font-mono text-xs text-muted">{policy.path}</TD>
                 <TD>
                   <div className="flex flex-wrap gap-1">
                     <Button size="xs" variant="ghost" onClick={() => { setHostForm({ name: policy.name, agent: 'codex', host: '' }); setHostOpen(true); }}>Add host</Button>

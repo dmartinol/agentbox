@@ -131,15 +131,15 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
               return (
                 <TR key={`${provider.gateway ?? gateway}/${provider.name}`}>
                   <TD className="truncate font-medium">{provider.name}</TD>
-                  <TD className="truncate text-zinc-400">{provider.type || '-'}</TD>
-                  <TD className="truncate font-mono text-[11px]">{provider.credential_keys?.length ? provider.credential_keys.join(', ') : provider.credential || '-'}</TD>
+                  <TD className="truncate text-muted">{provider.type || '-'}</TD>
+                  <TD className="truncate font-mono text-xs">{provider.credential_keys?.length ? provider.credential_keys.join(', ') : provider.credential || '-'}</TD>
                   <TD className="truncate">
-                    {usedCount ? <><Badge tone="warning">{usedCount}</Badge> <span className="text-zinc-400">{provider.used_by?.join(', ')}</span></> : <span className="text-zinc-600">—</span>}
+                    {usedCount ? <><Badge tone="warning">{usedCount}</Badge> <span className="text-muted">{provider.used_by?.join(', ')}</span></> : <span className="text-muted">—</span>}
                   </TD>
                   <TD>
                     <div className="flex gap-1">
                       <Button size="xs" variant="ghost" onClick={() => { setEditProvider(provider); setEditCredential(provider.credential ?? provider.credential_keys?.[0] ?? ''); setEditGateway(provider.gateway || gateway); setEditError(''); }}>Edit</Button>
-                      <Button size="xs" variant="ghost" className="text-red-300" disabled={usedCount > 0} title={usedCount ? 'Delete dependent profiles first' : undefined} onClick={() => { setDeleteError(''); setDeleteProvider(provider); }}>Delete</Button>
+                      <Button size="xs" variant="ghost" className="text-danger" disabled={usedCount > 0} title={usedCount ? 'Delete dependent profiles first' : undefined} onClick={() => { setDeleteError(''); setDeleteProvider(provider); }}>Delete</Button>
                     </div>
                   </TD>
                 </TR>
@@ -220,7 +220,7 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
         {deleteError ? <Alert variant="danger" title="Provider deletion failed" className="mb-3">{deleteError}</Alert> : null}
         {deleteProvider?.used_by?.length ? (
           <Alert variant="warning" title="Provider is in use">Edit or delete these profiles first: {deleteProvider.used_by.join(', ')}</Alert>
-        ) : <p className="text-xs text-zinc-400">Delete this OpenShell provider?</p>}
+        ) : <p className="text-sm text-muted">Delete this OpenShell provider?</p>}
       </Modal>
     </div>
   );

@@ -4,19 +4,19 @@ import { cn } from '../../lib/utils';
 export type BadgeTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'accent';
 
 const tones: Record<BadgeTone, string> = {
-  neutral: 'bg-zinc-800 text-zinc-300 border-zinc-700',
-  success: 'bg-emerald-500/12 text-emerald-300 border-emerald-500/25',
-  warning: 'bg-amber-500/12 text-amber-300 border-amber-500/25',
-  danger: 'bg-red-500/12 text-red-300 border-red-500/25',
-  info: 'bg-sky-500/12 text-sky-300 border-sky-500/25',
-  accent: 'bg-indigo-500/12 text-indigo-300 border-indigo-500/25'
+  neutral: 'bg-surface-2 text-foreground border-border',
+  success: 'bg-success/12 text-success border-success/25',
+  warning: 'bg-warning/12 text-warning border-warning/25',
+  danger: 'bg-danger/12 text-danger border-danger/25',
+  info: 'bg-info/12 text-info border-info/25',
+  accent: 'bg-accent/12 text-accent border-accent/25'
 };
 
 export function Badge({ className, tone = 'neutral', ...props }: HTMLAttributes<HTMLSpanElement> & { tone?: BadgeTone }) {
   return (
     <span
       className={cn(
-        'inline-flex h-5 shrink-0 items-center gap-1 rounded border px-1.5 text-[11px] font-medium leading-none',
+        'inline-flex h-6 shrink-0 items-center gap-1 rounded border px-1.5 text-xs font-medium leading-none',
         tones[tone],
         className
       )}

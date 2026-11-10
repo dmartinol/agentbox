@@ -367,6 +367,8 @@ The two primary surfaces are:
 - **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, compact status badges, inline lifecycle actions, and selected-agent metadata. Logs, diffs, and effective policies open in a shared bottom drawer.
 - **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, policies, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. Image build output and stop controls are also routed to the bottom drawer.
 
+The interface defaults to light mode and includes a header theme switcher; the selected theme is remembered locally.
+
 The GUI calls a local JSON API served by the same process. It does not expose the server on the network by default; bind explicitly if remote access is intended and protected.
 
 ## Attach behavior

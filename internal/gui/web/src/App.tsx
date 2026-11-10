@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Activity, Boxes, Settings } from 'lucide-react';
+import { ThemeToggle } from './components/ThemeToggle';
 import { api } from './api';
 import type { Check } from './types';
 import { Badge } from './components/ui/badge';
@@ -30,17 +31,18 @@ export function App() {
   const failed = doctor.filter((check) => !check.ok).length;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-zinc-950">
-      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-zinc-800 bg-black/70 px-3">
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-surface px-3">
         <div className="flex items-center gap-2">
-          <Boxes className="size-4 text-indigo-400" />
+          <Boxes className="size-4 text-accent" />
           <span className="text-sm font-semibold tracking-tight">AgentBox</span>
         </div>
-        <div className="flex min-w-0 items-center gap-1.5 text-xs text-zinc-500">
+        <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted">
           <Activity className="size-3.5" />
           OpenShell fleet
         </div>
         <div className="ml-auto flex items-center gap-2">
+          <ThemeToggle />
           <Badge tone={failed === 0 ? 'success' : failed > 1 ? 'danger' : 'warning'}>
             Doctor {failed === 0 ? 'OK' : `${failed} issue${failed === 1 ? '' : 's'}`}
           </Badge>
@@ -51,7 +53,7 @@ export function App() {
       </header>
 
       <main className="min-h-0 flex-1">
-        <FleetView onOpenSetup={() => setSetupOpen(true)} openLog={openLog} updateLog={updateLog} />
+        <FleetView openLog={openLog} updateLog={updateLog} />
       </main>
 
       <SetupSheet open={setupOpen} onOpenChange={setSetupOpen} openLog={openLog} updateLog={updateLog} />

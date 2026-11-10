@@ -46,6 +46,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  window.localStorage.clear();
   cleanup();
 });
 
@@ -56,6 +57,17 @@ describe('fleet shell', () => {
     expect((await screen.findAllByText('demo')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('active-run').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /new agent/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /setup/i })).toHaveLength(1);
+  });
+
+  it('defaults to light mode and remembers the selected theme', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    expect(document.documentElement).toHaveClass('theme-light');
+    await user.click(screen.getByRole('button', { name: 'Switch to dark theme' }));
+    expect(document.documentElement).not.toHaveClass('theme-light');
+    expect(window.localStorage.getItem('agentbox-theme')).toBe('dark');
+    expect(screen.getByRole('button', { name: 'Switch to light theme' })).toBeInTheDocument();
   });
 
   it('opens agent logs in the bottom drawer', async () => {
@@ -86,6 +98,10 @@ describe('setup sheet', () => {
     for (const label of ['Providers', 'Profiles', 'Projects', 'Images', 'Gateways', 'Policies', 'Advanced']) {
       expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
     }
+    expect(screen.getByRole('tab', { name: 'Providers', selected: true })).toHaveClass(
+      'data-[state=active]:bg-accent',
+      'data-[state=active]:text-accent-foreground'
+    );
     expect(await screen.findByText('model-gateway')).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: 'Profiles' }));
     expect(await screen.findByText('codex-default')).toBeInTheDocument();

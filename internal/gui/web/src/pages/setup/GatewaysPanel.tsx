@@ -60,7 +60,7 @@ export function GatewaysPanel() {
               <TR key={gateway.name}>
                 <TD className="truncate font-medium">{gateway.name}</TD>
                 <TD><Badge tone={gateway.active ? 'success' : 'neutral'}>{gateway.active ? 'Active' : 'Inactive'}</Badge></TD>
-                <TD className="truncate font-mono text-[11px] text-zinc-400">{gateway.endpoint}</TD>
+                <TD className="truncate font-mono text-xs text-muted">{gateway.endpoint}</TD>
                 <TD>{gateway.type}</TD>
                 <TD><Button size="xs" variant="ghost" onClick={() => void action(async () => setInfo(await api.gatewayInfo(gateway.name)), 'Gateway inspected')}>Inspect</Button></TD>
               </TR>
@@ -68,7 +68,7 @@ export function GatewaysPanel() {
           </TBody>
         </Table>
       )}
-      {info !== undefined ? <pre className="agentbox-scrollbar max-h-64 overflow-auto rounded-lg border border-zinc-800 bg-black/40 p-3 font-mono text-[11px] text-zinc-300">{JSON.stringify(info, null, 2)}</pre> : null}
+      {info !== undefined ? <pre className="agentbox-scrollbar max-h-64 overflow-auto rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs text-foreground">{JSON.stringify(info, null, 2)}</pre> : null}
 
       <Modal
         open={connectOpen}

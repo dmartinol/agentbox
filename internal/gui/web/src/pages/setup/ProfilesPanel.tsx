@@ -80,7 +80,7 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
                 <TD className="truncate font-medium">{profile.name}</TD>
                 <TD>{profile.agent}</TD>
                 <TD>{profile.mode}</TD>
-                <TD className="truncate font-mono text-[11px] text-zinc-400">{profile.model || '—'}</TD>
+                <TD className="truncate font-mono text-xs text-muted">{profile.model || '—'}</TD>
                 <TD className="truncate">{profile.provider}</TD>
                 <TD><Button size="xs" variant="ghost" onClick={() => { setForm(profile); setOpen(true); }}>Edit</Button></TD>
               </TR>
