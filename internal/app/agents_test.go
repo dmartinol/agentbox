@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,6 +66,9 @@ func TestPrepareAgentGeneratesIsolatedConfigForEachAgentMode(t *testing.T) {
 						settings, err := os.ReadFile(filepath.Join(dir, "home", ".claude", "settings.json"))
 						if err != nil || !json.Valid(settings) || !strings.Contains(string(settings), "https://models.example.test") {
 							t.Fatalf("Claude gateway endpoint missing: %v %s", err, settings)
+						}
+						if !strings.Contains(string(script), `export ANTHROPIC_API_KEY="${UNIT_MODEL_KEY}"`) {
+							t.Fatalf("Claude gateway script does not reference the gateway key environment variable:\n%s", script)
 						}
 					}
 				}
@@ -142,5 +146,59 @@ func TestSessionScriptOffersIdleReattach(t *testing.T) {
 		if !strings.Contains(sessionScript, want) {
 			t.Fatalf("session script missing %q:\n%s", want, sessionScript)
 		}
+	}
+}
+
+func TestProviderSetupUpdatesExistingProfileAfterLintConflict(t *testing.T) {
+	t.Setenv("UNIT_MODEL_KEY", "unit-secret")
+	store := Store{Base: t.TempDir()}
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		switch {
+		case call.name == "openshell" && len(call.args) > 0 && call.args[0] == "profile" && call.args[1] == "lint":
+			return nil, errors.New("Provider profile diagnostics: custom provider profile already exists")
+		case call.name == "openshell" && len(call.args) > 0 && call.args[0] == "profile" && call.args[1] == "export":
+			return []byte("id: agentbox-gateway-bearer-models-example-test\nresource_version: 42\n"), nil
+		default:
+			return nil, nil
+		}
+	}}
+	app := App{Store: store, Runner: runner}
+	if err := app.ProviderSetup(context.Background(), "gateway-bearer", "unit-provider", "models.example.test", "UNIT_MODEL_KEY", "gateway-one", false, false); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := os.ReadFile(filepath.Join(store.ProfilesDir(), "agentbox-gateway-bearer-models-example-test-provider.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(provider), "resource_version: 42") {
+		t.Fatalf("existing provider resource version was not preserved: %s", provider)
+	}
+	var sawExport, sawUpdate bool
+	for _, call := range runner.outputs {
+		if commandHasArg(call, "export") {
+			sawExport = true
+		}
+		if commandHasArg(call, "update") {
+			sawUpdate = true
+		}
+	}
+	if !sawExport || !sawUpdate {
+		t.Fatalf("provider conflict did not use update flow: %#v", runner.outputs)
+	}
+}
+
+func TestProviderSetupAcceptsModelBaseURLAsGatewayHost(t *testing.T) {
+	t.Setenv("UNIT_MODEL_KEY", "unit-secret")
+	store := Store{Base: t.TempDir()}
+	app := App{Store: store, Runner: &fakeRunner{}}
+	if err := app.ProviderSetup(context.Background(), "gateway-header", "unit-provider", "https://api.enmaas.devshift.net/v1/", "UNIT_MODEL_KEY", "gateway-one", false, false); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := os.ReadFile(filepath.Join(store.ProfilesDir(), "agentbox-gateway-header-api-enmaas-devshift-net-provider.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(provider), "host: api.enmaas.devshift.net") || strings.Contains(string(provider), "https://api.enmaas.devshift.net") {
+		t.Fatalf("gateway host was not normalized: %s", provider)
 	}
 }

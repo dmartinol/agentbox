@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -66,6 +67,10 @@ func imageTag(agent, version string) string {
 }
 
 func (a *App) ImageBuild(ctx context.Context, agent, version string, dry bool) (ImageRecord, error) {
+	return a.ImageBuildWithOutput(ctx, agent, version, dry, os.Stdout, os.Stderr)
+}
+
+func (a *App) ImageBuildWithOutput(ctx context.Context, agent, version string, dry bool, stdout, stderr io.Writer) (ImageRecord, error) {
 	pkg, err := agentPackage(agent)
 	if err != nil {
 		return ImageRecord{}, err
@@ -83,7 +88,7 @@ func (a *App) ImageBuild(ctx context.Context, agent, version string, dry bool) (
 	if dry {
 		return rec, nil
 	}
-	if err := a.Runner.Stream(ctx, nil, os.Stdout, os.Stderr, "podman", "pull", baseImage); err != nil {
+	if err := a.Runner.Stream(ctx, nil, stdout, stderr, "podman", "pull", baseImage); err != nil {
 		return rec, err
 	}
 	b, err := a.Runner.Output(ctx, "podman", "image", "inspect", baseImage, "--format", "{{.Digest}}")
@@ -104,7 +109,7 @@ func (a *App) ImageBuild(ctx context.Context, agent, version string, dry bool) (
 		return rec, err
 	}
 	args := []string{"build", "-t", rec.Tag, "--label", "agentbox=true", "--label", "agentbox.agent=" + agent, "--label", "agentbox.version=" + version, "--label", "agentbox.recipe=" + recipeRevision, "--label", "agentbox.base-digest=" + rec.BaseDigest, dir}
-	if err := a.Runner.Stream(ctx, nil, os.Stdout, os.Stderr, "podman", args...); err != nil {
+	if err := a.Runner.Stream(ctx, nil, stdout, stderr, "podman", args...); err != nil {
 		return rec, err
 	}
 	b, err = a.Runner.Output(ctx, "podman", "image", "inspect", rec.Tag, "--format", "{{.Id}} {{.Digest}}")

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -247,5 +248,64 @@ func TestSavePolicyEditAppliesNetworkChangeAndRollsBackOnFailure(t *testing.T) {
 				t.Fatalf("policy update command was not issued with wait: %#v", runner.outputs)
 			}
 		})
+	}
+}
+
+func TestPolicyConfigurationContentRoundTrip(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	created, err := store.CreatePolicyConfiguration("reusable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.LoadPolicyConfigurationContent("reusable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(loaded, DefaultPolicy()) {
+		t.Fatalf("initial content mismatch:\n%s", loaded)
+	}
+	next, err := addNetworkRule(loaded, "codex", "api.example.test", "/usr/local/bin/codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SavePolicyConfigurationContent("reusable", next); err != nil {
+		t.Fatal(err)
+	}
+	configuration, err := store.LoadPolicyConfiguration("reusable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configuration.Name != "reusable" || configuration.Path != created.Path {
+		t.Fatalf("configuration = %#v", configuration)
+	}
+	if err := store.SavePolicyConfigurationContent("reusable", []byte("version: 2")); err == nil {
+		t.Fatal("invalid policy was accepted")
+	}
+}
+
+func TestPolicyConfigurationUsedByProfiles(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := store.CreatePolicyConfiguration("shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProfile(Profile{
+		Version: 1, Name: "codex-shared", Agent: "codex", Image: "image", Mode: "standard",
+		Provider: "provider", Policy: policy.Path, Approval: "prompted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	configuration, err := store.LoadPolicyConfiguration("shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(configuration.UsedBy) != 1 || configuration.UsedBy[0] != "codex-shared" {
+		t.Fatalf("used by = %#v", configuration.UsedBy)
 	}
 }

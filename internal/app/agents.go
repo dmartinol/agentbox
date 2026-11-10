@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -178,7 +179,7 @@ func agentScript(p Profile, prompt string) (string, error) {
 		if p.Agent == "claude" {
 			b.WriteString("export ANTHROPIC_BASE_URL=" + shellQuote(gatewaySiteURL(p.BaseURL)) + "\n")
 			if p.APIKeyEnv != "ANTHROPIC_API_KEY" {
-				b.WriteString("export ANTHROPIC_API_KEY=\"" + p.APIKeyEnv + "\"\n")
+				b.WriteString("export ANTHROPIC_API_KEY=\"${" + p.APIKeyEnv + "}\"\n")
 			}
 		}
 	}
@@ -211,6 +212,21 @@ func gatewayProfileSlug(host string) string {
 	return strings.Trim(b.String(), "-")
 }
 
+func normalizeGatewayHost(value string) (string, error) {
+	host := strings.TrimSpace(value)
+	if host == "" {
+		return "", fmt.Errorf("gateway provider type requires a host")
+	}
+	if !strings.Contains(host, "://") {
+		host = "https://" + host
+	}
+	parsed, err := url.Parse(host)
+	if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", fmt.Errorf("invalid gateway host")
+	}
+	return parsed.Hostname(), nil
+}
+
 func (a *App) ProviderSetup(ctx context.Context, kind, name, host, credential, gateway string, dry, update bool) error {
 	if kind != "gateway-bearer" && kind != "gateway-header" && kind != "openai" && kind != "anthropic" {
 		return fmt.Errorf("provider type must be gateway-bearer, gateway-header, openai, or anthropic")
@@ -219,15 +235,11 @@ func (a *App) ProviderSetup(ctx context.Context, kind, name, host, credential, g
 		return fmt.Errorf("invalid provider name")
 	}
 	if kind == "gateway-bearer" || kind == "gateway-header" {
-		if host == "" {
-			return fmt.Errorf("gateway provider type requires a host")
+		normalizedHost, err := normalizeGatewayHost(host)
+		if err != nil {
+			return err
 		}
-		if strings.ContainsAny(host, "/?#") {
-			return fmt.Errorf("invalid gateway host")
-		}
-		if parsed, err := url.Parse("https://" + host); err != nil || parsed.Hostname() == "" {
-			return fmt.Errorf("invalid gateway host")
-		}
+		host = normalizedHost
 		if !envName.MatchString(credential) {
 			return fmt.Errorf("gateway provider type requires an API key environment variable name")
 		}
@@ -275,7 +287,8 @@ func (a *App) ProviderSetup(ctx context.Context, kind, name, host, credential, g
 	if gateway != "" {
 		gatewayArgs = []string{"--gateway", gateway}
 	}
-	if update {
+
+	updateExistingProfile := func() error {
 		exportArgs := append([]string{"profile", "export", profileID, "-o", "yaml"}, gatewayArgs...)
 		current, err := a.Runner.Output(ctx, "openshell", exportArgs...)
 		if err != nil {
@@ -298,11 +311,13 @@ func (a *App) ProviderSetup(ctx context.Context, kind, name, host, credential, g
 			return err
 		}
 		profile = string(b)
+		return atomicWrite(path, []byte(profile))
 	}
-	if err := atomicWrite(path, []byte(profile)); err != nil {
-		return err
-	}
+
 	if update {
+		if err := updateExistingProfile(); err != nil {
+			return err
+		}
 		if _, err := a.Runner.Output(ctx, "openshell", append([]string{"profile", "update", profileID, "--file", path}, gatewayArgs...)...); err != nil {
 			return err
 		}
@@ -310,16 +325,86 @@ func (a *App) ProviderSetup(ctx context.Context, kind, name, host, credential, g
 			return nil
 		}
 	} else {
-		if _, err := a.Runner.Output(ctx, "openshell", append([]string{"profile", "lint", "--file", path}, gatewayArgs...)...); err != nil {
+		if err := atomicWrite(path, []byte(profile)); err != nil {
 			return err
 		}
-		if _, err := a.Runner.Output(ctx, "openshell", append([]string{"profile", "import", "--file", path}, gatewayArgs...)...); err != nil {
-			return err
+		lintArgs := append([]string{"profile", "lint", "--file", path}, gatewayArgs...)
+		if _, err := a.Runner.Output(ctx, "openshell", lintArgs...); err != nil {
+			// Retrying provider setup is common. If OpenShell reports that the
+			// generated profile already exists, preserve its resource_version
+			// and update it instead of failing the whole setup.
+			if !strings.Contains(strings.ToLower(err.Error()), "already exists") {
+				return err
+			}
+			if err := updateExistingProfile(); err != nil {
+				return err
+			}
+			updateArgs := append([]string{"profile", "update", profileID, "--file", path}, gatewayArgs...)
+			if _, err := a.Runner.Output(ctx, "openshell", updateArgs...); err != nil {
+				return err
+			}
+			if _, err := a.Runner.Output(ctx, "openshell", append([]string{"provider", "get", name}, gatewayArgs...)...); err == nil {
+				return nil
+			}
+		} else {
+			importArgs := append([]string{"profile", "import", "--file", path}, gatewayArgs...)
+			if _, err := a.Runner.Output(ctx, "openshell", importArgs...); err != nil {
+				return err
+			}
 		}
 	}
+
 	// OpenShell reads the credential from its environment; the value never appears in argv.
 	args := []string{"provider", "create", "--name", name, "--type", profileID, "--credential", credential}
 	args = append(args, gatewayArgs...)
+	if _, err := a.Runner.Output(ctx, "openshell", args...); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			if _, getErr := a.Runner.Output(ctx, "openshell", append([]string{"provider", "get", name}, gatewayArgs...)...); getErr == nil {
+				return nil
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+func (a *App) ProviderUpdateCredential(ctx context.Context, name, credential, gateway string) error {
+	if !safeName.MatchString(name) {
+		return fmt.Errorf("invalid provider name")
+	}
+	if !envName.MatchString(credential) {
+		return fmt.Errorf("provider requires an API key environment variable name")
+	}
+	args := []string{"provider", "update", name, "--credential", credential}
+	if gateway != "" {
+		args = append(args, "--gateway", gateway)
+	}
 	_, err := a.Runner.Output(ctx, "openshell", args...)
+	return err
+}
+
+func (a *App) ProviderDelete(ctx context.Context, name, gateway string) error {
+	if !safeName.MatchString(name) {
+		return fmt.Errorf("invalid provider name")
+	}
+	profiles, err := a.Store.ListProfiles()
+	if err != nil {
+		return err
+	}
+	usedBy := make([]string, 0)
+	for _, profile := range profiles {
+		if profile.Provider == name {
+			usedBy = append(usedBy, profile.Name)
+		}
+	}
+	if len(usedBy) > 0 {
+		sort.Strings(usedBy)
+		return fmt.Errorf("provider %q is used by profiles: %s", name, strings.Join(usedBy, ", "))
+	}
+	args := []string{"provider", "delete", name}
+	if gateway != "" {
+		args = append(args, "--gateway", gateway)
+	}
+	_, err = a.Runner.Output(ctx, "openshell", args...)
 	return err
 }

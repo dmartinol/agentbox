@@ -7,9 +7,11 @@ Gateway: `openshell`
 Compute driver: Podman  
 AgentBox live IT commit: `1a26eb2`
 
+> Historical note: this report predates the replacement of the TUI with the web GUI. Its TUI walkthrough describes the interface as it existed at the recorded commit.
+
 ## Scope
 
-This report records the live checks for the AgentBox OpenShell spike. The deterministic unit and TUI integration suites are covered by `go test ./...`; this report covers opt-in live checks run with `AGENTBOX_LIVE=1`.
+This report records the live checks for the AgentBox OpenShell spike at the commit identified above. At that commit, the deterministic unit and TUI integration suites were covered by `go test ./...`; this report covers the opt-in live checks run with `AGENTBOX_LIVE=1`.
 
 ## Command used
 
