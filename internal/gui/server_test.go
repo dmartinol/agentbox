@@ -1071,3 +1071,67 @@ func TestBuiltinProviderDeleteIsRejected(t *testing.T) {
 		t.Fatalf("delete command unexpectedly issued: %#v", runner.commands)
 	}
 }
+
+func TestMCPEndpointsManageEntriesAndDiscovery(t *testing.T) {
+	server := newTestServer(t)
+	t.Setenv("CODEX_HOME", t.TempDir())
+
+	var names []string
+	response := requestJSON(t, http.MethodGet, server.URL+"/api/mcps/servers?agent=codex", nil, &names)
+	if response.StatusCode != http.StatusOK || len(names) != 0 {
+		t.Fatalf("empty discovery: status=%d names=%v", response.StatusCode, names)
+	}
+
+	var apiError struct {
+		Error string `json:"error"`
+	}
+	response = requestJSON(t, http.MethodGet, server.URL+"/api/mcps/servers?agent=", nil, &apiError)
+	if response.StatusCode != http.StatusInternalServerError || apiError.Error == "" {
+		t.Fatalf("missing agent parameter: status=%d error=%q", response.StatusCode, apiError.Error)
+	}
+
+	var entry app.MCPTools
+	response = requestJSON(t, http.MethodPost, server.URL+"/api/mcps", map[string]any{"name": "unit-set", "agent": "codex", "servers": []string{"alpha"}}, &entry)
+	if response.StatusCode != http.StatusCreated || entry.Name != "unit-set" || entry.Agent != "codex" || len(entry.Servers) != 1 {
+		t.Fatalf("create: status=%d entry=%+v", response.StatusCode, entry)
+	}
+
+	var invalid struct {
+		Error string `json:"error"`
+	}
+	response = requestJSON(t, http.MethodPost, server.URL+"/api/mcps", map[string]any{"name": "bad", "agent": "codex"}, &invalid)
+	if response.StatusCode != http.StatusInternalServerError || invalid.Error == "" {
+		t.Fatalf("invalid create: status=%d error=%q", response.StatusCode, invalid.Error)
+	}
+
+	var entries []app.MCPTools
+	response = requestJSON(t, http.MethodGet, server.URL+"/api/mcps", nil, &entries)
+	if response.StatusCode != http.StatusOK || len(entries) != 1 || entries[0].Name != "unit-set" {
+		t.Fatalf("list: status=%d entries=%+v", response.StatusCode, entries)
+	}
+
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	if err := os.MkdirAll(codexHome, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte("[mcp_servers.alpha]\ncommand = \"/usr/bin/true\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	response = requestJSON(t, http.MethodGet, server.URL+"/api/mcps/servers?agent=codex", nil, &names)
+	if response.StatusCode != http.StatusOK || len(names) != 1 || names[0] != "alpha" {
+		t.Fatalf("discovery: status=%d names=%v", response.StatusCode, names)
+	}
+
+	var deleted struct {
+		Deleted bool `json:"deleted"`
+	}
+	response = requestJSON(t, http.MethodPost, server.URL+"/api/mcps/unit-set/delete", nil, &deleted)
+	if response.StatusCode != http.StatusOK || !deleted.Deleted {
+		t.Fatalf("delete: status=%d body=%+v", response.StatusCode, deleted)
+	}
+	response = requestJSON(t, http.MethodGet, server.URL+"/api/mcps", nil, &entries)
+	if response.StatusCode != http.StatusOK || len(entries) != 0 {
+		t.Fatalf("list after delete: status=%d entries=%+v", response.StatusCode, entries)
+	}
+}

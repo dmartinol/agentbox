@@ -85,6 +85,8 @@ func dispatch(ctx context.Context, a *app.App, args []string) error {
 		return providerCmd(ctx, a, args[1:])
 	case "policy":
 		return policyCmd(ctx, a, args[1:])
+	case "mcp":
+		return mcpCmd(ctx, a, args[1:])
 	case "agent":
 		return agentCmd(ctx, a, args[1:])
 	case "gui":
@@ -114,6 +116,7 @@ func usage() {
 	fmt.Println("  gateway list|connect|start|info")
 	fmt.Println("  provider setup")
 	fmt.Println("  policy show|edit")
+	fmt.Println("  mcp list|show|create|delete|servers")
 	fmt.Println("  agent start|list|show|attach|logs|stop|sync|diff|delete")
 	fmt.Println("  gui [--address host:port]")
 }
@@ -689,6 +692,102 @@ func policyCmd(ctx context.Context, a *app.App, args []string) error {
 	}
 }
 
+func mcpCmd(ctx context.Context, a *app.App, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("mcp list|show|create|delete|servers required")
+	}
+	switch args[0] {
+	case "list":
+		f := flags("mcp list")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		entries, err := a.Store.ListMCPs()
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(entries)
+		}
+		for _, entry := range entries {
+			fmt.Printf("%-20s %-10s %s\n", entry.Name, entry.Agent, strings.Join(entry.Servers, ","))
+		}
+		return nil
+	case "show":
+		f := flags("mcp show")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		entry, err := a.Store.LoadMCP(f.Args()[0])
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(entry)
+		}
+		fmt.Printf("%s %s %s\n", entry.Name, entry.Agent, strings.Join(entry.Servers, ","))
+		return nil
+	case "create":
+		f := flags("mcp create")
+		agent := f.String("agent", "", "agent the entry selects servers for (claude, codex, opencode)")
+		servers := f.String("servers", "", "comma-separated global MCP server names")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		var list []string
+		for _, part := range strings.Split(*servers, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				list = append(list, part)
+			}
+		}
+		entry := app.MCPTools{Version: 1, Name: f.Args()[0], Agent: strings.TrimSpace(*agent), Servers: list}
+		if err := a.Store.SaveMCP(entry); err != nil {
+			return err
+		}
+		fmt.Printf("%s %s %s\n", entry.Name, entry.Agent, strings.Join(entry.Servers, ","))
+		return nil
+	case "delete":
+		f := flags("mcp delete")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		return a.Store.DeleteMCP(f.Args()[0])
+	case "servers":
+		f := flags("mcp servers")
+		agent := f.String("agent", "", "agent to list global MCP servers for (claude, codex, opencode)")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if strings.TrimSpace(*agent) == "" {
+			return fmt.Errorf("--agent is required")
+		}
+		names, err := a.GlobalMCPServers(strings.TrimSpace(*agent))
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(names)
+		}
+		for _, name := range names {
+			fmt.Println(name)
+		}
+		return nil
+	}
+	return fmt.Errorf("unknown mcp command %q", args[0])
+}
+
 func agentCmd(ctx context.Context, a *app.App, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("agent start|list|show|attach|logs|stop|sync|diff|delete required")
@@ -706,12 +805,13 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		model := f.String("model", "", "model override")
 		approval := f.String("approval", "", "approval override")
 		prompt := f.String("prompt", "", "task prompt; empty opens interactive agent")
+		mcp := f.String("mcp", "", "MCP tools entry name (see `agentbox mcp`)")
 		dry := f.Bool("dry-run", false, "preview")
 		jsonOut := f.Bool("json", false, "JSON output")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
-		r, err := a.Start(ctx, app.StartOptions{Profile: *profile, Project: *project, Name: *name, Source: *source, Gateway: *gateway, Image: *image, Mode: *mode, Model: *model, Approval: *approval, Prompt: *prompt, Dry: *dry})
+		r, err := a.Start(ctx, app.StartOptions{Profile: *profile, Project: *project, Name: *name, Source: *source, Gateway: *gateway, Image: *image, Mode: *mode, Model: *model, Approval: *approval, Prompt: *prompt, MCP: *mcp, Dry: *dry})
 		if err != nil {
 			return err
 		}
@@ -719,6 +819,9 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 			return app.PrintJSON(r)
 		}
 		fmt.Printf("%s %s %s\n", r.ID, r.Agent, r.Worktree)
+		for _, warning := range r.MCPWarnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+		}
 		return nil
 	case "list":
 		f := flags("agent list")

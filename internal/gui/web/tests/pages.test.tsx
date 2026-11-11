@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { App } from '../src/App';
 import { ProvidersPanel } from '../src/pages/setup/ProvidersPanel';
 import { ProfilesPanel } from '../src/pages/setup/ProfilesPanel';
-import { overview, providers, runs } from './fixtures';
+import { McpPanel } from '../src/pages/setup/McpPanel';
+import { mcps, overview, providers, runs } from './fixtures';
 
 vi.mock('@xterm/xterm', () => ({
   Terminal: class MockTerminal {
@@ -41,6 +42,7 @@ function mockRoutes(routes: Record<string, unknown>) {
 function defaultRoutes(): Record<string, unknown> {
   return {
     'GET /api/overview': overview,
+    'GET /api/mcps': mcps,
     'GET /api/doctor': overview.doctor,
     'GET /api/runs': runs,
     'GET /api/profiles': overview.profiles,
@@ -97,6 +99,7 @@ describe('fleet shell', () => {
       if (url === '/api/overview' && method === 'GET') {
         return jsonResponse({ ...overview, profiles: profileCreated ? [newProfile] : [] });
       }
+      if (url === '/api/mcps' && method === 'GET') return jsonResponse(mcps);
       if (url === '/api/doctor' && method === 'GET') return jsonResponse(overview.doctor);
       if (url === '/api/profiles' && method === 'GET') {
         return jsonResponse(profileCreated ? [newProfile] : []);
@@ -131,6 +134,7 @@ describe('fleet shell', () => {
       const url = input.toString();
       const method = init?.method ?? 'GET';
       if (url === '/api/overview' && method === 'GET') return jsonResponse(overview);
+      if (url === '/api/mcps' && method === 'GET') return jsonResponse(mcps);
       if (url === '/api/doctor' && method === 'GET') return jsonResponse(overview.doctor);
       if (url === '/api/runs' && method === 'POST') {
         return jsonResponse({ error: 'profile "codex-enmaas" references missing policy file ~/.agentbox/policies/codex-enmaas.yaml; edit the profile or restore the policy' }, 400);
@@ -199,7 +203,7 @@ describe('setup sheet', () => {
     render(<App />);
     await user.click((await screen.findAllByRole('button', { name: /setup/i }))[0]);
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    for (const label of ['Providers', 'Profiles', 'Projects', 'Images', 'Gateways', 'Policies', 'Advanced']) {
+    for (const label of ['Providers', 'Profiles', 'Projects', 'Images', 'Gateways', 'Policies', 'MCP Tools', 'Advanced']) {
       expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
     }
     expect(screen.getByRole('tab', { name: 'Providers', selected: true })).toHaveClass(
@@ -316,6 +320,7 @@ describe('image builds', () => {
       const url = input.toString();
       const method = init?.method ?? 'GET';
       if (url === '/api/gateways' && method === 'GET') return jsonResponse(overview.gateways);
+      if (url === '/api/mcps' && method === 'GET') return jsonResponse(mcps);
       if (url === '/api/providers?gateway=openshell' && method === 'GET') return jsonResponse(providers);
       if (url === '/api/images' && method === 'GET') return jsonResponse(overview.images);
       if (url === '/api/registry' && method === 'GET') return jsonResponse({ reference: 'quay.io/team/openshell' });
@@ -429,6 +434,7 @@ describe('fleet actions', () => {
     expect(within(dialog).getByLabelText(/^Image/)).toHaveValue('localhost/openshell:codex-1.0.0-r3');
     expect(within(dialog).getByLabelText(/^Model/)).toHaveValue('model-x');
     expect(within(dialog).getByLabelText(/^Approval/)).toHaveValue('unattended');
+    expect(within(dialog).getByLabelText(/^MCP tools/)).toHaveValue('codex-work');
   });
 
   it('opens a fresh form after copying', async () => {
@@ -512,5 +518,87 @@ describe('provider setup', () => {
     const type = within(dialog).getByLabelText(/^Type/);
     expect(within(type).queryByRole('option', { name: 'openai' })).not.toBeInTheDocument();
     expect(within(type).queryByRole('option', { name: 'anthropic' })).not.toBeInTheDocument();
+  });
+});
+
+describe('mcp tools', () => {
+  it('lists entries and detected local MCP files', async () => {
+    mockRoutes({
+      'GET /api/mcps': mcps,
+      'GET /api/mcps/local': [{ project: 'demo', root: '/repo', files: ['.mcp.json'] }]
+    });
+    render(<McpPanel />);
+    expect(await screen.findByText('codex-work')).toBeInTheDocument();
+    expect(screen.getByText('github, sentry')).toBeInTheDocument();
+    expect(screen.getByText('How MCP tools work')).toBeInTheDocument();
+    expect(screen.getByText('.mcp.json')).toBeInTheDocument();
+  });
+
+  it('creates an entry from discovered global servers', async () => {
+    let created: Record<string, unknown> | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      const method = init?.method ?? 'GET';
+      if (url === '/api/mcps' && method === 'GET') return jsonResponse(created ? [created] : []);
+      if (url === '/api/mcps/local' && method === 'GET') return jsonResponse([]);
+      if (url === '/api/mcps/servers?agent=claude' && method === 'GET') return jsonResponse(['notion', 'sentry']);
+      if (url === '/api/mcps' && method === 'POST') {
+        created = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse(created);
+      }
+      throw new Error(`unmocked request ${method} ${url}`);
+    }));
+    const user = userEvent.setup();
+    render(<McpPanel />);
+    await user.click(await screen.findByRole('button', { name: 'Create MCP tools' }));
+    await user.type(await screen.findByLabelText(/^Name/), 'claude-work');
+    await user.click(await screen.findByLabelText('notion'));
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    expect(await screen.findByText('MCP tools entry created')).toBeInTheDocument();
+    expect(created).toEqual({ version: 1, name: 'claude-work', agent: 'claude', servers: ['notion'] });
+    expect(await screen.findByText('claude-work')).toBeInTheDocument();
+  });
+
+  it('deletes an entry', async () => {
+    mockRoutes({
+      'GET /api/mcps': mcps,
+      'GET /api/mcps/local': [],
+      'POST /api/mcps/codex-work/delete': { deleted: true }
+    });
+    const user = userEvent.setup();
+    render(<McpPanel />);
+    const row = (await screen.findByText('codex-work')).closest('tr');
+    if (!row) throw new Error('entry row missing');
+    await user.click(within(row).getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('MCP tools entry codex-work deleted')).toBeInTheDocument();
+  });
+});
+
+describe('mcp start selection', () => {
+  it('offers only profile-compatible entries and surfaces drift warnings', async () => {
+    let startBody: Record<string, unknown> | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      const method = init?.method ?? 'GET';
+      if (url === '/api/overview' && method === 'GET') return jsonResponse(overview);
+      if (url === '/api/mcps' && method === 'GET') return jsonResponse(mcps);
+      if (url === '/api/doctor' && method === 'GET') return jsonResponse(overview.doctor);
+      if (url === '/api/runs' && method === 'POST') {
+        startBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse({ ...runs[0], mcp: 'codex-work', mcp_warnings: ['MCP server "gone" from entry "codex-work" is not configured for codex on this host; starting without it'] });
+      }
+      throw new Error(`unmocked request ${method} ${url}`);
+    }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'New agent' }));
+    const select = await screen.findByLabelText(/^MCP tools/);
+    expect(within(select).queryByRole('option', { name: /claude-work/ })).toBeNull();
+    expect(within(select).getByRole('option', { name: /codex-work/ })).toBeInTheDocument();
+    await user.selectOptions(select, 'codex-work');
+    await user.click(screen.getByRole('button', { name: 'Start' }));
+    expect(await screen.findByText('MCP tools warnings')).toBeInTheDocument();
+    expect(await screen.findByText(/starting without it/)).toBeInTheDocument();
+    expect(startBody?.mcp).toBe('codex-work');
   });
 });

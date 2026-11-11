@@ -86,6 +86,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/policies/{name}/host", s.addPolicyHost)
 	mux.HandleFunc("POST /api/policies/{name}/apply", s.applyPolicy)
 
+	mux.HandleFunc("GET /api/mcps", s.listMCPs)
+	mux.HandleFunc("POST /api/mcps", s.createMCP)
+	mux.HandleFunc("POST /api/mcps/{name}/delete", s.deleteMCP)
+	mux.HandleFunc("GET /api/mcps/servers", s.mcpServers)
+	mux.HandleFunc("GET /api/mcps/local", s.localMCPs)
+
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("POST /api/settings", s.saveSettings)
 	mux.HandleFunc("GET /api/doctor", s.doctor)
@@ -318,6 +324,7 @@ type startRunRequest struct {
 	Model    string `json:"model"`
 	Approval string `json:"approval"`
 	Prompt   string `json:"prompt"`
+	MCP      string `json:"mcp"`
 }
 
 func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
@@ -335,6 +342,7 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 		Model:    request.Model,
 		Approval: request.Approval,
 		Prompt:   request.Prompt,
+		MCP:      request.MCP,
 	})
 	if err != nil {
 		writeError(w, err)
@@ -1163,6 +1171,79 @@ func (s *Server) applyPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]bool{"ok": true})
+}
+
+func (s *Server) listMCPs(w http.ResponseWriter, r *http.Request) {
+	entries, err := s.app.Store.ListMCPs()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+type mcpRequest struct {
+	Name    string   `json:"name"`
+	Agent   string   `json:"agent"`
+	Servers []string `json:"servers"`
+}
+
+func (s *Server) createMCP(w http.ResponseWriter, r *http.Request) {
+	var request mcpRequest
+	if !decode(w, r, &request) {
+		return
+	}
+	entry := app.MCPTools{Version: 1, Name: request.Name, Agent: request.Agent, Servers: request.Servers}
+	if err := s.app.Store.SaveMCP(entry); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, entry)
+}
+
+func (s *Server) deleteMCP(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.Store.DeleteMCP(r.PathValue("name")); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
+func (s *Server) mcpServers(w http.ResponseWriter, r *http.Request) {
+	agent := strings.TrimSpace(r.URL.Query().Get("agent"))
+	if agent == "" {
+		writeError(w, fmt.Errorf("agent query parameter is required"))
+		return
+	}
+	names, err := s.app.GlobalMCPServers(agent)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, names)
+}
+
+type localMCPFiles struct {
+	Project string   `json:"project"`
+	Root    string   `json:"root"`
+	Files   []string `json:"files"`
+}
+
+func (s *Server) localMCPs(w http.ResponseWriter, r *http.Request) {
+	projects, err := s.app.Store.ListProjects()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	out := make([]localMCPFiles, 0, len(projects))
+	for _, project := range projects {
+		files := app.LocalMCPFiles(project.Root)
+		if len(files) == 0 {
+			continue
+		}
+		out = append(out, localMCPFiles{Project: project.Name, Root: project.Root, Files: files})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {

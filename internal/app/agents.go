@@ -59,7 +59,7 @@ touch /workspace/finished
 exit "$status"
 `
 
-func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string) (string, error) {
+func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string, mcp *MCPSelection) (string, error) {
 	dir := filepath.Join(a.Store.RunsDir(), r.ID+"-config")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
@@ -84,14 +84,23 @@ func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string)
 				return "", err
 			}
 		}
+		if err := writeCodexMCP(config, mcp); err != nil {
+			return "", err
+		}
 	case "opencode":
 		xdg := filepath.Join(dir, "config", "opencode")
 		if err := os.MkdirAll(xdg, 0700); err != nil {
 			return "", err
 		}
+		settings := map[string]any{}
 		if p.Mode == "gateway" {
 			model := p.Model
-			settings := map[string]any{"$schema": "https://opencode.ai/config.json", "model": "gateway/" + model, "update": "disable", "providers": map[string]any{"gateway": map[string]any{"name": "Model gateway", "env": []string{p.APIKeyEnv}, "package": "@opencode/ai/providers/openai-compatible", "settings": map[string]any{"baseURL": p.BaseURL}, "models": map[string]any{model: map[string]any{"name": model}}}}}
+			settings = map[string]any{"$schema": "https://opencode.ai/config.json", "model": "gateway/" + model, "update": "disable", "providers": map[string]any{"gateway": map[string]any{"name": "Model gateway", "env": []string{p.APIKeyEnv}, "package": "@opencode/ai/providers/openai-compatible", "settings": map[string]any{"baseURL": p.BaseURL}, "models": map[string]any{model: map[string]any{"name": model}}}}}
+		}
+		if mcp != nil && len(mcp.Servers) > 0 {
+			settings["mcp"] = map[string]any{"servers": mcp.Servers}
+		}
+		if len(settings) > 0 {
 			b, err := json.MarshalIndent(settings, "", "  ")
 			if err != nil {
 				return "", err
@@ -101,19 +110,27 @@ func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string)
 			}
 		}
 	case "claude":
+		claude := filepath.Join(home, ".claude")
+		if err := os.MkdirAll(claude, 0700); err != nil {
+			return "", err
+		}
+		// enableAllProjectMcpServers makes committed .mcp.json servers load
+		// without an interactive approval prompt: a cloned repository cannot
+		// approve its own servers, and only user-scope settings apply in
+		// untrusted folders.
+		settings := map[string]any{"enableAllProjectMcpServers": true}
 		if p.Mode == "gateway" {
-			claude := filepath.Join(home, ".claude")
-			if err := os.MkdirAll(claude, 0700); err != nil {
+			settings["env"] = map[string]string{"ANTHROPIC_BASE_URL": gatewaySiteURL(p.BaseURL), "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"}
+		}
+		if mcp != nil && len(mcp.Servers) > 0 {
+			// User-scope servers: project-local definitions keep precedence
+			// on name conflicts ("local wins").
+			if err := writeJSONFile(filepath.Join(claude, ".claude.json"), map[string]any{"mcpServers": mcp.Servers}); err != nil {
 				return "", err
 			}
-			settings := map[string]any{"env": map[string]string{"ANTHROPIC_BASE_URL": gatewaySiteURL(p.BaseURL), "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"}}
-			b, err := json.MarshalIndent(settings, "", "  ")
-			if err != nil {
-				return "", err
-			}
-			if err := os.WriteFile(filepath.Join(claude, "settings.json"), append(b, '\n'), 0600); err != nil {
-				return "", err
-			}
+		}
+		if err := writeJSONFile(filepath.Join(claude, "settings.json"), settings); err != nil {
+			return "", err
 		}
 	}
 	script, err := agentScript(p, prompt)

@@ -36,6 +36,7 @@ type StartOptions struct {
 	Mode     string
 	Approval string
 	Prompt   string
+	MCP      string
 	Dry      bool
 }
 
@@ -75,6 +76,14 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	}
 	if _, err := ParsePolicy(policy); err != nil {
 		return Run{}, err
+	}
+	var selection *MCPSelection
+	if opt.MCP != "" {
+		resolved, err := a.ResolveMCPSelection(opt.MCP, p.Agent)
+		if err != nil {
+			return Run{}, err
+		}
+		selection = &resolved
 	}
 	if opt.Source == "" {
 		opt.Source = "."
@@ -147,8 +156,13 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if runName == "" {
 		runName = id
 	}
+	preview := Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: "preview", WorktreeIsolated: useWorktree}
+	if selection != nil {
+		preview.MCP = selection.Entry.Name
+		preview.MCPWarnings = selection.Warnings()
+	}
 	if opt.Dry {
-		return Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: "preview", WorktreeIsolated: useWorktree}, nil
+		return preview, nil
 	}
 	var r Run
 	if useWorktree {
@@ -177,6 +191,10 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	r.Model = p.Model
 	r.Approval = p.Approval
 	r.Policy = filepath.Join(a.Store.PolicyDir(), id+".yaml")
+	if selection != nil {
+		r.MCP = selection.Entry.Name
+		r.MCPWarnings = selection.Warnings()
+	}
 	if err := atomicWrite(r.Policy, policy); err != nil {
 		return r, err
 	}
@@ -187,7 +205,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if err != nil {
 		return r, err
 	}
-	config, err := a.PrepareAgent(ctx, r, p, opt.Prompt)
+	config, err := a.PrepareAgent(ctx, r, p, opt.Prompt, selection)
 	if err != nil {
 		return r, err
 	}

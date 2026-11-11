@@ -2,6 +2,8 @@ import type {
   Check,
   Gateway,
   ImageArtifact,
+  LocalMCPFiles,
+  MCPTools,
   Overview,
   PolicyConfiguration,
   Profile,
@@ -74,6 +76,12 @@ export const api = {
   savePolicyContent: (name: string, content: string) => post<PolicyConfiguration>(`/api/policies/${encodeURIComponent(name)}`, { content }),
   addPolicyHost: (name: string, agent: string, host: string) => post<PolicyConfiguration>(`/api/policies/${encodeURIComponent(name)}/host`, { agent, host }),
   applyPolicy: (name: string, runId: string) => post<{ ok: true }>(`/api/policies/${encodeURIComponent(name)}/apply`, { runId }),
+
+  mcps: () => request<MCPTools[]>('/api/mcps'),
+  createMCP: (entry: MCPTools) => post<MCPTools>('/api/mcps', entry),
+  deleteMCP: (name: string) => post<{ deleted: true }>(`/api/mcps/${encodeURIComponent(name)}/delete`),
+  mcpServers: (agent: string) => request<string[]>(`/api/mcps/servers?agent=${encodeURIComponent(agent)}`),
+  localMCPs: () => request<LocalMCPFiles[]>('/api/mcps/local'),
 
   settings: () => request<Settings>('/api/settings'),
   saveSettings: (settings: Settings) => post<Settings>('/api/settings', settings),
