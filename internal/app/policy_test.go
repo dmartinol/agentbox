@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -39,11 +40,39 @@ func TestAddNetworkRuleProducesValidRuleAndRejectsBadInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	rule, ok := policy.Network["host-api-example-test"]
-	if !ok || rule.Endpoints[0].Host != "api.example.test" || rule.Binaries[0].Path != "/usr/local/bin/codex" {
+	if !ok || rule.Endpoints[0].Host != "api.example.test" {
 		t.Fatalf("unexpected generated rule: %+v", rule)
+	}
+	// The launcher is an npm symlink to a Node shim that execve's vendor
+	// binaries, so the default rule must allow the whole executable chain.
+	want := []string{
+		"/usr/local/bin/codex",
+		"/usr/local/bin/node",
+		"/usr/local/lib/node_modules/@openai/codex/**",
+	}
+	paths := make([]string, 0, len(rule.Binaries))
+	for _, b := range rule.Binaries {
+		paths = append(paths, b.Path)
+	}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("rule binaries = %v; want %v", paths, want)
+	}
+	explicit, err := addNetworkRule(DefaultPolicy(), "codex", "api.example.test", "/usr/bin/curl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParsePolicy(explicit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := parsed.Network["host-api-example-test"].Binaries; len(b) != 1 || b[0].Path != "/usr/bin/curl" {
+		t.Fatalf("explicit binary rule = %+v", b)
 	}
 	if _, err := addNetworkRule(DefaultPolicy(), "codex", "bad host", "relative/curl"); err == nil {
 		t.Fatal("invalid rule input was accepted")
+	}
+	if _, err := addNetworkRule(DefaultPolicy(), "unknown-agent", "api.example.test", ""); err == nil {
+		t.Fatal("unknown agent was accepted")
 	}
 }
 
@@ -99,6 +128,8 @@ func TestPolicyForAgentRewritesOnlyAgentBinary(t *testing.T) {
         protocol: tcp
     binaries:
       - path: /usr/local/bin/codex
+      - path: /usr/local/lib/node_modules/@openai/codex/**
+      - path: /usr/local/bin/node
       - path: /usr/bin/curl
 `, 1)
 	got, err := PolicyForAgent([]byte(policy), "claude")
@@ -109,12 +140,19 @@ func TestPolicyForAgentRewritesOnlyAgentBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rule := parsed.Network["host-api"]
-	if rule.Binaries[0].Path != "/usr/local/bin/claude" {
-		t.Fatalf("agent binary = %q; want claude", rule.Binaries[0].Path)
+	want := []string{
+		"/usr/local/bin/claude",
+		"/usr/local/lib/node_modules/@anthropic-ai/claude-code/**",
+		"/usr/local/bin/node",
+		"/usr/bin/curl",
 	}
-	if rule.Binaries[1].Path != "/usr/bin/curl" {
-		t.Fatalf("tool binary changed: %q", rule.Binaries[1].Path)
+	rule := parsed.Network["host-api"]
+	paths := make([]string, 0, len(rule.Binaries))
+	for _, b := range rule.Binaries {
+		paths = append(paths, b.Path)
+	}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("agent binaries = %v; want %v", paths, want)
 	}
 }
 
@@ -133,6 +171,8 @@ func TestApplyPolicyConfigurationAdaptsAgentAndAppliesNetwork(t *testing.T) {
         protocol: tcp
     binaries:
       - path: /usr/local/bin/codex
+      - path: /usr/local/lib/node_modules/@openai/codex/**
+      - path: /usr/local/bin/node
       - path: /usr/bin/curl
 `, 1)
 	if err := os.WriteFile(configPath, []byte(config), 0600); err != nil {
@@ -160,8 +200,18 @@ func TestApplyPolicyConfigurationAdaptsAgentAndAppliesNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 	rule := parsed.Network["host-api"]
-	if rule.Binaries[0].Path != "/usr/local/bin/claude" || rule.Binaries[1].Path != "/usr/bin/curl" {
-		t.Fatalf("applied binaries were not adapted correctly: %+v", rule.Binaries)
+	want := []string{
+		"/usr/local/bin/claude",
+		"/usr/local/lib/node_modules/@anthropic-ai/claude-code/**",
+		"/usr/local/bin/node",
+		"/usr/bin/curl",
+	}
+	paths := make([]string, 0, len(rule.Binaries))
+	for _, b := range rule.Binaries {
+		paths = append(paths, b.Path)
+	}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("applied binaries were not adapted correctly: %v", paths)
 	}
 	if len(runner.outputs) != 1 || runner.outputs[0].name != "openshell" || !commandHasArg(runner.outputs[0], "--wait") {
 		t.Fatalf("policy was not applied live: %#v", runner.outputs)

@@ -95,7 +95,7 @@ agentbox policy show [--json] RUN_ID
 agentbox policy edit [--allow-host HOST] [--binary PATH] [--dry-run] RUN_ID
 ```
 
-Policies define sandbox access. These commands inspect or edit the policy associated with an agent run; review the effective policy before changing network or binary rules. Note that network rules are binary-scoped: a rule for a stdio MCP server must name the server process binary, not the agent binary.
+Policies define sandbox access. These commands inspect or edit the policy associated with an agent run; review the effective policy before changing network or binary rules. Note that network rules are binary-scoped: a rule for a stdio MCP server must name the server process binary, not the agent binary. `policy edit --allow-host` allows the host for the run's agent and covers its whole executable chain (launcher, `node`, and installed package tree) because OpenShell allowlists by resolved executable path. Pass `--binary` to restrict the rule to one absolute binary path instead.
 
 ## MCP tools
 

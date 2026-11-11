@@ -388,11 +388,18 @@ func (a *App) PolicyEdit(ctx context.Context, runID, allowHost, binary string, d
 }
 
 func addNetworkRule(old []byte, agent, host, binary string) ([]byte, error) {
+	var binaries []string
 	if binary == "" {
-		binary = "/usr/local/bin/" + agentCommand(agent)
-	}
-	if !strings.HasPrefix(binary, "/") {
-		return nil, fmt.Errorf("binary must be an absolute path")
+		var err error
+		binaries, err = agentNetworkBinaries(agent)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if !strings.HasPrefix(binary, "/") {
+			return nil, fmt.Errorf("binary must be an absolute path")
+		}
+		binaries = []string{binary}
 	}
 	name := "host-" + strings.NewReplacer(".", "-", ":", "-").Replace(host)
 	if !safeName.MatchString(name) {
@@ -406,9 +413,44 @@ func addNetworkRule(old []byte, agent, host, binary string) ([]byte, error) {
 	if !ok {
 		net = map[string]any{}
 	}
-	net[name] = map[string]any{"name": name, "endpoints": []map[string]any{{"host": host, "port": 443, "protocol": "tcp"}}, "binaries": []map[string]any{{"path": binary}}}
+	allowlist := make([]map[string]any, 0, len(binaries))
+	for _, b := range binaries {
+		allowlist = append(allowlist, map[string]any{"path": b})
+	}
+	net[name] = map[string]any{"name": name, "endpoints": []map[string]any{{"host": host, "port": 443, "protocol": "tcp"}}, "binaries": allowlist}
 	root["network_policies"] = net
 	return yaml.Marshal(root)
+}
+
+// agentNetworkBinaries lists every executable that must be allowlisted for an
+// agent to reach a host. The /usr/local/bin launchers are npm symlinks to Node
+// shims, the shims run under /usr/local/bin/node, and the shims execve the
+// vendor binaries shipped inside the installed package tree. OpenShell
+// allowlists by the resolved executable path, so the launcher symlink alone
+// never matches the process that opens the connection.
+func agentNetworkBinaries(agent string) ([]string, error) {
+	if _, err := agentPackage(agent); err != nil {
+		return nil, err
+	}
+	return []string{
+		"/usr/local/bin/" + agentCommand(agent),
+		"/usr/local/bin/node",
+		agentPackageTree(agent),
+	}, nil
+}
+
+// agentPackageTree returns the glob covering the agent's installed npm
+// package, including the platform-specific vendor binaries its launcher
+// execves. It mirrors the binary allowlist used by provider profiles.
+func agentPackageTree(agent string) string {
+	switch agent {
+	case "claude":
+		return "/usr/local/lib/node_modules/@anthropic-ai/claude-code/**"
+	case "opencode":
+		return "/usr/local/lib/node_modules/@opencode/**"
+	default:
+		return "/usr/local/lib/node_modules/@openai/codex/**"
+	}
 }
 
 func PolicyForAgent(policy []byte, agent string) ([]byte, error) {
@@ -420,10 +462,13 @@ func PolicyForAgent(policy []byte, agent string) ([]byte, error) {
 		return nil, err
 	}
 	agentBinary := "/usr/local/bin/" + agentCommand(agent)
+	agentTree := agentPackageTree(agent)
 	for _, rule := range parsed.Network {
 		for i := range rule.Binaries {
 			if isAgentBinary(rule.Binaries[i].Path) {
 				rule.Binaries[i].Path = agentBinary
+			} else if isAgentPackageTree(rule.Binaries[i].Path) {
+				rule.Binaries[i].Path = agentTree
 			}
 		}
 	}
@@ -432,6 +477,12 @@ func PolicyForAgent(policy []byte, agent string) ([]byte, error) {
 
 func isAgentBinary(path string) bool {
 	return path == "/usr/local/bin/claude" || path == "/usr/local/bin/codex" || path == "/usr/local/bin/opencode"
+}
+
+func isAgentPackageTree(path string) bool {
+	return path == "/usr/local/lib/node_modules/@anthropic-ai/claude-code/**" ||
+		path == "/usr/local/lib/node_modules/@openai/codex/**" ||
+		path == "/usr/local/lib/node_modules/@opencode/**"
 }
 
 func (a *App) ApplyPolicyConfiguration(ctx context.Context, policyName, runID string) error {

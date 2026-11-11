@@ -146,6 +146,16 @@ When a profile is created without an explicit policy, AgentBox creates:
 $AGENTBOX_HOME/policies/<profile-name>.yaml
 ```
 
+Host rules added through the CLI (`policy edit --allow-host`) or the Setup
+policies panel allowlist the whole executable chain that can open the
+connection: the agent launcher, `/usr/local/bin/node`, and the agent's
+installed package tree (for example
+`/usr/local/lib/node_modules/@openai/codex/**`). The `/usr/local/bin`
+launchers are npm symlinks to Node shims that execve vendor binaries inside
+the package tree, and OpenShell allowlists by the resolved executable path,
+so a rule naming only the launcher symlink never matches the connecting
+process.
+
 At run start, AgentBox:
 
 1. loads the profile policy;
