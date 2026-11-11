@@ -51,6 +51,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/runs/{id}", s.deleteRun)
 	mux.HandleFunc("GET /api/runs/{id}/attach", s.attachRun)
 	mux.HandleFunc("GET /api/runs/{id}/logs", s.runLogs)
+	mux.HandleFunc("GET /api/runs/{id}/shells", s.listRunShells)
+	mux.HandleFunc("POST /api/runs/{id}/shells", s.createRunShell)
+	mux.HandleFunc("POST /api/runs/{id}/shells/{name}/delete", s.deleteRunShell)
 	mux.HandleFunc("GET /api/runs/{id}/diff", s.runDiff)
 	mux.HandleFunc("GET /api/runs/{id}/policy", s.runPolicy)
 
@@ -489,7 +492,11 @@ func (s *Server) attachRun(w http.ResponseWriter, r *http.Request) {
 			}
 		},
 	}
-	if err := s.app.AttachStream(ctx, r.PathValue("id"), terminal, terminal, terminal, size, resizes); err != nil {
+	session := r.URL.Query().Get("session")
+	if session == "" {
+		session = "agent"
+	}
+	if err := s.app.AttachSessionStream(ctx, r.PathValue("id"), session, terminal, terminal, terminal, size, resizes); err != nil {
 		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()), time.Now().Add(time.Second))
 		return
 	}
@@ -497,12 +504,45 @@ func (s *Server) attachRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runLogs(w http.ResponseWriter, r *http.Request) {
-	logs, err := s.app.Logs(r.Context(), r.PathValue("id"))
+	tail, err := strconv.Atoi(r.URL.Query().Get("tail"))
+	if err != nil {
+		tail = 0
+	}
+	logs, err := s.app.TailLogs(r.Context(), r.PathValue("id"), tail)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"logs": string(logs)})
+}
+
+func (s *Server) listRunShells(w http.ResponseWriter, r *http.Request) {
+	shells, err := s.app.ListShells(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if shells == nil {
+		shells = []string{}
+	}
+	writeJSON(w, http.StatusOK, shells)
+}
+
+func (s *Server) createRunShell(w http.ResponseWriter, r *http.Request) {
+	name, err := s.app.CreateShell(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"name": name})
+}
+
+func (s *Server) deleteRunShell(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.DeleteShell(r.Context(), r.PathValue("id"), r.PathValue("name")); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
 }
 
 func (s *Server) runDiff(w http.ResponseWriter, r *http.Request) {

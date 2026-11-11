@@ -458,7 +458,7 @@ The GUI is a compact, Orca-inspired React single-page application built with Vit
 
 The two primary surfaces are:
 
-- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, compact status badges, inline lifecycle actions, and selected-agent metadata. Attach opens an xterm.js terminal connected to the agent's tmux session. Logs, diffs, and effective policies open in a shared bottom drawer.
+- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, compact status badges, inline lifecycle actions, and selected-agent metadata. The **Workspace** button on a project (or **Attach** on an agent) opens a workspace with one tab per agent plus optional shell tabs; only the visible tab holds a terminal. Logs, diffs, and effective policies open in a shared bottom drawer.
 - **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, policies, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. A blank profile policy automatically creates and references the default policy. Image build output and stop controls are also routed to the bottom drawer.
 
 The interface defaults to light mode and includes a header theme switcher; the selected theme is remembered locally.
@@ -469,10 +469,18 @@ The GUI calls a local JSON API served by the same process. It does not expose th
 
 Attach is available from both the GUI and CLI.
 
-In the GUI, click **Attach** on an active or idle agent. AgentBox opens an
-xterm.js terminal connected to the agent's existing tmux session over a
-same-origin WebSocket. Closing the terminal dialog detaches the browser client;
-it does not finish the agent. Inside the terminal, `Ctrl-b d` also detaches.
+In the GUI, click **Attach** on an active or idle agent, or **Workspace** on a
+project. AgentBox opens the project workspace: the tab strip lists every agent
+in that project, and the selected tab holds an xterm.js terminal connected to
+that agent's tmux session over a same-origin WebSocket. Switching tabs detaches
+the previous terminal and reattaches on return, showing the cached log tail in
+the meantime. Closing the workspace detaches the browser client; it does not
+finish the agent. Inside the terminal, `Ctrl-b d` also detaches.
+
+Runs that have finished or stopped open a read-only log snapshot instead of a
+terminal. The **Shell** button in the workspace starts an extra shell tab inside
+the active agent's sandbox, at its worktree, with the agent's environment. Closing
+a shell tab stops that shell; it never affects the agent session.
 
 From the CLI:
 

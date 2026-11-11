@@ -27,7 +27,9 @@ It is not a permanent fleet-management platform.
 - Do not over-generalize provider support. Support the documented OpenShell,
   EnMaaS, OpenAI, and Anthropic flows.
 - Do not embed a general-purpose terminal emulator or shell manager. GUI attach
-  is one xterm.js terminal connected to the existing tmux session.
+  is a project workspace: one tab per agent with at most one live xterm.js
+  terminal at a time, plus shell tabs that run as extra tmux sessions inside the
+  focused agent's sandbox.
 - Do not bypass the OpenShell sandbox or weaken policy enforcement to make an
   agent run.
 
