@@ -8,17 +8,12 @@ AgentBox is a local CLI and web GUI for running multiple coding agents in isolat
 
 This repository is an autonomous OpenShell spike. It is not a supported product release.
 
-## Screenshots
+## Quick tour
 
-The screenshots use sample data.
-
-<p align="center">
-  <img src="docs/screenshots/fleet.png" alt="AgentBox Fleet view showing agents grouped by project" width="49%">
-  <img src="docs/screenshots/setup.png" alt="AgentBox Setup sheet showing profiles" width="49%">
-</p>
+The animated tour uses sample data and shows a typical profile-to-agent workflow.
 
 <p align="center">
-  <img src="docs/screenshots/model-selection.png" alt="AgentBox profile form with discovered model selection" width="72%">
+  <img src="docs/screenshots/flow.gif" alt="Animated AgentBox tour: configure a model profile, start an OpenShell-backed agent, and monitor it in Fleet" width="100%">
 </p>
 
 ## Documentation
