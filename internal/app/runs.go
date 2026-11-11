@@ -333,25 +333,37 @@ func classifySandboxStatus(phase string, idleMarker, finishedMarker bool) (strin
 }
 
 func (a *App) Attach(ctx context.Context, id string) error {
-	return a.AttachStream(ctx, id, os.Stdin, os.Stdout, os.Stderr)
+	r, err := a.Store.LoadRun(id)
+	if err != nil {
+		return err
+	}
+	// The CLI attaches the user's real terminal, so the process streams
+	// straight through: OpenShell detects the local terminal and sizes the
+	// remote pty from it. Routing through the fixed-size pty bridge instead
+	// renders tmux at an arbitrary size on top of the user's terminal.
+	return a.Runner.Stream(ctx, os.Stdin, os.Stdout, os.Stderr, "openshell", attachArgs(r)...)
 }
 
 const agentTerminalColumns = 120
 const agentTerminalRows = 36
+
+func attachArgs(r Run) []string {
+	args := []string{"sandbox", "exec", "-n", r.Sandbox, "--tty", "--", "tmux", "attach", "-t", "agent"}
+	if r.Gateway != "" {
+		args = append([]string{"--gateway", r.Gateway}, args...)
+	}
+	return args
+}
 
 func (a *App) AttachStream(ctx context.Context, id string, in io.Reader, out, errOut io.Writer) error {
 	r, err := a.Store.LoadRun(id)
 	if err != nil {
 		return err
 	}
-	args := []string{"sandbox", "exec", "-n", r.Sandbox, "--tty", "--", "tmux", "attach", "-t", "agent"}
-	if r.Gateway != "" {
-		args = append([]string{"--gateway", r.Gateway}, args...)
-	}
 	if terminalRunner, ok := a.Runner.(TerminalCommandRunner); ok {
-		return terminalRunner.StreamTerminal(ctx, in, out, errOut, agentTerminalColumns, agentTerminalRows, "openshell", args...)
+		return terminalRunner.StreamTerminal(ctx, in, out, errOut, agentTerminalColumns, agentTerminalRows, "openshell", attachArgs(r)...)
 	}
-	return a.Runner.Stream(ctx, in, out, errOut, "openshell", args...)
+	return a.Runner.Stream(ctx, in, out, errOut, "openshell", attachArgs(r)...)
 }
 
 func (a *App) Logs(ctx context.Context, id string) ([]byte, error) {
