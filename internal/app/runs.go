@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -279,9 +280,10 @@ func (a *App) ListAndReconcile(ctx context.Context) ([]Run, error) {
 			r.Status = "error"
 			_ = a.Store.SaveRun(r)
 		} else {
+			_, idleErr := a.sandboxExec(ctx, r, "/bin/sh", "-c", "test -f /workspace/idle")
 			_, finishErr := a.sandboxExec(ctx, r, "/bin/sh", "-c", "test -f /workspace/finished")
 			var syncFinished bool
-			r.Status, syncFinished = classifySandboxStatus(state, finishErr == nil)
+			r.Status, syncFinished = classifySandboxStatus(state, idleErr == nil, finishErr == nil)
 			_ = a.Store.SaveRun(r)
 			if syncFinished {
 				if err := a.Sync(ctx, r.ID); err == nil {
@@ -311,10 +313,13 @@ func (a *App) requireDirectRunAvailable(root string) error {
 	return nil
 }
 
-func classifySandboxStatus(phase string, finishedMarker bool) (string, bool) {
+func classifySandboxStatus(phase string, idleMarker, finishedMarker bool) (string, bool) {
 	phase = strings.ToLower(phase)
 	if phase == "error" {
 		return "error", false
+	}
+	if idleMarker {
+		return "idle", false
 	}
 	if finishedMarker {
 		return "finished", true
@@ -328,6 +333,13 @@ func classifySandboxStatus(phase string, finishedMarker bool) (string, bool) {
 }
 
 func (a *App) Attach(ctx context.Context, id string) error {
+	return a.AttachStream(ctx, id, os.Stdin, os.Stdout, os.Stderr)
+}
+
+const agentTerminalColumns = 120
+const agentTerminalRows = 36
+
+func (a *App) AttachStream(ctx context.Context, id string, in io.Reader, out, errOut io.Writer) error {
 	r, err := a.Store.LoadRun(id)
 	if err != nil {
 		return err
@@ -336,7 +348,10 @@ func (a *App) Attach(ctx context.Context, id string) error {
 	if r.Gateway != "" {
 		args = append([]string{"--gateway", r.Gateway}, args...)
 	}
-	return a.Runner.Stream(ctx, os.Stdin, os.Stdout, os.Stderr, "openshell", args...)
+	if terminalRunner, ok := a.Runner.(TerminalCommandRunner); ok {
+		return terminalRunner.StreamTerminal(ctx, in, out, errOut, agentTerminalColumns, agentTerminalRows, "openshell", args...)
+	}
+	return a.Runner.Stream(ctx, in, out, errOut, "openshell", args...)
 }
 
 func (a *App) Logs(ctx context.Context, id string) ([]byte, error) {
@@ -354,6 +369,11 @@ func (a *App) Stop(ctx context.Context, id string) error {
 	}
 	if _, err := a.sandboxExec(ctx, r, "tmux", "send-keys", "-t", "agent", "C-c"); err != nil {
 		return err
+	}
+	if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", "test -f /workspace/idle"); err == nil {
+		if _, err := a.sandboxExec(ctx, r, "tmux", "send-keys", "-t", "agent", "f", "Enter"); err != nil {
+			return err
+		}
 	}
 	finished := false
 	for i := 0; i < 30; i++ {

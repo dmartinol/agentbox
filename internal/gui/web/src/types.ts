@@ -81,6 +81,7 @@ export interface Provider {
   profile?: string;
   credential?: string;
   credential_keys?: string[];
+  base_url?: string;
   gateway?: string;
   used_by?: string[];
 }

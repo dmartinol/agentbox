@@ -174,7 +174,7 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
           <Field label="Name" htmlFor="provider-name" required>
             <Input id="provider-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
           </Field>
-          <Field label="Host or base URL" htmlFor="provider-host" required helper="AgentBox extracts the hostname.">
+          <Field label="Provider host" htmlFor="provider-host" required helper="A hostname or URL; AgentBox extracts the hostname for OpenShell.">
             <Input id="provider-host" disabled={form.kind === 'openai' || form.kind === 'anthropic'} value={form.host} onChange={(event) => setForm({ ...form, host: event.target.value })} />
           </Field>
           <Field label="Credential env" htmlFor="provider-credential" required helper="Name only; value stays external.">

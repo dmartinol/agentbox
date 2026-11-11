@@ -47,6 +47,7 @@ export const api = {
   profiles: () => request<Profile[]>('/api/profiles'),
   saveProfile: (profile: Profile) => post<Profile>('/api/profiles', profile),
   providers: (gateway = '') => request<Provider[]>(`/api/providers${gateway ? `?gateway=${encodeURIComponent(gateway)}` : ''}`),
+  providerModels: (name: string, gateway = '') => request<string[]>(`/api/providers/${encodeURIComponent(name)}/models${gateway ? `?gateway=${encodeURIComponent(gateway)}` : ''}`),
   setupProvider: (input: { kind: string; name: string; host: string; credential: string; gateway: string }) => post<{ ok: true }>('/api/providers', input),
   updateProvider: (name: string, input: { credential: string; gateway: string }) => post<{ ok: true }>(`/api/providers/${encodeURIComponent(name)}/update`, input),
   deleteProvider: (name: string, gateway: string) => post<{ deleted: true }>(`/api/providers/${encodeURIComponent(name)}/delete?gateway=${encodeURIComponent(gateway)}`),

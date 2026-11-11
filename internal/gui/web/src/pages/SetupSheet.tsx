@@ -14,12 +14,14 @@ export function SetupSheet({
   open,
   onOpenChange,
   openLog,
-  updateLog
+  updateLog,
+  onResourcesChanged
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   openLog: (state: Omit<LogDrawerState, 'open'>) => void;
   updateLog: (state: Partial<LogDrawerState>) => void;
+  onResourcesChanged?: () => void;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Setup" description="Projects, profiles, providers, images, gateways, policies, and diagnostics" width="58rem">
@@ -34,8 +36,8 @@ export function SetupSheet({
           <TabTrigger value="advanced">Advanced</TabTrigger>
         </TabList>
         <TabContent value="providers"><ProvidersPanel /></TabContent>
-        <TabContent value="profiles"><ProfilesPanel /></TabContent>
-        <TabContent value="projects"><ProjectsPanel /></TabContent>
+        <TabContent value="profiles"><ProfilesPanel onChanged={onResourcesChanged} /></TabContent>
+        <TabContent value="projects"><ProjectsPanel onChanged={onResourcesChanged} /></TabContent>
         <TabContent value="images"><ImagesPanel openLog={openLog} updateLog={updateLog} /></TabContent>
         <TabContent value="gateways"><GatewaysPanel /></TabContent>
         <TabContent value="policies"><PoliciesPanel /></TabContent>

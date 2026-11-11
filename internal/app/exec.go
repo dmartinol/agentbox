@@ -8,11 +8,17 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/creack/pty"
 )
 
 type CommandRunner interface {
 	Output(context.Context, string, ...string) ([]byte, error)
 	Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error
+}
+
+type TerminalCommandRunner interface {
+	StreamTerminal(context.Context, io.Reader, io.Writer, io.Writer, int, int, string, ...string) error
 }
 
 type OSRunner struct{}
@@ -47,4 +53,20 @@ func RunEditor(ctx context.Context, path string) error {
 	cmd := exec.CommandContext(ctx, strings.Fields(editor)[0], parts...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return cmd.Run()
+}
+
+func (OSRunner) StreamTerminal(ctx context.Context, in io.Reader, out, _ io.Writer, columns, rows int, name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	terminal, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: uint16(columns), Rows: uint16(rows)})
+	if err != nil {
+		return err
+	}
+	defer terminal.Close()
+
+	go func() {
+		_, _ = io.Copy(terminal, in)
+	}()
+	_, _ = io.Copy(out, terminal)
+	return cmd.Wait()
 }

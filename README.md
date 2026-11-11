@@ -257,10 +257,24 @@ Then create a profile that uses the provider:
   codex-gateway
 ```
 
+If `--policy` is omitted, AgentBox creates and references a default policy at
+`$AGENTBOX_HOME/policies/<profile-name>.yaml`. In the GUI, leave the profile's
+Policy field blank to get the same behavior; existing profiles that still use
+the old `~/.agentbox/policies/...` reference are migrated automatically when
+the profile list is loaded.
+
 `--base-url` is the OpenAI-compatible API base (typically ending in `/v1`).
 `--api-key-env` names the environment variable that holds the gateway key in
 the environment where the OpenShell gateway runs. For Claude profiles, the
 Anthropic-compatible base URL is derived by removing a trailing `/v1`.
+
+The provider host and profile base URL are related but distinct settings. The
+provider host identifies the endpoint registered with OpenShell and is
+normalized to a hostname for network policy and authentication. The profile
+base URL is the exact model API endpoint written into the agent configuration.
+In the GUI, **Use provider base URL and credential environment** copies the
+provider defaults into the profile; unchecking it allows those two values to be
+overridden for that profile.
 
 The `openai` and `anthropic` provider types remain available for `standard`
 mode profiles that use direct model-provider credentials. In the GUI, selecting
@@ -364,8 +378,8 @@ The GUI is a compact, Orca-inspired React single-page application built with Vit
 
 The two primary surfaces are:
 
-- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, compact status badges, inline lifecycle actions, and selected-agent metadata. Logs, diffs, and effective policies open in a shared bottom drawer.
-- **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, policies, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. Image build output and stop controls are also routed to the bottom drawer.
+- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, compact status badges, inline lifecycle actions, and selected-agent metadata. Attach opens an xterm.js terminal connected to the agent's tmux session. Logs, diffs, and effective policies open in a shared bottom drawer.
+- **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, policies, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. A blank profile policy automatically creates and references the default policy. Image build output and stop controls are also routed to the bottom drawer.
 
 The interface defaults to light mode and includes a header theme switcher; the selected theme is remembered locally.
 
@@ -373,13 +387,24 @@ The GUI calls a local JSON API served by the same process. It does not expose th
 
 ## Attach behavior
 
-Interactive attach remains a CLI workflow because it needs a real terminal and tmux:
+Attach is available from both the GUI and CLI.
+
+In the GUI, click **Attach** on an active or idle agent. AgentBox opens an
+xterm.js terminal connected to the agent's existing tmux session over a
+same-origin WebSocket. Closing the terminal dialog detaches the browser client;
+it does not finish the run. Inside the terminal, `Ctrl-b d` also detaches.
+
+From the CLI:
 
 ```sh
 ./agentbox run attach <run-id>
 ```
 
-When the agent exits, the session asks whether to keep the run idle for later reattachment or finish it. Keeping it idle leaves an interactive shell in the run checkout. Choosing finish writes the finished marker and closes the tmux session. The GUI complements this with read-only logs, diff, policy, and lifecycle actions; it does not attempt to embed an interactive terminal.
+When the agent exits, the session asks whether to keep the run idle for later
+reattachment or finish it. Choosing idle creates an idle marker, keeps the
+sandbox and tmux session available, and shows the run as **Idle**. Exiting the
+idle shell returns to the idle/finish prompt rather than finishing the run.
+Choosing finish writes the finished marker and closes the tmux session.
 
 ## State location
 
