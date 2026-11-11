@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -400,13 +401,43 @@ type websocketTerminal struct {
 	connection *websocket.Conn
 	mutex      sync.Mutex
 	buffer     []byte
+	onResize   func(app.TerminalSize)
+}
+
+type resizeMessage struct {
+	Type string `json:"type"`
+	Cols int    `json:"cols"`
+	Rows int    `json:"rows"`
+}
+
+// parseResizeMessage recognizes client control messages. Terminal input
+// arrives as binary frames; plain text that does not decode to a resize
+// message is treated as input for backward compatibility.
+func parseResizeMessage(message []byte) (app.TerminalSize, bool) {
+	var resize resizeMessage
+	if err := json.Unmarshal(message, &resize); err != nil || resize.Type != "resize" {
+		return app.TerminalSize{}, false
+	}
+	size := app.TerminalSize{Columns: resize.Cols, Rows: resize.Rows}
+	if !size.Valid() {
+		return app.TerminalSize{}, false
+	}
+	return size, true
 }
 
 func (t *websocketTerminal) Read(p []byte) (int, error) {
 	for len(t.buffer) == 0 {
-		_, message, err := t.connection.ReadMessage()
+		messageType, message, err := t.connection.ReadMessage()
 		if err != nil {
 			return 0, err
+		}
+		if messageType == websocket.TextMessage {
+			if size, ok := parseResizeMessage(message); ok {
+				if t.onResize != nil {
+					t.onResize(size)
+				}
+				continue
+			}
 		}
 		t.buffer = message
 	}
@@ -424,6 +455,18 @@ func (t *websocketTerminal) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// terminalSizeFromQuery reads the client's reported viewport size. The
+// attach terminal is sized from it so every rendered row is visible.
+func terminalSizeFromQuery(r *http.Request) app.TerminalSize {
+	cols, colsErr := strconv.Atoi(r.URL.Query().Get("cols"))
+	rows, rowsErr := strconv.Atoi(r.URL.Query().Get("rows"))
+	size := app.TerminalSize{Columns: cols, Rows: rows}
+	if colsErr != nil || rowsErr != nil || !size.Valid() {
+		return app.DefaultTerminalSize
+	}
+	return size
+}
+
 func (s *Server) attachRun(w http.ResponseWriter, r *http.Request) {
 	conn, err := attachUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -434,8 +477,19 @@ func (s *Server) attachRun(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	terminal := &websocketTerminal{connection: conn}
-	if err := s.app.AttachStream(ctx, r.PathValue("id"), terminal, terminal, terminal); err != nil {
+	size := terminalSizeFromQuery(r)
+	resizes := make(chan app.TerminalSize, 8)
+	defer close(resizes)
+	terminal := &websocketTerminal{
+		connection: conn,
+		onResize: func(size app.TerminalSize) {
+			select {
+			case resizes <- size:
+			default:
+			}
+		},
+	}
+	if err := s.app.AttachStream(ctx, r.PathValue("id"), terminal, terminal, terminal, size, resizes); err != nil {
 		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()), time.Now().Add(time.Second))
 		return
 	}

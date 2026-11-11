@@ -291,7 +291,12 @@ Attach connects to that session:
 
 - CLI attach uses `openshell sandbox exec --tty -- tmux attach`.
 - GUI attach uses xterm.js over a same-origin WebSocket.
-- The GUI server allocates a local PTY with dimensions matching xterm.js.
+- The GUI server allocates a local PTY sized from the xterm viewport: the
+  client reports its dimensions at connect (`?cols=&rows=`) and sends
+  `{"type":"resize","cols":C,"rows":R}` control messages on resize, which
+  the server applies to the PTY so every rendered row stays visible.
+  Terminal input travels as binary frames; text frames are control
+  messages.
 - Closing the GUI terminal detaches the client but does not finish the run.
 
 When the agent exits, the session asks whether to keep the run idle or finish

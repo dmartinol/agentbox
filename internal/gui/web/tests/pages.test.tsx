@@ -7,14 +7,33 @@ import { ProfilesPanel } from '../src/pages/setup/ProfilesPanel';
 import { McpPanel } from '../src/pages/setup/McpPanel';
 import { mcps, overview, providers, runs } from './fixtures';
 
+const xtermHooks = vi.hoisted(() => ({
+  resize: undefined as undefined | ((size: { cols: number; rows: number }) => void)
+}));
+
 vi.mock('@xterm/xterm', () => ({
   Terminal: class MockTerminal {
+    cols = 120;
+    rows = 36;
     open() {}
     focus() {}
     write() {}
     dispose() {}
     onData() {}
     loadAddon() {}
+    onResize(callback: (size: { cols: number; rows: number }) => void) {
+      xtermHooks.resize = callback;
+    }
+  }
+}));
+
+vi.mock('@xterm/addon-fit', () => ({
+  FitAddon: class MockFitAddon {
+    fit() {}
+    proposeDimensions() {
+      return undefined;
+    }
+    dispose() {}
   }
 }));
 
@@ -183,7 +202,58 @@ describe('fleet shell', () => {
     expect(screen.getByText(/Attach · active-run/i)).toBeInTheDocument();
     expect(screen.getByLabelText('Terminal for active-run')).toBeInTheDocument();
     await waitFor(() => expect(sockets).toHaveLength(1));
-    expect(sockets[0]?.url).toBe('ws://localhost:3000/api/runs/run-active/attach');
+    expect(sockets[0]?.url).toBe('ws://localhost:3000/api/runs/run-active/attach?cols=120&rows=36');
+  });
+
+  it('reports terminal resizes over the attach socket', async () => {
+    const sent: unknown[] = [];
+    class MockWebSocket {
+      static readonly OPEN = 1;
+      readyState = 1;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number; reason: string }) => void) | null = null;
+      send(data: unknown) {
+        sent.push(data);
+      }
+      close() {}
+    }
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /attach/i }))[0]);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(xtermHooks.resize).toBeTypeOf('function');
+    xtermHooks.resize?.({ cols: 100, rows: 30 });
+    expect(sent).toContain('{"type":"resize","cols":100,"rows":30}');
+  });
+
+  it('keeps the attach terminal open when Escape is pressed', async () => {
+    class MockWebSocket {
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number; reason: string }) => void) | null = null;
+      send() {}
+      close() {}
+    }
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /attach/i }))[0]);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Terminal for active-run')).toBeInTheDocument();
+  });
+
+  it('still closes other dialogs with Escape', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText('active-run'));
+    await user.click(screen.getByRole('button', { name: 'Delete agent' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
   it('shows selected agent metadata', async () => {

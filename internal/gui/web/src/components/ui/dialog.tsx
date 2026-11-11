@@ -7,25 +7,30 @@ import { Button } from './button';
 export function Modal({
   open,
   onOpenChange,
+  onEscapeKeyDown,
   title,
   description,
   children,
   footer,
-  className
+  className,
+  bodyClassName
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onEscapeKeyDown?: (event: KeyboardEvent) => void;
   title: ReactNode;
   description?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   className?: string;
+  bodyClassName?: string;
 }) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/65 backdrop-blur-[1px]" />
         <Dialog.Content
+          onEscapeKeyDown={onEscapeKeyDown}
           className={cn(
             'fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(92vw,44rem)] -translate-x-1/2 -translate-y-1/2',
             'overflow-hidden rounded-xl border border-border bg-background shadow-2xl',
@@ -41,7 +46,7 @@ export function Modal({
               <Button variant="ghost" size="icon" aria-label="Close"><X className="size-4" /></Button>
             </Dialog.Close>
           </div>
-          <div className="max-h-[64vh] overflow-y-auto px-4 py-3 agentbox-scrollbar">{children}</div>
+          <div className={cn('max-h-[64vh] overflow-y-auto px-4 py-3 agentbox-scrollbar', bodyClassName)}>{children}</div>
           {footer ? <div className="flex justify-end gap-2 border-t border-border px-4 py-3">{footer}</div> : null}
         </Dialog.Content>
       </Dialog.Portal>

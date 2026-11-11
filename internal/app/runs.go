@@ -378,6 +378,10 @@ func (a *App) Attach(ctx context.Context, id string) error {
 const agentTerminalColumns = 120
 const agentTerminalRows = 36
 
+// DefaultTerminalSize is the fallback attach size when the client does not
+// report its viewport.
+var DefaultTerminalSize = TerminalSize{Columns: agentTerminalColumns, Rows: agentTerminalRows}
+
 func attachArgs(r Run) []string {
 	args := []string{"sandbox", "exec", "-n", r.Sandbox, "--tty", "--", "tmux", "attach", "-t", "agent"}
 	if r.Gateway != "" {
@@ -386,13 +390,16 @@ func attachArgs(r Run) []string {
 	return args
 }
 
-func (a *App) AttachStream(ctx context.Context, id string, in io.Reader, out, errOut io.Writer) error {
+func (a *App) AttachStream(ctx context.Context, id string, in io.Reader, out, errOut io.Writer, size TerminalSize, resizes <-chan TerminalSize) error {
 	r, err := a.Store.LoadRun(id)
 	if err != nil {
 		return err
 	}
+	if !size.Valid() {
+		size = DefaultTerminalSize
+	}
 	if terminalRunner, ok := a.Runner.(TerminalCommandRunner); ok {
-		return terminalRunner.StreamTerminal(ctx, in, out, errOut, agentTerminalColumns, agentTerminalRows, "openshell", attachArgs(r)...)
+		return terminalRunner.StreamTerminal(ctx, in, out, errOut, size.Columns, size.Rows, resizes, "openshell", attachArgs(r)...)
 	}
 	return a.Runner.Stream(ctx, in, out, errOut, "openshell", attachArgs(r)...)
 }

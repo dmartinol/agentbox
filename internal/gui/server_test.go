@@ -238,6 +238,7 @@ func TestRunsListReconcilesStatuses(t *testing.T) {
 
 type attachRunner struct {
 	commands [][]string
+	resizes  <-chan app.TerminalSize
 }
 
 func (r *attachRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -245,8 +246,9 @@ func (r *attachRunner) Output(_ context.Context, name string, args ...string) ([
 	return []byte(`{}`), nil
 }
 
-func (r *attachRunner) StreamTerminal(_ context.Context, in io.Reader, out io.Writer, _ io.Writer, columns, rows int, name string, args ...string) error {
+func (r *attachRunner) StreamTerminal(_ context.Context, in io.Reader, out io.Writer, _ io.Writer, columns, rows int, resizes <-chan app.TerminalSize, name string, args ...string) error {
 	r.commands = append(r.commands, append([]string{name}, args...), []string{"columns", strconv.Itoa(columns), "rows", strconv.Itoa(rows)})
+	r.resizes = resizes
 	buffer := make([]byte, 128)
 	_, _ = in.Read(buffer)
 	_, _ = io.WriteString(out, "attach terminal output")
@@ -282,7 +284,7 @@ func TestRunAttachWebSocket(t *testing.T) {
 	httpServer := httptest.NewServer(server.Handler())
 	t.Cleanup(httpServer.Close)
 
-	connection, _, err := websocket.DefaultDialer.Dial(strings.Replace(httpServer.URL, "http://", "ws://", 1)+"/api/runs/run-attach/attach", nil)
+	connection, _, err := websocket.DefaultDialer.Dial(strings.Replace(httpServer.URL, "http://", "ws://", 1)+"/api/runs/run-attach/attach?cols=100&rows=30", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,13 +305,64 @@ func TestRunAttachWebSocket(t *testing.T) {
 	}
 	attach := runner.commands[0]
 	size := runner.commands[1]
-	if !slices.Contains(size, "120") || !slices.Contains(size, "36") {
+	if !slices.Contains(size, "100") || !slices.Contains(size, "30") {
 		t.Fatalf("terminal size = %#v", size)
 	}
 	for _, want := range []string{"sandbox", "exec", "-n", "sandbox-attach", "--tty", "tmux", "attach", "--gateway", "openshell"} {
 		if !slices.Contains(attach, want) {
 			t.Fatalf("attach command missing %q: %#v", want, attach)
 		}
+	}
+}
+
+func TestRunAttachWebSocketAppliesResizeMessages(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	run := app.Run{
+		ID: "run-attach", Sandbox: "sandbox-attach", Gateway: "openshell", Agent: "codex",
+		Status: "running", Source: "/repo", Worktree: "/trees/run-attach", Branch: "main",
+		Baseline: "abc", LastSynced: "abc", Created: time.Now(), Synced: true, Policy: "/policy",
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := &attachRunner{}
+	server, err := New(&app.App{Store: store, Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	connection, _, err := websocket.DefaultDialer.Dial(strings.Replace(httpServer.URL, "http://", "ws://", 1)+"/api/runs/run-attach/attach?cols=100&rows=30", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+
+	// A resize control message must not leak into the terminal input.
+	if err := connection.WriteMessage(websocket.TextMessage, []byte(`{"type":"resize","cols":80,"rows":24}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.WriteMessage(websocket.TextMessage, []byte("terminal input")); err != nil {
+		t.Fatal(err)
+	}
+	_, message, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(message) != "attach terminal output" {
+		t.Fatalf("terminal output = %q", message)
+	}
+	select {
+	case size := <-runner.resizes:
+		if size.Columns != 80 || size.Rows != 24 {
+			t.Fatalf("resize = %+v", size)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("resize message was not applied")
 	}
 }
 
