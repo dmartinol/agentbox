@@ -285,19 +285,37 @@ AgentBox never writes the raw secret into:
 
 ## Attach and idle
 
-Each run owns a tmux session named `agent`.
+Each run owns a tmux session named `agent`. The GUI attaches to runs through
+a project workspace: the tab strip lists every agent of the project, and each
+tab is a view over one run.
 
-Attach connects to that session:
+- Only the visible tab holds a PTY. Switching tabs closes the previous xterm
+  client; tmux keeps its session alive, so the tab reattaches to the same
+  session on return. Unfocused tabs are represented by their status rather
+  than by a background terminal.
+- While a tab reattaches, the GUI shows the cached tail of
+  `/workspace/state/agent.log`, so the surface is never blank.
+- Runs that cannot attach (finished, stopped, error) open a read-only log
+  snapshot instead of a terminal.
+- Shell tabs start a separate tmux session (`shell-N`) in the same sandbox
+  and policy, at `/workspace/project`, with the same `HOME`, `XDG_*`,
+  `CODEX_HOME`, and `CLAUDE_CONFIG_DIR` environment as the agent. Shells
+  never share the `agent` session, so their terminal sizes cannot fight and
+  the agent log stays untouched.
+- Closing a shell tab stops its tmux session. Closing the workspace only
+  detaches; it does not finish the run.
+
+Attach transport:
 
 - CLI attach uses `openshell sandbox exec --tty -- tmux attach`.
-- GUI attach uses xterm.js over a same-origin WebSocket.
+- GUI attach uses xterm.js over a same-origin WebSocket and selects the
+  session with `?session=agent|shell-N`.
 - The GUI server allocates a local PTY sized from the xterm viewport: the
   client reports its dimensions at connect (`?cols=&rows=`) and sends
   `{"type":"resize","cols":C,"rows":R}` control messages on resize, which
   the server applies to the PTY so every rendered row stays visible.
   Terminal input travels as binary frames; text frames are control
   messages.
-- Closing the GUI terminal detaches the client but does not finish the run.
 
 When the agent exits, the session asks whether to keep the run idle or finish
 it. Idle runs retain:

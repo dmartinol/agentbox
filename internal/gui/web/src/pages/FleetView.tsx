@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal } from 'lucide-react';
 import { api } from '../api';
 import type { MCPTools, Overview, Profile, Run, StartRunRequest } from '../types';
@@ -12,8 +12,8 @@ import { Input, Select, Textarea } from '../components/ui/input';
 import { Modal } from '../components/ui/dialog';
 import { ConfirmDialog } from '../components/ui/confirm';
 import { Table, TBody, TD, TH, THead, TR } from '../components/ui/table';
-const AgentTerminal = lazy(() => import('../components/AgentTerminal').then((module) => ({ default: module.AgentTerminal })));
-import { StatusBadge, canAttachRun, isActiveRun, canStopRun } from '../components/StatusBadge';
+import { AgentWorkspace } from '../components/AgentWorkspace';
+import { StatusBadge, canAttachRun, isActiveRun, canStopRun, statusLabel } from '../components/StatusBadge';
 import type { LogDrawerState } from '../components/LogDrawer';
 
 const allProjects = 'All projects';
@@ -37,7 +37,10 @@ export function FleetView({
   const [search, setSearch] = useState('');
   const [projectFilter, setProjectFilter] = useState(allProjects);
   const [selected, setSelected] = useState<Run>();
-  const [attachedRun, setAttachedRun] = useState<Run>();
+  const [workspace, setWorkspace] = useState<{ project: string; runId: string }>();
+  const [focusedRunId, setFocusedRunId] = useState<string>();
+  const [unread, setUnread] = useState<Set<string>>(new Set());
+  const previousStatuses = useRef<Map<string, string>>(new Map());
   const [startOpen, setStartOpen] = useState(false);
   const [startError, setStartError] = useState('');
   const [startSubmitting, setStartSubmitting] = useState(false);
@@ -99,6 +102,55 @@ export function FleetView({
   }, [filtered]);
 
   const selectedProfile: Profile | undefined = overview?.profiles.find((profile) => profile.name === startForm.profile);
+
+  const openWorkspace = (agent: Run) => {
+    setFocusedRunId(agent.id);
+    setUnread((current) => {
+      const next = new Set(current);
+      next.delete(agent.id);
+      return next;
+    });
+    setWorkspace({ project: agent.project || 'Unassigned', runId: agent.id });
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      void Notification.requestPermission();
+    }
+  };
+
+  const closeWorkspace = () => {
+    setWorkspace(undefined);
+    setFocusedRunId(undefined);
+  };
+
+  useEffect(() => {
+    const previous = previousStatuses.current;
+    const next = new Map<string, string>();
+    for (const agent of agents) {
+      const before = previous.get(agent.id);
+      next.set(agent.id, agent.status);
+      if (!before || before === agent.status) continue;
+      const needsYou = agent.status === 'idle' || agent.status === 'finished' || agent.status === 'error';
+      if (!needsYou || agent.id === focusedRunId) continue;
+      setUnread((current) => new Set(current).add(agent.id));
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification(`${agent.name || agent.id} ${statusLabel(agent.status).toLowerCase()}`, {
+          body: `${agent.project || 'Unassigned'} · ${agent.agent}`
+        });
+      }
+    }
+    previousStatuses.current = next;
+  }, [agents, focusedRunId]);
+
+  useEffect(() => {
+    if (!workspace) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      void api
+        .runs()
+        .then((runs) => setOverview((current) => (current ? { ...current, runs } : current)))
+        .catch(() => undefined);
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [workspace]);
 
   const inFlightStatus = (agent: Run): string => {
     const kind = pending[agent.id];
@@ -234,6 +286,25 @@ export function FleetView({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {workspace ? (
+        <AgentWorkspace
+          project={workspace.project}
+          runs={agents.filter((agent) => (agent.project || 'Unassigned') === workspace.project)}
+          initialRunId={workspace.runId}
+          unread={unread}
+          onFocusRun={(id) => {
+            setFocusedRunId(id);
+            setUnread((current) => {
+              if (!current.has(id)) return current;
+              const next = new Set(current);
+              next.delete(id);
+              return next;
+            });
+          }}
+          onClose={closeWorkspace}
+        />
+      ) : (
+      <>
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background/90 px-3">
         <div className="relative min-w-56 flex-1">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
@@ -278,6 +349,9 @@ export function FleetView({
                     <Badge tone={projectAgents.some((agent) => isActiveRun(agent.status)) ? 'success' : 'neutral'}>
                       {projectAgents.filter((agent) => isActiveRun(agent.status)).length} active
                     </Badge>
+                    <Button size="xs" variant="ghost" onClick={() => openWorkspace(projectAgents[0])}>
+                      <Monitor className="size-3" /> Workspace
+                    </Button>
                   </div>
                 </CardHeader>
                 <Table aria-label={`Agents in ${project}`}>
@@ -309,7 +383,7 @@ export function FleetView({
                           <TD className="truncate font-mono text-xs text-muted">{agent.branch}</TD>
                           <TD>
                             <div className="flex flex-wrap gap-1">
-                              <Button size="xs" variant="ghost" disabled={!canAttachRun(agent.status)} onClick={(event) => { event.stopPropagation(); setAttachedRun(agent); }}><Monitor className="size-3" /> Attach</Button>
+                              <Button size="xs" variant="ghost" disabled={!canAttachRun(agent.status)} onClick={(event) => { event.stopPropagation(); openWorkspace(agent); }}><Monitor className="size-3" /> Attach</Button>
                               <Button size="xs" variant="ghost" onClick={(event) => { event.stopPropagation(); void openDetail(agent, 'logs'); }}><Terminal className="size-3" /> Logs</Button>
                               <Button size="xs" variant="ghost" onClick={(event) => { event.stopPropagation(); void openDetail(agent, 'diff'); }}>Diff</Button>
                               <Button
@@ -370,7 +444,7 @@ export function FleetView({
                 ))}
               </dl>
               <div className="grid gap-1.5">
-                <Button variant="outline" disabled={!canAttachRun(selected.status)} onClick={() => setAttachedRun(selected)}>Attach</Button>
+                <Button variant="outline" disabled={!canAttachRun(selected.status)} onClick={() => openWorkspace(selected)}>Attach</Button>
                 <Button variant="outline" onClick={() => void openDetail(selected, 'logs')}>View logs</Button>
                 <Button variant="outline" onClick={() => void openDetail(selected, 'diff')}>View diff</Button>
                 <Button variant="outline" onClick={() => void openDetail(selected, 'policy')}>View policy</Button>
@@ -390,6 +464,8 @@ export function FleetView({
           )}
         </aside>
       </div>
+      </>
+      )}
 
       {(notice || actionError) ? (
         <div className={`h-8 shrink-0 border-t px-3 text-sm leading-8 ${actionError ? 'border-danger/30 bg-danger/10 text-danger' : 'border-success/30 bg-success/10 text-success'}`}>
@@ -403,12 +479,6 @@ export function FleetView({
             {startWarnings.map((warning) => <li key={warning}>{warning}</li>)}
           </ul>
         </Alert>
-      ) : null}
-
-      {attachedRun ? (
-        <Suspense fallback={<div className="fixed inset-0 z-50 grid place-items-center bg-black/65 text-sm text-foreground">Loading terminal…</div>}>
-          <AgentTerminal run={attachedRun} onClose={() => setAttachedRun(undefined)} />
-        </Suspense>
       ) : null}
 
       <Modal

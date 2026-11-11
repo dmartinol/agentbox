@@ -1,12 +1,38 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import { api } from '../api';
 import type { Run } from '../types';
-import { Modal } from './ui/dialog';
 
-export function AgentTerminal({ run, onClose }: { run: Run; onClose: () => void }) {
+/**
+ * A single live terminal attached to one tmux session inside a run's
+ * sandbox. Inactive workspace tabs unmount it, so only the visible tab
+ * holds a pty; switching back shows the cached log tail while the
+ * session reattaches.
+ */
+export function AgentTerminal({ run, session = 'agent' }: { run: Run; session?: string }) {
   const [terminalElement, setTerminalElement] = useState<HTMLDivElement | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [preview, setPreview] = useState('');
+  const connectedRef = useRef(false);
+
+  useEffect(() => {
+    connectedRef.current = false;
+    setConnected(false);
+    setPreview('');
+    if (session !== 'agent') return;
+    let active = true;
+    void api
+      .logs(run.id, 200)
+      .then(({ logs }) => {
+        if (active) setPreview(logs);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [run.id, session]);
 
   useEffect(() => {
     if (!terminalElement) return;
@@ -20,9 +46,6 @@ export function AgentTerminal({ run, onClose }: { run: Run; onClose: () => void 
         cursor: '#f4f4f5'
       }
     });
-    // The fit addon sizes the terminal to the container, and the container
-    // is sized by the modal layout, so every rendered row stays visible.
-    // The server sizes the remote pty from the reported dimensions.
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(terminalElement);
@@ -30,8 +53,10 @@ export function AgentTerminal({ run, onClose }: { run: Run; onClose: () => void 
     terminal.focus();
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const query = new URLSearchParams({ cols: String(terminal.cols), rows: String(terminal.rows) });
+    if (session !== 'agent') query.set('session', session);
     const socket = new WebSocket(
-      `${protocol}//${window.location.host}/api/runs/${encodeURIComponent(run.id)}/attach?cols=${terminal.cols}&rows=${terminal.rows}`
+      `${protocol}//${window.location.host}/api/runs/${encodeURIComponent(run.id)}/attach?${query.toString()}`
     );
 
     // Terminal input is sent as binary frames; text frames are reserved
@@ -43,7 +68,13 @@ export function AgentTerminal({ run, onClose }: { run: Run; onClose: () => void 
         socket.send(JSON.stringify({ type: 'resize', cols, rows }));
       }
     });
-    socket.onmessage = (event) => terminal.write(event.data);
+    socket.onmessage = (event) => {
+      if (!connectedRef.current) {
+        connectedRef.current = true;
+        setConnected(true);
+      }
+      terminal.write(event.data);
+    };
     socket.onerror = () => terminal.write('\r\n[AgentBox] terminal connection error\r\n');
     socket.onclose = (event) => {
       if (event.code !== 1000) {
@@ -65,31 +96,18 @@ export function AgentTerminal({ run, onClose }: { run: Run; onClose: () => void 
       socket.close();
       terminal.dispose();
     };
-  }, [run.id, terminalElement]);
+  }, [run.id, session, terminalElement]);
 
+  const label = session === 'agent' ? `Terminal for ${run.name || run.id}` : `Shell ${session} for ${run.name || run.id}`;
   return (
-    <Modal
-      open
-      onOpenChange={(open) => !open && onClose()}
-      // Escape belongs to the attached program (exiting a picker, closing a
-      // dialog inside the agent session), so it must reach the PTY instead
-      // of closing this dialog. Detach with the close button or Ctrl-b d.
-      onEscapeKeyDown={(event) => event.preventDefault()}
-      title={`Attach · ${run.name || run.id}`}
-      description={`${run.agent} agent in ${run.project || 'unassigned project'}`}
-      className="w-[min(96vw,72rem)]"
-      bodyClassName="max-h-none overflow-y-hidden p-0"
-      footer={
-        <p className="text-sm text-muted">
-          Detach with the close button (Esc is sent to the agent session). Ctrl-b d also detaches without finishing the run.
-        </p>
-      }
-    >
-      <div
-        ref={setTerminalElement}
-        className="h-[64vh] overflow-hidden rounded-lg border border-border bg-black p-2"
-        aria-label={`Terminal for ${run.name || run.id}`}
-      />
-    </Modal>
+    <div className="relative flex min-h-0 flex-1 flex-col bg-black">
+      <div ref={setTerminalElement} className="min-h-0 flex-1 overflow-hidden p-1" aria-label={label} />
+      {!connected ? (
+        <div className="pointer-events-none absolute inset-0 overflow-hidden bg-black p-2 font-mono text-xs leading-relaxed text-zinc-400">
+          <div className="mb-1 text-zinc-500">{preview ? 'Last output · reattaching…' : 'Attaching…'}</div>
+          <pre className="whitespace-pre-wrap break-words">{preview}</pre>
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -40,7 +40,10 @@ export const api = {
   stopRun: (id: string) => post<Run>(`/api/runs/${id}/stop`),
   syncRun: (id: string) => post<Run>(`/api/runs/${id}/sync`),
   deleteRun: (id: string) => post<{ deleted: true }>(`/api/runs/${id}/delete`, { discard: true }),
-  logs: (id: string) => request<{ logs: string }>(`/api/runs/${id}/logs`),
+  logs: (id: string, tail?: number) => request<{ logs: string }>(`/api/runs/${id}/logs${tail ? `?tail=${tail}` : ''}`),
+  shells: (id: string) => request<string[]>(`/api/runs/${id}/shells`),
+  createShell: (id: string) => post<{ name: string }>(`/api/runs/${id}/shells`),
+  deleteShell: (id: string, name: string) => post<{ deleted: true }>(`/api/runs/${id}/shells/${encodeURIComponent(name)}/delete`),
   diff: (id: string) => request<{ diff: string }>(`/api/runs/${id}/diff`),
   policy: (id: string) => request<Record<string, unknown>>(`/api/runs/${id}/policy`),
 

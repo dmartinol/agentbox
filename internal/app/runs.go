@@ -372,7 +372,7 @@ func (a *App) Attach(ctx context.Context, id string) error {
 	// straight through: OpenShell detects the local terminal and sizes the
 	// remote pty from it. Routing through the fixed-size pty bridge instead
 	// renders tmux at an arbitrary size on top of the user's terminal.
-	return a.Runner.Stream(ctx, os.Stdin, os.Stdout, os.Stderr, "openshell", attachArgs(r)...)
+	return a.Runner.Stream(ctx, os.Stdin, os.Stdout, os.Stderr, "openshell", attachArgs(r, agentSessionName)...)
 }
 
 const agentTerminalColumns = 120
@@ -382,15 +382,25 @@ const agentTerminalRows = 36
 // report its viewport.
 var DefaultTerminalSize = TerminalSize{Columns: agentTerminalColumns, Rows: agentTerminalRows}
 
-func attachArgs(r Run) []string {
-	args := []string{"sandbox", "exec", "-n", r.Sandbox, "--tty", "--", "tmux", "attach", "-t", "agent"}
+func attachArgs(r Run, session string) []string {
+	args := []string{"sandbox", "exec", "-n", r.Sandbox, "--tty", "--", "tmux", "attach", "-t", session}
 	if r.Gateway != "" {
 		args = append([]string{"--gateway", r.Gateway}, args...)
 	}
 	return args
 }
 
+// AttachStream attaches the run's agent session.
 func (a *App) AttachStream(ctx context.Context, id string, in io.Reader, out, errOut io.Writer, size TerminalSize, resizes <-chan TerminalSize) error {
+	return a.AttachSessionStream(ctx, id, agentSessionName, in, out, errOut, size, resizes)
+}
+
+// AttachSessionStream attaches a tmux session inside the run's sandbox.
+// Shell sessions share the run's worktree and sandbox policy.
+func (a *App) AttachSessionStream(ctx context.Context, id, session string, in io.Reader, out, errOut io.Writer, size TerminalSize, resizes <-chan TerminalSize) error {
+	if !ValidSession(session) {
+		return fmt.Errorf("invalid session %q", session)
+	}
 	r, err := a.Store.LoadRun(id)
 	if err != nil {
 		return err
@@ -399,9 +409,9 @@ func (a *App) AttachStream(ctx context.Context, id string, in io.Reader, out, er
 		size = DefaultTerminalSize
 	}
 	if terminalRunner, ok := a.Runner.(TerminalCommandRunner); ok {
-		return terminalRunner.StreamTerminal(ctx, in, out, errOut, size.Columns, size.Rows, resizes, "openshell", attachArgs(r)...)
+		return terminalRunner.StreamTerminal(ctx, in, out, errOut, size.Columns, size.Rows, resizes, "openshell", attachArgs(r, session)...)
 	}
-	return a.Runner.Stream(ctx, in, out, errOut, "openshell", attachArgs(r)...)
+	return a.Runner.Stream(ctx, in, out, errOut, "openshell", attachArgs(r, session)...)
 }
 
 func (a *App) Logs(ctx context.Context, id string) ([]byte, error) {
@@ -410,6 +420,22 @@ func (a *App) Logs(ctx context.Context, id string) ([]byte, error) {
 		return nil, err
 	}
 	return a.sandboxExec(ctx, r, "/bin/sh", "-c", "cat /workspace/state/agent.log 2>/dev/null || true")
+}
+
+// TailLogs returns the last lines of the agent log. Unfocused workspace tabs
+// render this snapshot instead of holding a live terminal.
+func (a *App) TailLogs(ctx context.Context, id string, lines int) ([]byte, error) {
+	if lines <= 0 {
+		return a.Logs(ctx, id)
+	}
+	if lines > 2000 {
+		lines = 2000
+	}
+	r, err := a.Store.LoadRun(id)
+	if err != nil {
+		return nil, err
+	}
+	return a.sandboxExec(ctx, r, "/bin/sh", "-c", fmt.Sprintf("tail -n %d /workspace/state/agent.log 2>/dev/null || true", lines))
 }
 
 func (a *App) Stop(ctx context.Context, id string) error {

@@ -72,6 +72,11 @@ function defaultRoutes(): Record<string, unknown> {
     'GET /api/images': overview.images,
     'GET /api/registry': { reference: 'quay.io/team/openshell' },
     'GET /api/runs/run-active/logs': { logs: 'agent log output' },
+    'GET /api/runs/run-active/logs?tail=200': { logs: 'agent log output' },
+    'GET /api/runs/run-finished/logs?tail=400': { logs: 'finished output' },
+    'GET /api/runs/run-active/shells': [],
+    'POST /api/runs/run-active/shells': { name: 'shell-1' },
+    'POST /api/runs/run-active/shells/shell-1/delete': { deleted: true },
     'GET /api/runs/run-active/diff': { diff: 'diff --git a/file b/file' },
     'GET /api/runs/run-active/policy': { effective: { version: 1 } },
     'POST /api/providers/model-gateway/update': { ok: true },
@@ -198,9 +203,14 @@ describe('fleet shell', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click((await screen.findAllByRole('button', { name: /attach/i }))[0]);
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByText(/Attach · active-run/i)).toBeInTheDocument();
-    expect(screen.getByLabelText('Terminal for active-run')).toBeInTheDocument();
+    expect(await screen.findByRole('tablist', { name: 'demo agents' })).toBeInTheDocument();
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'active-run',
+      'idle-run',
+      'finished-run'
+    ]);
+    expect(await screen.findByLabelText('Terminal for active-run')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
     await waitFor(() => expect(sockets).toHaveLength(1));
     expect(sockets[0]?.url).toBe('ws://localhost:3000/api/runs/run-active/attach?cols=120&rows=36');
   });
@@ -222,13 +232,13 @@ describe('fleet shell', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click((await screen.findAllByRole('button', { name: /attach/i }))[0]);
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Terminal for active-run')).toBeInTheDocument();
     expect(xtermHooks.resize).toBeTypeOf('function');
     xtermHooks.resize?.({ cols: 100, rows: 30 });
     expect(sent).toContain('{"type":"resize","cols":100,"rows":30}');
   });
 
-  it('keeps the attach terminal open when Escape is pressed', async () => {
+  it('keeps the workspace terminal mounted when Escape is pressed', async () => {
     class MockWebSocket {
       onmessage: ((event: { data: string }) => void) | null = null;
       onerror: (() => void) | null = null;
@@ -240,10 +250,56 @@ describe('fleet shell', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click((await screen.findAllByRole('button', { name: /attach/i }))[0]);
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Terminal for active-run')).toBeInTheDocument();
     await user.keyboard('{Escape}');
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByLabelText('Terminal for active-run')).toBeInTheDocument();
+  });
+
+  it('shows a read-only snapshot for a run that cannot attach', async () => {
+    class MockWebSocket {
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number; reason: string }) => void) | null = null;
+      send() {}
+      close() {}
+    }
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /attach/i }))[0]);
+    await user.click(await screen.findByRole('tab', { name: 'finished-run' }));
+    expect(await screen.findByLabelText('Output for finished-run')).toBeInTheDocument();
+    expect(await screen.findByText('finished output')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Terminal for finished-run')).toBeNull();
+  });
+
+  it('creates and closes a shell tab for the active agent', async () => {
+    const sockets: Array<{ url: string }> = [];
+    class MockWebSocket {
+      url: string;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number; reason: string }) => void) | null = null;
+
+      constructor(url: string) {
+        this.url = url;
+        sockets.push(this);
+      }
+
+      send() {}
+      close() {}
+    }
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /attach/i }))[0]);
+    await user.click(await screen.findByRole('button', { name: /shell/i }));
+    expect(await screen.findByRole('tab', { name: /active-run · shell-1/i })).toBeInTheDocument();
+    await waitFor(() => expect(sockets.at(-1)?.url).toContain('session=shell-1'));
+    await user.click(screen.getByRole('button', { name: 'Close shell-1' }));
+    await waitFor(() => expect(screen.queryByRole('tab', { name: /shell-1/i })).toBeNull());
+    expect(await screen.findByLabelText('Terminal for active-run')).toBeInTheDocument();
   });
 
   it('still closes other dialogs with Escape', async () => {

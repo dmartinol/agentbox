@@ -78,7 +78,13 @@ func (r guiRunner) Output(_ context.Context, name string, args ...string) ([]byt
 				return nil, fmt.Errorf("sandbox not found")
 			}
 		}
-		if strings.Contains(strings.Join(args, " "), "cat /workspace/state/agent.log") {
+		if strings.Contains(joined, "tmux list-sessions") {
+			return []byte("agent\nshell-1\n"), nil
+		}
+		if strings.Contains(joined, "tail -n") && strings.Contains(joined, "/workspace/state/agent.log") {
+			return []byte(r.logs), nil
+		}
+		if strings.Contains(joined, "cat /workspace/state/agent.log") {
 			return []byte(r.logs), nil
 		}
 		return []byte{}, nil
@@ -374,6 +380,43 @@ func TestRunLogsEndpoint(t *testing.T) {
 	requestJSON(t, http.MethodGet, server.URL+"/api/runs/run-active/logs", nil, &response)
 	if response.Logs != "agent log output\n" {
 		t.Fatalf("logs = %q", response.Logs)
+	}
+}
+
+func TestRunLogsTailEndpoint(t *testing.T) {
+	server := newTestServer(t)
+	var response struct {
+		Logs string `json:"logs"`
+	}
+	requestJSON(t, http.MethodGet, server.URL+"/api/runs/run-active/logs?tail=50", nil, &response)
+	if response.Logs != "agent log output\n" {
+		t.Fatalf("logs = %q", response.Logs)
+	}
+}
+
+func TestRunShellEndpoints(t *testing.T) {
+	server := newTestServer(t)
+
+	var shells []string
+	requestJSON(t, http.MethodGet, server.URL+"/api/runs/run-active/shells", nil, &shells)
+	if !slices.Equal(shells, []string{"shell-1"}) {
+		t.Fatalf("shells = %#v", shells)
+	}
+
+	var created struct {
+		Name string `json:"name"`
+	}
+	requestJSON(t, http.MethodPost, server.URL+"/api/runs/run-active/shells", nil, &created)
+	if created.Name != "shell-2" {
+		t.Fatalf("created shell = %q, want shell-2", created.Name)
+	}
+
+	var deleted struct {
+		Deleted bool `json:"deleted"`
+	}
+	requestJSON(t, http.MethodPost, server.URL+"/api/runs/run-active/shells/shell-1/delete", nil, &deleted)
+	if !deleted.Deleted {
+		t.Fatal("shell was not deleted")
 	}
 }
 
