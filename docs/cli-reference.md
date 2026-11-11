@@ -95,7 +95,19 @@ agentbox policy show [--json] RUN_ID
 agentbox policy edit [--allow-host HOST] [--binary PATH] [--dry-run] RUN_ID
 ```
 
-Policies define sandbox access. These commands inspect or edit the policy associated with an agent run; review the effective policy before changing network or binary rules.
+Policies define sandbox access. These commands inspect or edit the policy associated with an agent run; review the effective policy before changing network or binary rules. Note that network rules are binary-scoped: a rule for a stdio MCP server must name the server process binary, not the agent binary.
+
+## MCP tools
+
+```text
+agentbox mcp list [--json]
+agentbox mcp show [--json] NAME
+agentbox mcp create --agent AGENT --servers NAME[,NAME...] NAME
+agentbox mcp delete NAME
+agentbox mcp servers --agent AGENT [--json]
+```
+
+An MCP tools entry selects global MCP servers **by name** for one agent. Definitions stay in the agent's own user-scope configuration on the host (`~/.claude.json`, `~/.codex/config.toml`, or `~/.config/opencode/opencode.json(c)`); AgentBox never stores them. `mcp servers` lists the names available for selection. Selected servers are delivered into a run at user scope; project-local MCP files always ride along and win name conflicts. Credentials must be environment-variable references — inline secret-like values fail run start.
 
 ## Agents
 
@@ -103,7 +115,7 @@ Policies define sandbox access. These commands inspect or edit the policy associ
 agentbox agent start \
   [--project NAME | --source PATH] [--profile NAME] [--gateway NAME] \
   [--name NAME] [--image IMAGE] [--mode MODE] [--model MODEL] \
-  [--approval MODE] [--prompt TEXT] [--dry-run] [--json]
+  [--approval MODE] [--prompt TEXT] [--mcp NAME] [--dry-run] [--json]
 agentbox agent list [--json]
 agentbox agent show [--json] ID
 agentbox agent attach ID
@@ -114,7 +126,7 @@ agentbox agent diff ID
 agentbox agent delete [--discard] ID
 ```
 
-`agent start` needs a registered project or source checkout and a profile (or explicit configuration overrides). `--dry-run` previews startup; `--json` prints structured start output. `agent delete --discard` acknowledges discarding the agent's results.
+`agent start` needs a registered project or source checkout and a profile (or explicit configuration overrides). `--dry-run` previews startup; `--json` prints structured start output. `--mcp` selects an MCP tools entry whose agent matches the run profile; missing server names produce warnings, not failures. `agent delete --discard` acknowledges discarding the agent's results.
 
 ## Related guides
 

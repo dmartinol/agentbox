@@ -238,6 +238,7 @@ func TestRunsListReconcilesStatuses(t *testing.T) {
 
 type attachRunner struct {
 	commands [][]string
+	resizes  <-chan app.TerminalSize
 }
 
 func (r *attachRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -245,8 +246,9 @@ func (r *attachRunner) Output(_ context.Context, name string, args ...string) ([
 	return []byte(`{}`), nil
 }
 
-func (r *attachRunner) StreamTerminal(_ context.Context, in io.Reader, out io.Writer, _ io.Writer, columns, rows int, name string, args ...string) error {
+func (r *attachRunner) StreamTerminal(_ context.Context, in io.Reader, out io.Writer, _ io.Writer, columns, rows int, resizes <-chan app.TerminalSize, name string, args ...string) error {
 	r.commands = append(r.commands, append([]string{name}, args...), []string{"columns", strconv.Itoa(columns), "rows", strconv.Itoa(rows)})
+	r.resizes = resizes
 	buffer := make([]byte, 128)
 	_, _ = in.Read(buffer)
 	_, _ = io.WriteString(out, "attach terminal output")
@@ -282,7 +284,7 @@ func TestRunAttachWebSocket(t *testing.T) {
 	httpServer := httptest.NewServer(server.Handler())
 	t.Cleanup(httpServer.Close)
 
-	connection, _, err := websocket.DefaultDialer.Dial(strings.Replace(httpServer.URL, "http://", "ws://", 1)+"/api/runs/run-attach/attach", nil)
+	connection, _, err := websocket.DefaultDialer.Dial(strings.Replace(httpServer.URL, "http://", "ws://", 1)+"/api/runs/run-attach/attach?cols=100&rows=30", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,13 +305,64 @@ func TestRunAttachWebSocket(t *testing.T) {
 	}
 	attach := runner.commands[0]
 	size := runner.commands[1]
-	if !slices.Contains(size, "120") || !slices.Contains(size, "36") {
+	if !slices.Contains(size, "100") || !slices.Contains(size, "30") {
 		t.Fatalf("terminal size = %#v", size)
 	}
 	for _, want := range []string{"sandbox", "exec", "-n", "sandbox-attach", "--tty", "tmux", "attach", "--gateway", "openshell"} {
 		if !slices.Contains(attach, want) {
 			t.Fatalf("attach command missing %q: %#v", want, attach)
 		}
+	}
+}
+
+func TestRunAttachWebSocketAppliesResizeMessages(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	run := app.Run{
+		ID: "run-attach", Sandbox: "sandbox-attach", Gateway: "openshell", Agent: "codex",
+		Status: "running", Source: "/repo", Worktree: "/trees/run-attach", Branch: "main",
+		Baseline: "abc", LastSynced: "abc", Created: time.Now(), Synced: true, Policy: "/policy",
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := &attachRunner{}
+	server, err := New(&app.App{Store: store, Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	connection, _, err := websocket.DefaultDialer.Dial(strings.Replace(httpServer.URL, "http://", "ws://", 1)+"/api/runs/run-attach/attach?cols=100&rows=30", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+
+	// A resize control message must not leak into the terminal input.
+	if err := connection.WriteMessage(websocket.TextMessage, []byte(`{"type":"resize","cols":80,"rows":24}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.WriteMessage(websocket.TextMessage, []byte("terminal input")); err != nil {
+		t.Fatal(err)
+	}
+	_, message, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(message) != "attach terminal output" {
+		t.Fatalf("terminal output = %q", message)
+	}
+	select {
+	case size := <-runner.resizes:
+		if size.Columns != 80 || size.Rows != 24 {
+			t.Fatalf("resize = %+v", size)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("resize message was not applied")
 	}
 }
 
@@ -1069,5 +1122,69 @@ func TestBuiltinProviderDeleteIsRejected(t *testing.T) {
 	}
 	if len(runner.commands) != 0 {
 		t.Fatalf("delete command unexpectedly issued: %#v", runner.commands)
+	}
+}
+
+func TestMCPEndpointsManageEntriesAndDiscovery(t *testing.T) {
+	server := newTestServer(t)
+	t.Setenv("CODEX_HOME", t.TempDir())
+
+	var names []string
+	response := requestJSON(t, http.MethodGet, server.URL+"/api/mcps/servers?agent=codex", nil, &names)
+	if response.StatusCode != http.StatusOK || len(names) != 0 {
+		t.Fatalf("empty discovery: status=%d names=%v", response.StatusCode, names)
+	}
+
+	var apiError struct {
+		Error string `json:"error"`
+	}
+	response = requestJSON(t, http.MethodGet, server.URL+"/api/mcps/servers?agent=", nil, &apiError)
+	if response.StatusCode != http.StatusInternalServerError || apiError.Error == "" {
+		t.Fatalf("missing agent parameter: status=%d error=%q", response.StatusCode, apiError.Error)
+	}
+
+	var entry app.MCPTools
+	response = requestJSON(t, http.MethodPost, server.URL+"/api/mcps", map[string]any{"name": "unit-set", "agent": "codex", "servers": []string{"alpha"}}, &entry)
+	if response.StatusCode != http.StatusCreated || entry.Name != "unit-set" || entry.Agent != "codex" || len(entry.Servers) != 1 {
+		t.Fatalf("create: status=%d entry=%+v", response.StatusCode, entry)
+	}
+
+	var invalid struct {
+		Error string `json:"error"`
+	}
+	response = requestJSON(t, http.MethodPost, server.URL+"/api/mcps", map[string]any{"name": "bad", "agent": "codex"}, &invalid)
+	if response.StatusCode != http.StatusInternalServerError || invalid.Error == "" {
+		t.Fatalf("invalid create: status=%d error=%q", response.StatusCode, invalid.Error)
+	}
+
+	var entries []app.MCPTools
+	response = requestJSON(t, http.MethodGet, server.URL+"/api/mcps", nil, &entries)
+	if response.StatusCode != http.StatusOK || len(entries) != 1 || entries[0].Name != "unit-set" {
+		t.Fatalf("list: status=%d entries=%+v", response.StatusCode, entries)
+	}
+
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	if err := os.MkdirAll(codexHome, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte("[mcp_servers.alpha]\ncommand = \"/usr/bin/true\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	response = requestJSON(t, http.MethodGet, server.URL+"/api/mcps/servers?agent=codex", nil, &names)
+	if response.StatusCode != http.StatusOK || len(names) != 1 || names[0] != "alpha" {
+		t.Fatalf("discovery: status=%d names=%v", response.StatusCode, names)
+	}
+
+	var deleted struct {
+		Deleted bool `json:"deleted"`
+	}
+	response = requestJSON(t, http.MethodPost, server.URL+"/api/mcps/unit-set/delete", nil, &deleted)
+	if response.StatusCode != http.StatusOK || !deleted.Deleted {
+		t.Fatalf("delete: status=%d body=%+v", response.StatusCode, deleted)
+	}
+	response = requestJSON(t, http.MethodGet, server.URL+"/api/mcps", nil, &entries)
+	if response.StatusCode != http.StatusOK || len(entries) != 0 {
+		t.Fatalf("list after delete: status=%d entries=%+v", response.StatusCode, entries)
 	}
 }

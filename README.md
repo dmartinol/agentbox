@@ -386,6 +386,58 @@ Start an agent from a registered project:
 An agent name is optional, must be unique within the project, and defaults to
 the generated run ID.
 
+### MCP tools
+
+An MCP tools entry is a named selection of global MCP servers for one agent.
+Server definitions are not copied into AgentBox: they stay in the agent's own
+user-scope configuration on the host
+(`~/.claude.json`, `~/.codex/config.toml`, or
+`~/.config/opencode/opencode.json(c)`), and the entry only lists server names.
+
+```sh
+# List the global MCP servers configured for an agent on this host.
+./agentbox mcp servers --agent codex
+
+# Create an entry selecting a subset of them by name.
+./agentbox mcp create --agent codex --servers github,sentry work-codex
+
+./agentbox mcp list
+./agentbox mcp show work-codex
+./agentbox mcp delete work-codex
+
+# Start a run with the selected servers delivered into the sandbox.
+./agentbox agent start --project dev --profile codex-gateway --gateway openshell --mcp work-codex
+```
+
+Behavior:
+
+- Selected servers are extracted from the host configuration and delivered
+  into the run at user scope, in the agent's native format. Only the MCP
+  portion is ever copied; the rest of the host file (which can contain
+  account state) never enters the sandbox.
+- MCP files committed in the project (for example `.mcp.json` for Claude
+  Code, `opencode.json` for OpenCode) always ride along and win name
+  conflicts. For Claude Code runs AgentBox writes
+  `enableAllProjectMcpServers` so committed `.mcp.json` servers load without
+  an interactive approval prompt.
+- Codex has no effective project-local MCP configuration in runs:
+  `.codex/config.toml` is loaded only for trusted projects, and a fresh
+  sandbox clone is never trusted.
+- Names missing from the host configuration at start produce a warning (in
+  CLI output, `--dry-run`, JSON, and the GUI); the run starts with the
+  servers that remain.
+- Credentials must be environment-variable references (`${NAME}` for Claude
+  Code, `env_vars`/`bearer_token_env_var` for Codex, `{env:NAME}` for
+  OpenCode). AgentBox rejects inline secret-like values at start. Secret
+  values flow through OpenShell providers, never through AgentBox.
+- MCP endpoints are governed by the run policy. Use the existing policy
+  host rules to allow them, and note that rules are scoped to the binary
+  that makes the network call — for stdio MCP servers that is the server
+  process (for example `node`), not the agent binary.
+
+In the GUI, manage entries under **Setup → MCP Tools** and select one in the
+new-agent dialog.
+
 Open the GUI:
 
 ```sh

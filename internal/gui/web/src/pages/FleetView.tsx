@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Bot, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal } from 'lucide-react';
 import { api } from '../api';
-import type { Overview, Profile, Run, StartRunRequest } from '../types';
+import type { MCPTools, Overview, Profile, Run, StartRunRequest } from '../types';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '../components/ui/card';
@@ -41,17 +41,20 @@ export function FleetView({
   const [startOpen, setStartOpen] = useState(false);
   const [startError, setStartError] = useState('');
   const [startSubmitting, setStartSubmitting] = useState(false);
-  const [startForm, setStartForm] = useState<StartRunRequest>({ project: '', profile: '', gateway: '', name: '', prompt: '' });
+  const [startForm, setStartForm] = useState<StartRunRequest>({ project: '', profile: '', gateway: '', name: '', prompt: '', mcp: '' });
   const [useOverrides, setUseOverrides] = useState(false);
   const [overrides, setOverrides] = useState({ image: '', model: '', approval: 'prompted' });
+  const [mcpEntries, setMcpEntries] = useState<MCPTools[]>([]);
+  const [startWarnings, setStartWarnings] = useState<string[]>([]);
   const [pending, setPending] = useState<Record<string, AgentAction>>({});
   const [deleteTarget, setDeleteTarget] = useState<Run>();
   const [copySource, setCopySource] = useState<Run>();
 
   const load = async () => {
     try {
-      const data = await api.overview();
+      const [data, mcps] = await Promise.all([api.overview(), api.mcps()]);
       setOverview(data);
+      setMcpEntries(mcps ?? []);
       setSelected((current) => current ? data.runs.find((agent) => agent.id === current.id) : undefined);
       setError(null);
     } catch (err) {
@@ -125,6 +128,7 @@ export function FleetView({
 
   const openStart = async () => {
     setStartError('');
+    setStartWarnings([]);
     setCopySource(undefined);
     setStartForm((form) => ({
       ...form,
@@ -132,7 +136,8 @@ export function FleetView({
       profile: form.profile || overview?.profiles[0]?.name || '',
       gateway: form.gateway || overview?.gateways[0]?.name || 'openshell',
       name: '',
-      prompt: ''
+      prompt: '',
+      mcp: ''
     }));
     setUseOverrides(false);
     setOverrides({ image: '', model: '', approval: 'prompted' });
@@ -150,8 +155,10 @@ export function FleetView({
       profile: profile?.name || profiles[0]?.name || '',
       gateway: run.gateway || overview?.gateways[0]?.name || 'openshell',
       name: '',
-      prompt: ''
+      prompt: '',
+      mcp: run.mcp || ''
     });
+    setStartWarnings([]);
     setUseOverrides(true);
     setOverrides({ image: run.image, model: run.model, approval: run.approval || 'prompted' });
     setStartOpen(true);
@@ -171,10 +178,12 @@ export function FleetView({
         ...startForm,
         ...(useOverrides ? overrides : {}),
         name: startForm.name?.trim() || undefined,
-        prompt: startForm.prompt?.trim() || undefined
+        prompt: startForm.prompt?.trim() || undefined,
+        mcp: startForm.mcp?.trim() || undefined
       });
       closeStart();
       setSelected(created);
+      setStartWarnings(created.mcp_warnings ?? []);
       setNotice(`Agent ${created.name || created.id} started`);
       await load();
     } catch (err) {
@@ -388,6 +397,14 @@ export function FleetView({
         </div>
       ) : null}
 
+      {startWarnings.length > 0 ? (
+        <Alert variant="warning" title="MCP tools warnings" className="m-3">
+          <ul className="list-disc space-y-1 pl-4">
+            {startWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+          </ul>
+        </Alert>
+      ) : null}
+
       {attachedRun ? (
         <Suspense fallback={<div className="fixed inset-0 z-50 grid place-items-center bg-black/65 text-sm text-foreground">Loading terminal…</div>}>
           <AgentTerminal run={attachedRun} onClose={() => setAttachedRun(undefined)} />
@@ -419,7 +436,15 @@ export function FleetView({
             </Select>
           </Field>
           <Field label="Profile" htmlFor="new-agent-profile" required>
-            <Select id="new-agent-profile" value={startForm.profile} onChange={(event) => setStartForm({ ...startForm, profile: event.target.value })}>
+            <Select id="new-agent-profile" value={startForm.profile} onChange={(event) => {
+              const profile = event.target.value;
+              const agent = overview?.profiles.find((item) => item.name === profile)?.agent;
+              setStartForm((form) => ({
+                ...form,
+                profile,
+                mcp: mcpEntries.find((entry) => entry.name === form.mcp)?.agent === agent ? form.mcp : ''
+              }));
+            }}>
               {(overview?.profiles ?? []).map((profile) => <option key={profile.name} value={profile.name}>{profile.name}</option>)}
             </Select>
           </Field>
@@ -430,6 +455,14 @@ export function FleetView({
           </Field>
           <Field label="Agent name" htmlFor="new-agent-name" helper="Optional; unique within project.">
             <Input id="new-agent-name" value={startForm.name} onChange={(event) => setStartForm({ ...startForm, name: event.target.value })} />
+          </Field>
+          <Field label="MCP tools" htmlFor="new-agent-mcp" helper="Optional; global MCP servers delivered into the run. Project-local MCP files always ride along.">
+            <Select id="new-agent-mcp" value={startForm.mcp ?? ''} onChange={(event) => setStartForm({ ...startForm, mcp: event.target.value })}>
+              <option value="">None</option>
+              {mcpEntries.filter((entry) => !selectedProfile || entry.agent === selectedProfile.agent).map((entry) => (
+                <option key={entry.name} value={entry.name}>{entry.name} ({entry.servers.length} server{entry.servers.length === 1 ? '' : 's'})</option>
+              ))}
+            </Select>
           </Field>
           <Field label="Prompt" htmlFor="new-agent-prompt" className="sm:col-span-2">
             <Textarea id="new-agent-prompt" rows={4} value={startForm.prompt} onChange={(event) => setStartForm({ ...startForm, prompt: event.target.value })} />

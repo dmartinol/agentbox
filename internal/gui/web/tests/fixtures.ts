@@ -1,4 +1,9 @@
-import type { Overview, Run } from '../src/types';
+import type { MCPTools, Overview, Run } from '../src/types';
+
+export const mcps: MCPTools[] = [
+  { version: 1, name: 'codex-work', agent: 'codex', servers: ['github', 'sentry'] },
+  { version: 1, name: 'claude-work', agent: 'claude', servers: ['notion'] }
+];
 
 export const runs: Run[] = [
   {
@@ -21,7 +26,8 @@ export const runs: Run[] = [
     approval: 'unattended',
     status: 'running',
     synced: true,
-    policy: '/policies/run-active.yaml'
+    policy: '/policies/run-active.yaml',
+    mcp: 'codex-work'
   },
   {
     id: 'run-idle',

@@ -32,6 +32,8 @@ export interface Run {
   status: string;
   synced: boolean;
   policy: string;
+  mcp?: string;
+  mcp_warnings?: string[];
 }
 
 export interface Project {
@@ -94,6 +96,19 @@ export interface PolicyConfiguration {
   name: string;
   path: string;
   used_by?: string[];
+}
+
+export interface MCPTools {
+  version: number;
+  name: string;
+  agent: string;
+  servers: string[];
+}
+
+export interface LocalMCPFiles {
+  project: string;
+  root: string;
+  files: string[];
 }
 
 export interface Check {
@@ -166,4 +181,5 @@ export interface StartRunRequest {
   model?: string;
   approval?: string;
   prompt?: string;
+  mcp?: string;
 }

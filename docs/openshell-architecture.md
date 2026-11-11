@@ -210,6 +210,59 @@ This configuration is copied at startup. Editing an AgentBox profile does not
 retroactively change an already-running sandbox. Start a new run to use updated
 profile settings.
 
+## MCP tools layer
+
+An MCP tools entry (`$AGENTBOX_HOME/mcps/<name>.yaml`) selects global MCP
+servers **by name** for one agent. Definitions are never stored in AgentBox;
+they live in the agent's own user-scope configuration on the host:
+
+| Agent    | Host source                    | MCP portion              |
+| -------- | ------------------------------ | ------------------------ |
+| claude   | `$CLAUDE_CONFIG_DIR/.claude.json` | `mcpServers` key      |
+| codex    | `$CODEX_HOME/config.toml`      | `[mcp_servers.*]` tables |
+| opencode | `$XDG_CONFIG_HOME/opencode/opencode.json(c)` | `mcp.servers` key |
+
+At run start, when `--mcp <name>` (or the GUI selection) is present,
+AgentBox:
+
+1. loads the entry and fails before sandbox creation if its agent differs
+   from the profile's agent;
+2. reads the host source and extracts only the selected server definitions
+   (the remainder of the host file — account state, credentials — never
+   enters the run);
+3. rejects inline secret-like values with an actionable error;
+4. records missing names as warnings on the run (`mcp_warnings`) and
+   continues with the servers that remain.
+
+Delivery happens through the generated configuration archive at user scope:
+
+- claude: `home/.claude/.claude.json` gains the selected `mcpServers`, and
+  the generated `home/.claude/settings.json` always sets
+  `enableAllProjectMcpServers: true` — a cloned repository cannot approve
+  its own `.mcp.json` servers, and only user-scope settings apply in
+  untrusted folders;
+- codex: `[mcp_servers.*]` tables are appended to the generated
+  `home/.codex/config.toml`;
+- opencode: the selected servers are merged into `mcp.servers` of the
+  generated `config/opencode/opencode.json`.
+
+Project-local MCP files ride along in the clone and win name conflicts
+("local wins"): Claude Code and OpenCode project scope overrides user scope,
+and Codex loads `.codex/config.toml` only for trusted projects, which a
+fresh clone never is.
+
+MCP credentials follow the provider model: definitions must reference
+environment-variable names (`${NAME}`, `env_vars`, `{env:NAME}`), secret
+values flow through OpenShell providers with on-wire rewrite, and AgentBox
+never passes secret values — `openshell sandbox create --env` is for
+non-secret variables only.
+
+MCP endpoints are governed by the run policy like any other network access.
+Network rules are binary-scoped: for a stdio MCP server the rule must name
+the server process binary (for example the `node` path inside the image),
+not the agent binary. Use the existing policy host-rule editing to allow
+MCP endpoints; AgentBox never edits policies automatically.
+
 ## Credential resolution
 
 A sandbox may show an environment value such as:
@@ -238,7 +291,12 @@ Attach connects to that session:
 
 - CLI attach uses `openshell sandbox exec --tty -- tmux attach`.
 - GUI attach uses xterm.js over a same-origin WebSocket.
-- The GUI server allocates a local PTY with dimensions matching xterm.js.
+- The GUI server allocates a local PTY sized from the xterm viewport: the
+  client reports its dimensions at connect (`?cols=&rows=`) and sends
+  `{"type":"resize","cols":C,"rows":R}` control messages on resize, which
+  the server applies to the PTY so every rendered row stays visible.
+  Terminal input travels as binary frames; text frames are control
+  messages.
 - Closing the GUI terminal detaches the client but does not finish the run.
 
 When the agent exits, the session asks whether to keep the run idle or finish
@@ -275,6 +333,7 @@ Default AgentBox state is stored under:
   profiles/
   runs/
   policies/
+  mcps/
   worktrees/
 ```
 
