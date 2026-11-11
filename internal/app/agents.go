@@ -27,11 +27,25 @@ while :; do
   fi
   case "$answer" in
     y|Y|yes|YES)
+      touch /workspace/idle
       echo
-      echo "Run kept idle. You can inspect or restart the agent here."
-      echo "Restart: /bin/sh /workspace/state/agent.sh"
-      echo "Detach: Ctrl-b d. Finish later by exiting this shell and choosing f."
-      /bin/sh
+      echo "Run kept idle."
+      echo "Detach: Ctrl-b d. Exiting this shell keeps the run idle."
+      while :; do
+        /bin/sh
+        echo
+        echo "Idle shell ended. The run remains available for reattach."
+        printf "Keep this run idle for reattach? [y]es/[f]inish: "
+        if ! IFS= read -r answer; then
+          answer=f
+        fi
+        case "$answer" in
+          y|Y|yes|YES) continue ;;
+          f|F|finish|FINISH|n|N|no|NO) break ;;
+          *) echo "Enter y to keep the run idle or f to finish." ;;
+        esac
+      done
+      rm -f /workspace/idle
       ;;
     f|F|finish|FINISH|n|N|no|NO)
       break
@@ -120,6 +134,11 @@ func agentScript(p Profile, prompt string) (string, error) {
 		return "", err
 	}
 	args := []string{agentCommand(p.Agent)}
+	if p.Agent == "codex" {
+		// The AgentBox image intentionally omits `ps`; run Codex without its
+		// background app-server daemon in the ephemeral OpenShell sandbox.
+		args = append(args, "--no-daemon")
+	}
 	if p.Mode == "gateway" {
 		switch p.Agent {
 		case "codex":
@@ -127,10 +146,18 @@ func agentScript(p Profile, prompt string) (string, error) {
 		case "claude":
 			args = append(args, "--model", p.Model)
 		case "opencode":
-			args = append(args, "--standalone", "--model", "gateway/"+p.Model)
+			// OpenCode reads the gateway model from its generated config.
+			args = append(args, "--standalone")
 		}
-	} else if p.Model != "" {
-		args = append(args, "--model", p.Model)
+	} else {
+		if p.Agent == "codex" {
+			// AgentBox already applies the OpenShell sandbox. Disable Codex's
+			// nested sandbox so its network calls can use the provider policy.
+			args = append(args, "--sandbox", "danger-full-access")
+		}
+		if p.Model != "" {
+			args = append(args, "--model", p.Model)
+		}
 	}
 	if p.Approval == "unattended" {
 		switch p.Agent {
@@ -154,7 +181,7 @@ func agentScript(p Profile, prompt string) (string, error) {
 		if p.Approval == "unattended" {
 			switch p.Agent {
 			case "codex":
-				args = append([]string{"codex", "exec"}, args[1:]...)
+				args = append([]string{"codex", "--no-daemon", "exec"}, args[2:]...)
 				args = append(args, prompt)
 			case "claude":
 				args = append(args, "-p", prompt)
@@ -174,6 +201,10 @@ func agentScript(p Profile, prompt string) (string, error) {
 	}
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\nset -eu\ncd /workspace/project\nexport HOME=/workspace/state/home\nexport XDG_CONFIG_HOME=/workspace/state/config\nexport XDG_DATA_HOME=/workspace/state/data\nexport CODEX_HOME=/workspace/state/home/.codex\nexport CLAUDE_CONFIG_DIR=/workspace/state/home/.claude\n")
+	if p.Mode == "standard" && p.Agent == "codex" && p.APIKeyEnv == "OPENAI_API_KEY" {
+		b.WriteString(`if [ -n "\${OPENAI_API_KEY:-}" ]; then printf '%s' "$OPENAI_API_KEY" | codex login --with-api-key >/dev/null; fi
+`)
+	}
 	if p.Mode == "gateway" {
 		b.WriteString("unset CLAUDE_CODE_USE_VERTEX ANTHROPIC_VERTEX_PROJECT_ID ANTHROPIC_VERTEX_REGION CLOUD_ML_REGION\n")
 		if p.Agent == "claude" {

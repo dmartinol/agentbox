@@ -6,6 +6,7 @@ const meta: Record<string, { tone: BadgeTone; label: string }> = {
   prepared: { tone: 'accent', label: 'Prepared' },
   preview: { tone: 'accent', label: 'Preview' },
   finished: { tone: 'success', label: 'Finished' },
+  idle: { tone: 'warning', label: 'Idle' },
   stopped: { tone: 'neutral', label: 'Stopped' },
   error: { tone: 'danger', label: 'Error' },
   'create-failed': { tone: 'danger', label: 'Create failed' },
@@ -20,9 +21,19 @@ const meta: Record<string, { tone: BadgeTone; label: string }> = {
 };
 
 export const activeStatuses = new Set(['running', 'created', 'prepared']);
+export const attachableStatuses = new Set(['running', 'created', 'prepared', 'idle']);
+export const stoppableStatuses = new Set(['running', 'created', 'prepared', 'idle']);
 
 export function isActiveRun(status: string): boolean {
   return activeStatuses.has(status.toLowerCase());
+}
+
+export function canAttachRun(status: string): boolean {
+  return attachableStatuses.has(status.toLowerCase());
+}
+
+export function canStopRun(status: string): boolean {
+  return stoppableStatuses.has(status.toLowerCase());
 }
 
 export function statusLabel(status: string): string {

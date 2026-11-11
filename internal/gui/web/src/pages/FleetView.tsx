@@ -1,17 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Bot, CircleSlash, Loader2, RefreshCw, Search, Terminal } from 'lucide-react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { Bot, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal } from 'lucide-react';
 import { api } from '../api';
 import type { Overview, Profile, Run, StartRunRequest } from '../types';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '../components/ui/card';
+import { Alert } from '../components/ui/alert';
 import { EmptyState } from '../components/ui/empty';
 import { Field } from '../components/ui/field';
 import { Input, Select, Textarea } from '../components/ui/input';
 import { Modal } from '../components/ui/dialog';
 import { ConfirmDialog } from '../components/ui/confirm';
 import { Table, TBody, TD, TH, THead, TR } from '../components/ui/table';
-import { StatusBadge, isActiveRun } from '../components/StatusBadge';
+const AgentTerminal = lazy(() => import('../components/AgentTerminal').then((module) => ({ default: module.AgentTerminal })));
+import { StatusBadge, canAttachRun, isActiveRun, canStopRun } from '../components/StatusBadge';
 import type { LogDrawerState } from '../components/LogDrawer';
 
 const allProjects = 'All projects';
@@ -19,9 +21,11 @@ const allProjects = 'All projects';
 type AgentAction = 'sync' | 'stop' | 'delete';
 
 export function FleetView({
+  refreshKey = 0,
   openLog,
   updateLog
 }: {
+  refreshKey?: number;
   openLog: (state: Omit<LogDrawerState, 'open'>) => void;
   updateLog: (state: Partial<LogDrawerState>) => void;
 }) {
@@ -33,8 +37,10 @@ export function FleetView({
   const [search, setSearch] = useState('');
   const [projectFilter, setProjectFilter] = useState(allProjects);
   const [selected, setSelected] = useState<Run>();
+  const [attachedRun, setAttachedRun] = useState<Run>();
   const [startOpen, setStartOpen] = useState(false);
-  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState('');
+  const [startSubmitting, setStartSubmitting] = useState(false);
   const [startForm, setStartForm] = useState<StartRunRequest>({ project: '', profile: '', gateway: '', name: '', prompt: '' });
   const [useOverrides, setUseOverrides] = useState(false);
   const [overrides, setOverrides] = useState({ image: '', model: '', approval: 'prompted' });
@@ -55,15 +61,15 @@ export function FleetView({
     }
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [refreshKey]);
 
   useEffect(() => {
     if (!overview) return;
     setStartForm((form) => ({
       ...form,
-      project: form.project || overview.projects[0]?.name || '',
-      profile: form.profile || overview.profiles[0]?.name || '',
-      gateway: form.gateway || overview.gateways[0]?.name || 'openshell'
+      project: overview.projects.some((project) => project.name === form.project) ? form.project : overview.projects[0]?.name || '',
+      profile: overview.profiles.some((profile) => profile.name === form.profile) ? form.profile : overview.profiles[0]?.name || '',
+      gateway: overview.gateways.some((gateway) => gateway.name === form.gateway) ? form.gateway : overview.gateways[0]?.name || 'openshell'
     }));
   }, [overview]);
 
@@ -117,7 +123,8 @@ export function FleetView({
     }
   };
 
-  const openStart = () => {
+  const openStart = async () => {
+    setStartError('');
     setCopySource(undefined);
     setStartForm((form) => ({
       ...form,
@@ -129,12 +136,14 @@ export function FleetView({
     }));
     setUseOverrides(false);
     setOverrides({ image: '', model: '', approval: 'prompted' });
+    await load();
     setStartOpen(true);
   };
 
   const copyAgent = (run: Run) => {
     const profiles = overview?.profiles ?? [];
     const profile = profiles.find((item) => item.image === run.image) ?? profiles.find((item) => item.agent === run.agent);
+    setStartError('');
     setCopySource(run);
     setStartForm({
       project: run.project || overview?.projects[0]?.name || '',
@@ -154,9 +163,9 @@ export function FleetView({
   };
 
   const startAgent = async () => {
-    setActionError('');
+    setStartError('');
     setNotice('');
-    setStarting(true);
+    setStartSubmitting(true);
     try {
       const created = await api.startRun({
         ...startForm,
@@ -169,9 +178,9 @@ export function FleetView({
       setNotice(`Agent ${created.name || created.id} started`);
       await load();
     } catch (err) {
-      setActionError((err as Error).message);
+      setStartError((err as Error).message);
     } finally {
-      setStarting(false);
+      setStartSubmitting(false);
     }
   };
 
@@ -184,6 +193,7 @@ export function FleetView({
       setSelected((current) => (current?.id === target.id ? undefined : current));
     }, 'Agent deleted');
   };
+
 
   const openDetail = async (agent: Run, kind: 'logs' | 'diff' | 'policy') => {
     setSelected(agent);
@@ -232,7 +242,7 @@ export function FleetView({
         <Button variant="ghost" size="icon" aria-label="Refresh agents" onClick={() => void load()}>
           {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
         </Button>
-        <Button onClick={openStart}><Bot className="size-3.5" /> New agent</Button>
+        <Button onClick={() => void openStart()}><Bot className="size-3.5" /> New agent</Button>
       </div>
 
       <div className="flex min-h-0 flex-1">
@@ -245,7 +255,7 @@ export function FleetView({
             <EmptyState
               title="No agents yet"
               description="Create a project and profile in Setup, then start your first agent."
-              action={<Button className="mt-2" onClick={openStart}>New agent</Button>}
+              action={<Button className="mt-2" onClick={() => void openStart()}>New agent</Button>}
             />
           ) : filtered.length === 0 ? (
             <EmptyState title="No matching agents" description="Adjust search or project filters." />
@@ -290,6 +300,7 @@ export function FleetView({
                           <TD className="truncate font-mono text-xs text-muted">{agent.branch}</TD>
                           <TD>
                             <div className="flex flex-wrap gap-1">
+                              <Button size="xs" variant="ghost" disabled={!canAttachRun(agent.status)} onClick={(event) => { event.stopPropagation(); setAttachedRun(agent); }}><Monitor className="size-3" /> Attach</Button>
                               <Button size="xs" variant="ghost" onClick={(event) => { event.stopPropagation(); void openDetail(agent, 'logs'); }}><Terminal className="size-3" /> Logs</Button>
                               <Button size="xs" variant="ghost" onClick={(event) => { event.stopPropagation(); void openDetail(agent, 'diff'); }}>Diff</Button>
                               <Button
@@ -305,7 +316,7 @@ export function FleetView({
                                 size="xs"
                                 variant="ghost"
                                 loading={busy === 'stop'}
-                                disabled={Boolean(busy) || !isActiveRun(agent.status)}
+                                disabled={Boolean(busy) || !canStopRun(agent.status)}
                                 onClick={(event) => { event.stopPropagation(); void runAgentAction(agent, 'stop', () => api.stopRun(agent.id), `Stop requested for ${agent.name || agent.id}`); }}
                               >
                                 {busy === 'stop' ? 'Stopping' : 'Stop'}
@@ -350,6 +361,7 @@ export function FleetView({
                 ))}
               </dl>
               <div className="grid gap-1.5">
+                <Button variant="outline" disabled={!canAttachRun(selected.status)} onClick={() => setAttachedRun(selected)}>Attach</Button>
                 <Button variant="outline" onClick={() => void openDetail(selected, 'logs')}>View logs</Button>
                 <Button variant="outline" onClick={() => void openDetail(selected, 'diff')}>View diff</Button>
                 <Button variant="outline" onClick={() => void openDetail(selected, 'policy')}>View policy</Button>
@@ -376,6 +388,12 @@ export function FleetView({
         </div>
       ) : null}
 
+      {attachedRun ? (
+        <Suspense fallback={<div className="fixed inset-0 z-50 grid place-items-center bg-black/65 text-sm text-foreground">Loading terminal…</div>}>
+          <AgentTerminal run={attachedRun} onClose={() => setAttachedRun(undefined)} />
+        </Suspense>
+      ) : null}
+
       <Modal
         open={startOpen}
         onOpenChange={(open) => {
@@ -389,10 +407,11 @@ export function FleetView({
         footer={
           <>
             <Button variant="ghost" onClick={closeStart}>Cancel</Button>
-            <Button loading={starting} onClick={() => void startAgent()}>{starting ? 'Starting' : 'Start'}</Button>
+            <Button loading={startSubmitting} onClick={() => void startAgent()}>{startSubmitting ? 'Starting' : 'Start'}</Button>
           </>
         }
       >
+        {startError ? <Alert variant="danger" title="Unable to start agent" className="mb-3">{startError}</Alert> : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Project" htmlFor="new-agent-project" required>
             <Select id="new-agent-project" value={startForm.project} onChange={(event) => setStartForm({ ...startForm, project: event.target.value })}>

@@ -6,6 +6,18 @@ import { ProvidersPanel } from '../src/pages/setup/ProvidersPanel';
 import { ProfilesPanel } from '../src/pages/setup/ProfilesPanel';
 import { overview, providers, runs } from './fixtures';
 
+vi.mock('@xterm/xterm', () => ({
+  Terminal: class MockTerminal {
+    open() {}
+    focus() {}
+    write() {}
+    dispose() {}
+    onData() {}
+    loadAddon() {}
+  }
+}));
+
+
 function jsonResponse(value: unknown, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => value };
 }
@@ -34,6 +46,7 @@ function defaultRoutes(): Record<string, unknown> {
     'GET /api/profiles': overview.profiles,
     'GET /api/providers': providers,
     'GET /api/providers?gateway=openshell': providers,
+    'GET /api/providers/model-gateway/models?gateway=openshell': ['gpt-6-luna', 'model-x'],
     'GET /api/gateways': overview.gateways,
     'GET /api/images': overview.images,
     'GET /api/registry': { reference: 'quay.io/team/openshell' },
@@ -75,12 +88,98 @@ describe('fleet shell', () => {
     expect(screen.getByRole('button', { name: 'Switch to light theme' })).toBeInTheDocument();
   });
 
+  it('refreshes new-agent profile options after creating a profile', async () => {
+    const newProfile = { ...overview.profiles[0], name: 'new-codex' };
+    let profileCreated = false;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      const method = init?.method ?? 'GET';
+      if (url === '/api/overview' && method === 'GET') {
+        return jsonResponse({ ...overview, profiles: profileCreated ? [newProfile] : [] });
+      }
+      if (url === '/api/doctor' && method === 'GET') return jsonResponse(overview.doctor);
+      if (url === '/api/profiles' && method === 'GET') {
+        return jsonResponse(profileCreated ? [newProfile] : []);
+      }
+      if (url === '/api/profiles' && method === 'POST') {
+        profileCreated = true;
+        return jsonResponse(newProfile);
+      }
+      if (url === '/api/providers' && method === 'GET') return jsonResponse(providers);
+      if (url === '/api/gateways' && method === 'GET') return jsonResponse(overview.gateways);
+      if (url === '/api/images' && method === 'GET') return jsonResponse(overview.images);
+      throw new Error(`unmocked profile refresh request ${method} ${url}`);
+    }));
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /setup/i }))[0]);
+    await user.click(await screen.findByRole('tab', { name: 'Profiles' }));
+    await user.click(await screen.findByRole('button', { name: 'Create profile' }));
+    await user.type(await screen.findByLabelText(/^Name/), 'new-codex');
+    await user.type(screen.getByLabelText('Model'), 'new-model');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Profile saved')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await user.click(screen.getByRole('button', { name: /new agent/i }));
+    const profileSelect = await screen.findByLabelText(/^Profile/);
+    expect(within(profileSelect).getByRole('option', { name: 'new-codex' })).toBeInTheDocument();
+  });
+
+  it('shows start errors inside the new-agent dialog', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      const method = init?.method ?? 'GET';
+      if (url === '/api/overview' && method === 'GET') return jsonResponse(overview);
+      if (url === '/api/doctor' && method === 'GET') return jsonResponse(overview.doctor);
+      if (url === '/api/runs' && method === 'POST') {
+        return jsonResponse({ error: 'profile "codex-enmaas" references missing policy file ~/.agentbox/policies/codex-enmaas.yaml; edit the profile or restore the policy' }, 400);
+      }
+      throw new Error(`unmocked start request ${method} ${url}`);
+    }));
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: /new agent/i }));
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
+    expect(await screen.findByText('Unable to start agent')).toBeInTheDocument();
+    expect(screen.getByText(/references missing policy file/)).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
   it('opens agent logs in the bottom drawer', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click((await screen.findAllByRole('button', { name: /logs/i }))[0]);
     expect(await screen.findByText(/Logs · active-run/i)).toBeInTheDocument();
     expect(await screen.findByText('agent log output')).toBeInTheDocument();
+  });
+
+  it('opens an interactive agent terminal from the fleet', async () => {
+    const sockets: Array<{ url: string; close: () => void }> = [];
+    class MockWebSocket {
+      url: string;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number; reason: string }) => void) | null = null;
+
+      constructor(url: string) {
+        this.url = url;
+        sockets.push(this);
+      }
+
+      send() {}
+      close() {}
+    }
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /attach/i }))[0]);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText(/Attach · active-run/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Terminal for active-run')).toBeInTheDocument();
+    await waitFor(() => expect(sockets).toHaveLength(1));
+    expect(sockets[0]?.url).toBe('ws://localhost:3000/api/runs/run-active/attach');
   });
 
   it('shows selected agent metadata', async () => {
@@ -148,12 +247,57 @@ describe('provider management', () => {
 });
 
 describe('profiles', () => {
-  it('creates a profile using configured providers', async () => {
+  it('uses provider defaults and an agent-filtered image selector', async () => {
     const user = userEvent.setup();
     render(<ProfilesPanel />);
     await user.click(await screen.findByRole('button', { name: 'Create profile' }));
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog');
+
+    const image = within(dialog).getByLabelText(/^Image/);
+    expect(image).toHaveValue('localhost/openshell:codex-1.0.0-r3');
+    const imageOptions = within(image).getAllByRole('option');
+    expect(imageOptions.map((option) => (option as HTMLOptionElement).value)).toEqual([
+      'localhost/openshell:codex-1.0.0-r3',
+      'localhost/openshell:codex-0.9.0-r3'
+    ]);
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Gateway mode requires an exact model ID.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Discover' }));
+    const model = await screen.findByLabelText('Model');
+    await waitFor(() => expect(model).toBeEnabled());
+    expect(model).toHaveValue('');
+    await user.selectOptions(model, 'gpt-6-luna');
+    expect(model).toHaveValue('gpt-6-luna');
+    const baseURL = within(dialog).getByLabelText(/^Base URL/);
+    const apiKeyEnv = within(dialog).getByLabelText(/^API key env/);
+    expect(baseURL).toHaveValue('https://models.example.test/v1');
+    expect(apiKeyEnv).toHaveValue('MY_GATEWAY_KEY');
+    expect(baseURL).toBeDisabled();
+    expect(apiKeyEnv).toBeDisabled();
+
+    await user.selectOptions(within(dialog).getByLabelText(/^Provider/), 'openai');
+    expect(within(dialog).getByLabelText(/^Mode\s*\*?$/)).toHaveValue('standard');
+    await user.selectOptions(within(dialog).getByLabelText(/^Mode\s*\*?$/), 'gateway');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Direct OpenAI and Anthropic providers require standard mode.')).toBeInTheDocument();
+    await user.selectOptions(within(dialog).getByLabelText(/^Provider/), 'unused-gateway');
+    expect(within(dialog).getByLabelText(/^Mode\s*\*?$/)).toHaveValue('gateway');
+    expect(baseURL).toHaveValue('https://unused.example.test/v1');
+    expect(apiKeyEnv).toHaveValue('UNUSED_GATEWAY_KEY');
+
+    await user.click(within(dialog).getByLabelText('Use provider base URL and credential environment'));
+    expect(baseURL).toBeEnabled();
+    expect(apiKeyEnv).toBeEnabled();
+    await user.clear(baseURL);
+    await user.type(baseURL, 'https://override.example.test/v1');
+    expect(baseURL).toHaveValue('https://override.example.test/v1');
+
+    await user.selectOptions(within(dialog).getByLabelText(/^Agent/), 'opencode');
+    expect(image).toHaveValue('localhost/openshell:opencode-2.0.0-r3');
+    expect(within(image).getAllByRole('option').map((option) => (option as HTMLOptionElement).value)).toEqual([
+      'localhost/openshell:opencode-2.0.0-r3'
+    ]);
   });
 });
 
@@ -357,9 +501,9 @@ describe('provider setup', () => {
     await user.click(await screen.findByRole('button', { name: 'Set up provider' }));
     const dialog = await screen.findByRole('dialog');
     await user.selectOptions(within(dialog).getByLabelText(/^Type/), 'openai');
-    expect(within(dialog).getByLabelText(/^Host or base URL/)).toHaveValue('api.openai.com');
+    expect(within(dialog).getByLabelText(/^Provider host/)).toHaveValue('api.openai.com');
     expect(within(dialog).getByLabelText(/^Credential env/)).toHaveValue('OPENAI_API_KEY');
-    expect(within(dialog).getByLabelText(/^Host or base URL/)).toBeDisabled();
+    expect(within(dialog).getByLabelText(/^Provider host/)).toBeDisabled();
     expect(within(dialog).getByLabelText(/^Credential env/)).toBeDisabled();
   });
 });

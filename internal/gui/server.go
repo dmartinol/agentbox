@@ -9,11 +9,17 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/dmartinol/agentbox/internal/app"
 	agentboxweb "github.com/dmartinol/agentbox/internal/gui/web"
@@ -42,6 +48,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/runs/{id}/sync", s.syncRun)
 	mux.HandleFunc("POST /api/runs/{id}/delete", s.deleteRun)
 	mux.HandleFunc("DELETE /api/runs/{id}", s.deleteRun)
+	mux.HandleFunc("GET /api/runs/{id}/attach", s.attachRun)
 	mux.HandleFunc("GET /api/runs/{id}/logs", s.runLogs)
 	mux.HandleFunc("GET /api/runs/{id}/diff", s.runDiff)
 	mux.HandleFunc("GET /api/runs/{id}/policy", s.runPolicy)
@@ -51,6 +58,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/profiles", s.listProfiles)
 	mux.HandleFunc("POST /api/profiles", s.saveProfile)
 	mux.HandleFunc("GET /api/providers", s.listProviders)
+	mux.HandleFunc("GET /api/providers/{name}/models", s.providerModels)
 	mux.HandleFunc("POST /api/providers", s.setupProvider)
 	mux.HandleFunc("POST /api/providers/{name}/update", s.updateProvider)
 	mux.HandleFunc("POST /api/providers/{name}/delete", s.deleteProvider)
@@ -369,6 +377,63 @@ func (s *Server) deleteRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
 }
 
+var attachUpgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		parsed, err := url.Parse(origin)
+		return err == nil && parsed.Host == r.Host
+	},
+}
+
+type websocketTerminal struct {
+	connection *websocket.Conn
+	mutex      sync.Mutex
+	buffer     []byte
+}
+
+func (t *websocketTerminal) Read(p []byte) (int, error) {
+	for len(t.buffer) == 0 {
+		_, message, err := t.connection.ReadMessage()
+		if err != nil {
+			return 0, err
+		}
+		t.buffer = message
+	}
+	size := copy(p, t.buffer)
+	t.buffer = t.buffer[size:]
+	return size, nil
+}
+
+func (t *websocketTerminal) Write(p []byte) (int, error) {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	if err := t.connection.WriteMessage(websocket.TextMessage, p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (s *Server) attachRun(w http.ResponseWriter, r *http.Request) {
+	conn, err := attachUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	terminal := &websocketTerminal{connection: conn}
+	if err := s.app.AttachStream(ctx, r.PathValue("id"), terminal, terminal, terminal); err != nil {
+		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()), time.Now().Add(time.Second))
+		return
+	}
+	_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+}
+
 func (s *Server) runLogs(w http.ResponseWriter, r *http.Request) {
 	logs, err := s.app.Logs(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -439,7 +504,42 @@ func (s *Server) listProfiles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	for index, profile := range profiles {
+		next, changed, err := s.prepareProfilePolicy(profile)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if changed {
+			if err := s.app.Store.SaveProfile(next); err != nil {
+				writeError(w, err)
+				return
+			}
+			profiles[index] = next
+		}
+	}
 	writeJSON(w, http.StatusOK, profiles)
+}
+
+func (s *Server) prepareProfilePolicy(profile app.Profile) (app.Profile, bool, error) {
+	defaultPolicy := filepath.Join(s.app.Store.PolicyDir(), profile.Name+".yaml")
+	legacyPolicy := "~/.agentbox/policies/" + profile.Name + ".yaml"
+	changed := false
+	if profile.Policy == "" || profile.Policy == legacyPolicy {
+		profile.Policy = defaultPolicy
+		changed = true
+	}
+	if _, err := os.Stat(profile.Policy); errors.Is(err, os.ErrNotExist) {
+		if profile.Policy != defaultPolicy {
+			return profile, changed, fmt.Errorf("profile %q references missing policy file %s; edit the profile or restore the policy", profile.Name, profile.Policy)
+		}
+		if _, err := s.app.Store.CreatePolicyConfiguration(profile.Name); err != nil {
+			return profile, changed, err
+		}
+	} else if err != nil {
+		return profile, changed, err
+	}
+	return profile, changed, nil
 }
 
 func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request) {
@@ -450,17 +550,10 @@ func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request) {
 	if profile.Version == 0 {
 		profile.Version = 1
 	}
-	if profile.Policy == "" {
-		profile.Policy = filepath.Join(s.app.Store.PolicyDir(), profile.Name+".yaml")
-		if _, err := os.Stat(profile.Policy); errors.Is(err, os.ErrNotExist) {
-			if _, err := s.app.Store.CreatePolicyConfiguration(profile.Name); err != nil {
-				writeError(w, err)
-				return
-			}
-		} else if err != nil {
-			writeError(w, err)
-			return
-		}
+	profile, _, err := s.prepareProfilePolicy(profile)
+	if err != nil {
+		writeError(w, err)
+		return
 	}
 	if err := s.app.Store.Ensure(); err != nil {
 		writeError(w, err)
@@ -490,11 +583,95 @@ type providerRecord struct {
 	ProfileID      string   `json:"profile_id"`
 	Credential     string   `json:"credential"`
 	CredentialKeys []string `json:"credential_keys"`
+	BaseURL        string   `json:"base_url,omitempty"`
 	Gateway        string   `json:"gateway"`
+}
+
+type providerEndpoint struct {
+	Host string `yaml:"host"`
+	Port int    `yaml:"port"`
+	Path string `yaml:"path"`
+}
+
+type providerProfileFile struct {
+	ID          string `yaml:"id"`
+	Credentials []struct {
+		EnvVars []string `yaml:"env_vars"`
+	} `yaml:"credentials"`
+	Endpoints []providerEndpoint `yaml:"endpoints"`
+}
+
+func providerProfileBaseURL(endpoint providerEndpoint) string {
+	if endpoint.Host == "" {
+		return ""
+	}
+	scheme := "https"
+	if endpoint.Port == 80 {
+		scheme = "http"
+	}
+	path := strings.TrimSuffix(endpoint.Path, "/**")
+	if path == "/" {
+		path = ""
+	}
+	return fmt.Sprintf("%s://%s%s", scheme, endpoint.Host, path)
+}
+
+func (s *Server) providerDefaults(provider providerRecord) (baseURL string, credential string) {
+	ids := map[string]bool{}
+	for _, id := range []string{provider.Profile, provider.ProfileID, provider.Type} {
+		if id != "" {
+			ids[id] = true
+		}
+	}
+	if len(ids) == 0 {
+		return "", ""
+	}
+	entries, err := os.ReadDir(s.app.Store.ProfilesDir())
+	if err != nil {
+		return "", ""
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(s.app.Store.ProfilesDir(), entry.Name()))
+		if err != nil {
+			continue
+		}
+		var profile providerProfileFile
+		if err := yaml.Unmarshal(data, &profile); err != nil || !ids[profile.ID] {
+			continue
+		}
+		if len(profile.Endpoints) > 0 {
+			baseURL = providerProfileBaseURL(profile.Endpoints[0])
+		}
+		if len(profile.Credentials) > 0 && len(profile.Credentials[0].EnvVars) > 0 {
+			credential = profile.Credentials[0].EnvVars[0]
+		}
+		return baseURL, credential
+	}
+	return "", ""
 }
 
 type providerListPayload struct {
 	Providers []providerRecord `json:"providers"`
+}
+
+func normalizeProviderType(value string) string {
+	switch {
+	case value == "openai", value == "anthropic":
+		return value
+	case strings.HasPrefix(value, "agentbox-gateway-bearer-"):
+		return "gateway-bearer"
+	case strings.HasPrefix(value, "agentbox-gateway-header-"):
+		return "gateway-header"
+	case strings.HasPrefix(value, "agentbox-openai"):
+		return "openai"
+	case strings.HasPrefix(value, "agentbox-anthropic"):
+		return "anthropic"
+	default:
+		return value
+	}
 }
 
 func (r providerRecord) normalized(gateway string) providerRecord {
@@ -504,6 +681,15 @@ func (r providerRecord) normalized(gateway string) providerRecord {
 	if r.Profile == "" {
 		r.Profile = r.ProfileID
 	}
+	// OpenShell reports the generated profile ID in `type`. Preserve it for
+	// local profile lookup before replacing it with the user-facing kind.
+	if r.ProfileID == "" && strings.HasPrefix(r.Type, "agentbox-") {
+		r.ProfileID = r.Type
+	}
+	if r.Profile == "" && r.ProfileID != "" {
+		r.Profile = r.ProfileID
+	}
+	r.Type = normalizeProviderType(r.Type)
 	if r.Credential == "" && len(r.CredentialKeys) == 1 {
 		r.Credential = r.CredentialKeys[0]
 	}
@@ -511,6 +697,56 @@ func (r providerRecord) normalized(gateway string) providerRecord {
 		r.Gateway = gateway
 	}
 	return r
+}
+
+func (s *Server) providerModels(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	gateway := r.URL.Query().Get("gateway")
+	data, err := s.app.ProviderList(r.Context(), gateway)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var payload providerListPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		writeError(w, fmt.Errorf("invalid provider JSON: %w", err))
+		return
+	}
+	var selected providerRecord
+	found := false
+	for _, provider := range payload.Providers {
+		if provider.Name != name {
+			continue
+		}
+		selected = provider.normalized(gateway)
+		found = true
+		break
+	}
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "provider not found"})
+		return
+	}
+	if selected.BaseURL == "" {
+		baseURL, _ := s.providerDefaults(selected)
+		selected.BaseURL = baseURL
+	}
+	if selected.BaseURL == "" {
+		writeError(w, fmt.Errorf("provider %q does not expose a model API base URL", name))
+		return
+	}
+	if selected.Credential == "" && len(selected.CredentialKeys) > 0 {
+		selected.Credential = selected.CredentialKeys[0]
+	}
+	if selected.Credential == "" {
+		writeError(w, fmt.Errorf("provider %q does not expose a credential environment reference", name))
+		return
+	}
+	models, err := s.app.GatewayModels(r.Context(), selected.BaseURL, selected.Credential)
+	if err != nil {
+		writeError(w, fmt.Errorf("model discovery failed: %w", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, models)
 }
 
 func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
@@ -540,6 +776,15 @@ func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		provider = provider.normalized(gateway)
+		if provider.BaseURL == "" || provider.Credential == "" {
+			baseURL, credential := s.providerDefaults(provider)
+			if provider.BaseURL == "" {
+				provider.BaseURL = baseURL
+			}
+			if provider.Credential == "" {
+				provider.Credential = credential
+			}
+		}
 		users := usedBy[provider.Name]
 		sort.Strings(users)
 		provider.UsedBy = users
