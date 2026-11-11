@@ -119,6 +119,7 @@ agentbox agent start \
 agentbox agent list [--json]
 agentbox agent show [--json] ID
 agentbox agent attach ID
+agentbox agent forward ID PORT
 agentbox agent logs ID
 agentbox agent stop ID
 agentbox agent sync ID
@@ -127,6 +128,8 @@ agentbox agent delete [--discard] ID
 ```
 
 `agent start` needs a registered project or source checkout and a profile (or explicit configuration overrides). `--dry-run` previews startup; `--json` prints structured start output. `--mcp` selects an MCP tools entry whose agent matches the run profile; missing server names produce warnings, not failures. `agent delete --discard` acknowledges discarding the agent's results.
+
+`agent forward` tunnels the host's `127.0.0.1:PORT` to the same loopback port inside the run's sandbox until interrupted with Ctrl-C. Use it to complete OAuth sign-ins for remote MCP servers: the agent's callback listener runs inside the sandbox, but the sign-in page opens in a browser on the host, so the `127.0.0.1` redirect needs the forward to reach it.
 
 ## Related guides
 

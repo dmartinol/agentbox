@@ -7,9 +7,14 @@ import { ProfilesPanel } from '../src/pages/setup/ProfilesPanel';
 import { McpPanel } from '../src/pages/setup/McpPanel';
 import { mcps, overview, providers, runs } from './fixtures';
 
-const xtermHooks = vi.hoisted(() => ({
-  resize: undefined as undefined | ((size: { cols: number; rows: number }) => void)
-}));
+const xtermHooks = vi.hoisted(() => {
+  class MockWebLinksAddon {}
+  return {
+    resize: undefined as undefined | ((size: { cols: number; rows: number }) => void),
+    addons: [] as unknown[],
+    MockWebLinksAddon
+  };
+});
 
 vi.mock('@xterm/xterm', () => ({
   Terminal: class MockTerminal {
@@ -20,7 +25,9 @@ vi.mock('@xterm/xterm', () => ({
     write() {}
     dispose() {}
     onData() {}
-    loadAddon() {}
+    loadAddon(addon: unknown) {
+      xtermHooks.addons.push(addon);
+    }
     onResize(callback: (size: { cols: number; rows: number }) => void) {
       xtermHooks.resize = callback;
     }
@@ -35,6 +42,10 @@ vi.mock('@xterm/addon-fit', () => ({
     }
     dispose() {}
   }
+}));
+
+vi.mock('@xterm/addon-web-links', () => ({
+  WebLinksAddon: xtermHooks.MockWebLinksAddon
 }));
 
 
@@ -85,6 +96,7 @@ function defaultRoutes(): Record<string, unknown> {
 }
 
 beforeEach(() => {
+  xtermHooks.addons.length = 0;
   mockRoutes(defaultRoutes());
 });
 
@@ -213,6 +225,9 @@ describe('fleet shell', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     await waitFor(() => expect(sockets).toHaveLength(1));
     expect(sockets[0]?.url).toBe('ws://localhost:3000/api/runs/run-active/attach?cols=120&rows=36');
+    // URLs printed by the agent (OAuth sign-in links) must be clickable, so
+    // the attach terminal loads the web-links addon.
+    expect(xtermHooks.addons.some((addon) => addon instanceof xtermHooks.MockWebLinksAddon)).toBe(true);
   });
 
   it('reports terminal resizes over the attach socket', async () => {

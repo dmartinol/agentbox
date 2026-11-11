@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { api } from '../api';
 import type { Run } from '../types';
@@ -48,6 +49,11 @@ export function AgentTerminal({ run, session = 'agent' }: { run: Run; session?: 
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
+    // Agents print long URLs (OAuth sign-in links, MCP callbacks) that wrap
+    // across terminal lines; copying wrapped text yields a broken URL. The
+    // web-links addon makes URLs and OSC 8 hyperlinks clickable so the link
+    // can be opened directly instead of copied.
+    terminal.loadAddon(new WebLinksAddon());
     terminal.open(terminalElement);
     fit.fit();
     terminal.focus();

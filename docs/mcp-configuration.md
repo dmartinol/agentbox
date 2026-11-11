@@ -215,6 +215,12 @@ AgentBox never edits policies automatically.
   agent binary that AgentBox defaults to. The documentation must call this
   out; discovery of the effective binary per server is the user's
   responsibility in v1.
+- Remote HTTP MCP servers that sign in with OAuth listen for their
+  authorization callback on an ephemeral loopback port **inside** the
+  sandbox while the browser runs on the host. `agent forward` (a thin
+  wrapper over `openshell forward service`) tunnels the host loopback port
+  into the sandbox so the redirect completes; the flow is documented in the
+  README.
 
 ### FR8 — Unattended safety
 

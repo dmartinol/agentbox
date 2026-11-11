@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -790,7 +791,7 @@ func mcpCmd(ctx context.Context, a *app.App, args []string) error {
 
 func agentCmd(ctx context.Context, a *app.App, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("agent start|list|show|attach|logs|stop|sync|diff|delete required")
+		return fmt.Errorf("agent start|list|show|attach|forward|logs|stop|sync|diff|delete required")
 	}
 	switch args[0] {
 	case "start":
@@ -871,6 +872,20 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 			return err
 		}
 		return a.Attach(ctx, args[1])
+	case "forward":
+		f := flags("agent forward")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		rest := f.Args()
+		if err := need(rest, 2); err != nil {
+			return err
+		}
+		port, err := strconv.Atoi(rest[1])
+		if err != nil {
+			return fmt.Errorf("port must be a number")
+		}
+		return a.Forward(ctx, rest[0], port)
 	case "logs":
 		if err := need(args[1:], 1); err != nil {
 			return err

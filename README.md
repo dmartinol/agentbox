@@ -434,6 +434,26 @@ Behavior:
   host rules to allow them, and note that rules are scoped to the binary
   that makes the network call — for stdio MCP servers that is the server
   process (for example `node`), not the agent binary.
+- Remote MCP servers that sign in with OAuth (for example
+  `https://mcp.miro.com`) listen for their authorization callback on an
+  ephemeral `127.0.0.1` port **inside the sandbox**, while the sign-in page
+  opens in your browser on the host. Complete the sign-in like this:
+
+  1. Allow the server host with a policy host rule (Setup → Policies →
+     Add host, or `agentbox policy edit --allow-host`), then retry the
+     sign-in in the agent session.
+  2. Note the callback port from the sign-in URL's `redirect_uri`
+     (`http://127.0.0.1:<port>/callback/...`).
+  3. From the host, forward that port into the run
+     (`Ctrl-C` stops it once sign-in completes):
+
+     ```sh
+     ./agentbox agent forward <run-id> <port>
+     ```
+
+  4. Open the sign-in URL in the host browser and approve the access. In
+     the GUI the link is clickable directly from the attach terminal; long
+     URLs wrap in the terminal and break when copied.
 
 In the GUI, manage entries under **Setup → MCP Tools** and select one in the
 new-agent dialog.

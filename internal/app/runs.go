@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -412,6 +413,29 @@ func (a *App) AttachSessionStream(ctx context.Context, id, session string, in io
 		return terminalRunner.StreamTerminal(ctx, in, out, errOut, size.Columns, size.Rows, resizes, "openshell", attachArgs(r, session)...)
 	}
 	return a.Runner.Stream(ctx, in, out, errOut, "openshell", attachArgs(r, session)...)
+}
+
+// Forward tunnels the host's loopback port to the same loopback port inside
+// the run's sandbox until the caller stops the stream. Remote MCP servers
+// that sign in with OAuth (for example mcp.miro.com) listen for their
+// authorization callback on an ephemeral 127.0.0.1 port inside the sandbox,
+// while the sign-in page opens in a browser on the host. Without this
+// forward the browser's redirect to 127.0.0.1:<port> never reaches the
+// sandbox and the login cannot complete.
+func (a *App) Forward(ctx context.Context, id string, port int) error {
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535")
+	}
+	r, err := a.Store.LoadRun(id)
+	if err != nil {
+		return err
+	}
+	args := []string{"forward", "service", r.Sandbox, "--target-port", strconv.Itoa(port), "--local", strconv.Itoa(port)}
+	if r.Gateway != "" {
+		args = append([]string{"--gateway", r.Gateway}, args...)
+	}
+	fmt.Printf("Forwarding host 127.0.0.1:%d to sandbox %s loopback 127.0.0.1:%d (Ctrl-C to stop)\n", port, r.Sandbox, port)
+	return a.Runner.Stream(ctx, os.Stdin, os.Stdout, os.Stderr, "openshell", args...)
 }
 
 func (a *App) Logs(ctx context.Context, id string) ([]byte, error) {

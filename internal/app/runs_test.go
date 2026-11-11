@@ -82,6 +82,39 @@ func TestDeleteProtectsActiveAndReviewableRunData(t *testing.T) {
 	}
 }
 
+func TestForwardStreamsSandboxLoopbackPort(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	run := Run{ID: "run-unit123", Sandbox: "sandbox-unit123", Gateway: "gateway-one", Agent: "codex"}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	app := App{Store: store, Runner: runner}
+	if err := app.Forward(context.Background(), run.ID, 36573); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.streams) != 1 {
+		t.Fatalf("streams = %#v; want one forward stream", runner.streams)
+	}
+	call := runner.streams[0]
+	if call.name != "openshell" {
+		t.Fatalf("forward command = %q; want openshell", call.name)
+	}
+	want := []string{"--gateway", "gateway-one", "forward", "service", "sandbox-unit123", "--target-port", "36573", "--local", "36573"}
+	if strings.Join(call.args, " ") != strings.Join(want, " ") {
+		t.Fatalf("forward args = %v; want %v", call.args, want)
+	}
+	if err := app.Forward(context.Background(), run.ID, 0); err == nil {
+		t.Fatal("invalid port was accepted")
+	}
+	if err := app.Forward(context.Background(), "run-missing", 36573); err == nil {
+		t.Fatal("unknown run was accepted")
+	}
+}
+
 func TestStopRetainsSandboxWhenSyncRefusesLocalConflict(t *testing.T) {
 	app, run, _ := createSyncFixture(t)
 	if err := os.WriteFile(filepath.Join(run.Worktree, "tracked.txt"), []byte("local edit during run\n"), 0600); err != nil {
