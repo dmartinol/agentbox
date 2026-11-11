@@ -111,6 +111,60 @@ func TestAgentScriptApprovalModesAndArgumentGuards(t *testing.T) {
 	}
 }
 
+func TestCodexStandardScriptUsesOpenAIProviderKey(t *testing.T) {
+	profile := testProfile("codex", "standard", "prompted")
+	profile.APIKeyEnv = "OPENAI_API_KEY"
+	script, err := agentScript(profile, "do work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`printf '%s' "$OPENAI_API_KEY" | codex login --with-api-key`,
+		"--no-daemon",
+		"--sandbox",
+		"danger-full-access",
+		"--model",
+		"unit-model",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("Codex standard script lacks %q:\n%s", want, script)
+		}
+	}
+}
+
+func TestCodexStandardScriptWorksWithoutModel(t *testing.T) {
+	profile := testProfile("codex", "standard", "prompted")
+	profile.Model = ""
+	profile.APIKeyEnv = "OPENAI_API_KEY"
+	script, err := agentScript(profile, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(script, "--model") {
+		t.Fatalf("empty standard model should use Codex default:\n%s", script)
+	}
+	for _, want := range []string{"--no-daemon", "--sandbox", "danger-full-access"} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("Codex standard script lacks %q:\n%s", want, script)
+		}
+	}
+}
+
+func TestOpenCodeGatewayScriptUsesConfigModel(t *testing.T) {
+	script, err := agentScript(testProfile("opencode", "gateway", "unattended"), "do work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(script, "--model") {
+		t.Fatalf("OpenCode gateway script must use its generated config instead of --model:\n%s", script)
+	}
+	for _, want := range []string{"opencode", "run", "--standalone", "--auto", "do work"} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("OpenCode gateway script lacks %q:\n%s", want, script)
+		}
+	}
+}
+
 func TestProviderSetupKeepsCredentialValueOutOfGeneratedData(t *testing.T) {
 	const sentinel = "unit-secret-must-not-be-written"
 	t.Setenv("UNIT_MODEL_KEY", sentinel)
@@ -139,7 +193,9 @@ func TestProviderSetupKeepsCredentialValueOutOfGeneratedData(t *testing.T) {
 func TestSessionScriptOffersIdleReattach(t *testing.T) {
 	for _, want := range []string{
 		"Keep this run idle for reattach?",
-		"Restart: /bin/sh /workspace/state/agent.sh",
+		"touch /workspace/idle",
+		"Exiting this shell keeps the run idle",
+		"The run remains available for reattach",
 		"Detach: Ctrl-b d",
 		"touch /workspace/finished",
 	} {

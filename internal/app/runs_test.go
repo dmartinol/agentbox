@@ -13,20 +13,22 @@ import (
 func TestClassifySandboxStatus(t *testing.T) {
 	cases := []struct {
 		phase    string
+		idle     bool
 		finished bool
 		want     string
 		sync     bool
 	}{
 		{phase: "running", want: "running"},
+		{phase: "running", idle: true, want: "idle"},
 		{phase: "RUNNING", finished: true, want: "finished", sync: true},
 		{phase: "completed", finished: true, want: "finished", sync: true},
 		{phase: "stopped", want: "stopped"},
 		{phase: "error", finished: true, want: "error"},
 	}
 	for _, tc := range cases {
-		got, sync := classifySandboxStatus(tc.phase, tc.finished)
+		got, sync := classifySandboxStatus(tc.phase, tc.idle, tc.finished)
 		if got != tc.want || sync != tc.sync {
-			t.Errorf("classifySandboxStatus(%q,%v) = %q,%v; want %q,%v", tc.phase, tc.finished, got, sync, tc.want, tc.sync)
+			t.Errorf("classifySandboxStatus(%q,%v,%v) = %q,%v; want %q,%v", tc.phase, tc.idle, tc.finished, got, sync, tc.want, tc.sync)
 		}
 	}
 }
@@ -142,6 +144,9 @@ func TestListAndReconcileAttemptsSyncWhenCompletedMarkerExists(t *testing.T) {
 		}
 		if call.name == "openshell" && commandHasArg(call, "get") {
 			return []byte(`{"phase":"completed"}`), nil
+		}
+		if call.name == "openshell" && strings.Contains(strings.Join(call.args, " "), "test -f /workspace/idle") {
+			return nil, errors.New("idle marker not found")
 		}
 		return nil, nil
 	}

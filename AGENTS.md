@@ -20,8 +20,9 @@ It is not a permanent fleet-management platform.
 - Keep the GUI compact and information-dense; avoid heavy multi-page navigation.
 - Keep Fleet and Setup as the two primary GUI surfaces.
 - Use the bottom output drawer for logs, diffs, policies, and task output.
-- Do not embed an interactive terminal in the GUI. Interactive attach remains a
-  CLI workflow.
+- GUI attach is a required core workflow. Keep it as one xterm.js terminal
+  connected to the existing tmux session; do not build a broader terminal
+  emulator, multiplexer, or shell orchestration layer.
 - Preserve the CLI and GUI as the only supported interfaces.
 - Prefer extending an existing setup tab over adding another top-level surface.
 - Do not over-generalize provider configuration; support OpenShell providers and

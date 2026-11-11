@@ -13,9 +13,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/dmartinol/agentbox/internal/app"
 )
@@ -26,6 +29,7 @@ type guiRunner struct {
 	gateways        string
 	phases          map[string]string
 	finishedMarkers map[string]bool
+	idleMarkers     map[string]bool
 	search          string
 	logs            string
 }
@@ -52,15 +56,22 @@ func (r guiRunner) Output(_ context.Context, name string, args ...string) ([]byt
 		}
 		return nil, fmt.Errorf("sandbox not found")
 	case name == "openshell" && containsCommand(args, "sandbox", "exec"):
-		if strings.HasSuffix(strings.Join(args, " "), "test -f /workspace/finished") {
+		joined := strings.Join(args, " ")
+		if strings.HasSuffix(joined, "test -f /workspace/finished") || strings.HasSuffix(joined, "test -f /workspace/idle") {
+			marker := "finished"
+			markers := r.finishedMarkers
+			if strings.HasSuffix(joined, "test -f /workspace/idle") {
+				marker = "idle"
+				markers = r.idleMarkers
+			}
 			found := false
-			for sandbox, finished := range r.finishedMarkers {
-				if strings.Contains(strings.Join(args, " "), sandbox) {
+			for sandbox, present := range markers {
+				if strings.Contains(joined, sandbox) {
 					found = true
-					if finished {
+					if present {
 						return []byte{}, nil
 					}
-					return nil, fmt.Errorf("marker not found")
+					return nil, fmt.Errorf("%s marker not found", marker)
 				}
 			}
 			if !found {
@@ -100,6 +111,9 @@ func testRunner() guiRunner {
 		},
 		finishedMarkers: map[string]bool{
 			"sandbox-finished": true,
+		},
+		idleMarkers: map[string]bool{
+			"sandbox-idle": true,
 		},
 		search: `[{"Name":"quay.io/team/openshell","Tag":"codex-0.167.0-r3-linux-arm64"}]`,
 		logs:   "agent log output\n",
@@ -217,8 +231,85 @@ func TestRunsListReconcilesStatuses(t *testing.T) {
 	for _, run := range runs {
 		statuses[run.ID] = run.Status
 	}
-	if statuses["run-active"] != "running" || statuses["run-idle"] != "stopped" || statuses["run-finished"] != "finished" {
+	if statuses["run-active"] != "running" || statuses["run-idle"] != "idle" || statuses["run-finished"] != "finished" {
 		t.Fatalf("reconciled statuses = %#v", statuses)
+	}
+}
+
+type attachRunner struct {
+	commands [][]string
+}
+
+func (r *attachRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	r.commands = append(r.commands, append([]string{name}, args...))
+	return []byte(`{}`), nil
+}
+
+func (r *attachRunner) StreamTerminal(_ context.Context, in io.Reader, out io.Writer, _ io.Writer, columns, rows int, name string, args ...string) error {
+	r.commands = append(r.commands, append([]string{name}, args...), []string{"columns", strconv.Itoa(columns), "rows", strconv.Itoa(rows)})
+	buffer := make([]byte, 128)
+	_, _ = in.Read(buffer)
+	_, _ = io.WriteString(out, "attach terminal output")
+	return nil
+}
+
+func (r *attachRunner) Stream(_ context.Context, in io.Reader, out io.Writer, _ io.Writer, name string, args ...string) error {
+	r.commands = append(r.commands, append([]string{name}, args...))
+	buffer := make([]byte, 128)
+	_, _ = in.Read(buffer)
+	_, _ = io.WriteString(out, "fallback stream output")
+	return nil
+}
+
+func TestRunAttachWebSocket(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	run := app.Run{
+		ID: "run-attach", Sandbox: "sandbox-attach", Gateway: "openshell", Agent: "codex",
+		Status: "running", Source: "/repo", Worktree: "/trees/run-attach", Branch: "main",
+		Baseline: "abc", LastSynced: "abc", Created: time.Now(), Synced: true, Policy: "/policy",
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := &attachRunner{}
+	server, err := New(&app.App{Store: store, Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	connection, _, err := websocket.DefaultDialer.Dial(strings.Replace(httpServer.URL, "http://", "ws://", 1)+"/api/runs/run-attach/attach", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+
+	if err := connection.WriteMessage(websocket.TextMessage, []byte("terminal input")); err != nil {
+		t.Fatal(err)
+	}
+	_, message, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(message) != "attach terminal output" {
+		t.Fatalf("terminal output = %q", message)
+	}
+	if len(runner.commands) != 2 {
+		t.Fatalf("attach commands = %#v", runner.commands)
+	}
+	attach := runner.commands[0]
+	size := runner.commands[1]
+	if !slices.Contains(size, "120") || !slices.Contains(size, "36") {
+		t.Fatalf("terminal size = %#v", size)
+	}
+	for _, want := range []string{"sandbox", "exec", "-n", "sandbox-attach", "--tty", "tmux", "attach", "--gateway", "openshell"} {
+		if !slices.Contains(attach, want) {
+			t.Fatalf("attach command missing %q: %#v", want, attach)
+		}
 	}
 }
 
@@ -257,6 +348,62 @@ func TestProfilesEndpointCreatesDefaultPolicyReference(t *testing.T) {
 	requestJSON(t, http.MethodGet, server.URL+"/api/profiles", nil, &profiles)
 	if len(profiles) != 2 {
 		t.Fatalf("profiles = %#v", profiles)
+	}
+}
+
+func TestProfilesEndpointRepairsLegacyPolicyReference(t *testing.T) {
+	server := newTestServer(t)
+	profile := app.Profile{
+		Version: 1, Name: "codex-enmaas", Agent: "codex", Image: "image", Mode: "gateway",
+		Model: "model", Provider: "provider", Approval: "unattended",
+		BaseURL: "https://models.example.test/v1", APIKeyEnv: "UNIT_MODEL_KEY",
+		Policy: "~/.agentbox/policies/codex-enmaas.yaml",
+	}
+	var saved app.Profile
+	requestJSON(t, http.MethodPost, server.URL+"/api/profiles", profile, &saved)
+	if saved.Policy == profile.Policy || !strings.HasSuffix(saved.Policy, "/policies/codex-enmaas.yaml") {
+		t.Fatalf("policy = %q", saved.Policy)
+	}
+	if _, err := os.Stat(saved.Policy); err != nil {
+		t.Fatalf("policy file: %v", err)
+	}
+}
+
+func TestProfilesEndpointMigratesLegacyPolicyWithoutManualEdit(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	profile := app.Profile{
+		Version: 1, Name: "codex-enmaas", Agent: "codex", Image: "image", Mode: "gateway",
+		Model: "model", Provider: "provider", Approval: "unattended",
+		BaseURL: "https://models.example.test/v1", APIKeyEnv: "UNIT_MODEL_KEY",
+		Policy: "~/.agentbox/policies/codex-enmaas.yaml",
+	}
+	if err := store.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(&app.App{Store: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	var profiles []app.Profile
+	requestJSON(t, http.MethodGet, httpServer.URL+"/api/profiles", nil, &profiles)
+	if len(profiles) != 1 || profiles[0].Policy == profile.Policy || !strings.HasSuffix(profiles[0].Policy, "/policies/codex-enmaas.yaml") {
+		t.Fatalf("profiles = %#v", profiles)
+	}
+	if _, err := os.Stat(profiles[0].Policy); err != nil {
+		t.Fatalf("policy file: %v", err)
+	}
+	reloaded, err := store.LoadProfile(profile.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Policy != profiles[0].Policy {
+		t.Fatalf("stored policy = %q", reloaded.Policy)
 	}
 }
 
@@ -642,7 +789,22 @@ func TestProviderSetupEndpointReturnsActionableError(t *testing.T) {
 }
 
 func TestProvidersEndpointParsesOpenShellJSON(t *testing.T) {
-	server, err := New(&app.App{Store: app.Store{Base: t.TempDir()}, Runner: providerListRunner{}})
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	providerProfile := `id: agentbox-gateway-bearer-models-example-com
+credentials:
+  - env_vars: [MY_GATEWAY_KEY]
+endpoints:
+  - host: models.example.com
+    port: 443
+    path: /v1/**
+`
+	if err := os.WriteFile(filepath.Join(store.ProfilesDir(), "agentbox-gateway-bearer-models-example-com-provider.yaml"), []byte(providerProfile), 0600); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(&app.App{Store: store, Runner: providerListRunner{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,7 +813,7 @@ func TestProvidersEndpointParsesOpenShellJSON(t *testing.T) {
 
 	var providers []providerRecord
 	requestJSON(t, http.MethodGet, httpServer.URL+"/api/providers?gateway=openshell", nil, &providers)
-	if len(providers) != 1 || providers[0].Name != "model-gateway" || providers[0].Type != "gateway-bearer" || providers[0].Credential != "MY_GATEWAY_KEY" || providers[0].Gateway != "openshell" {
+	if len(providers) != 1 || providers[0].Name != "model-gateway" || providers[0].Type != "gateway-bearer" || providers[0].Credential != "MY_GATEWAY_KEY" || providers[0].BaseURL != "https://models.example.com/v1" || providers[0].Gateway != "openshell" {
 		t.Fatalf("providers = %#v", providers)
 	}
 }
@@ -696,6 +858,45 @@ func (r *providerCommandRunner) Output(_ context.Context, name string, args ...s
 
 func (providerCommandRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error {
 	return nil
+}
+
+type modelProviderRunner struct {
+	baseURL string
+}
+
+func (r modelProviderRunner) Output(context.Context, string, ...string) ([]byte, error) {
+	return []byte(`{"providers":[{"name":"model-gateway","type":"gateway-bearer","credential_keys":["UNIT_MODEL_KEY"],"base_url":"` + r.baseURL + `"}]}`), nil
+}
+
+func (modelProviderRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error {
+	return nil
+}
+
+func TestProviderModelsEndpoint(t *testing.T) {
+	t.Setenv("UNIT_MODEL_KEY", "test-key")
+	models := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Fatalf("model discovery path = %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Fatalf("authorization header = %q", got)
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"zeta"},{"id":"alpha"}]}`))
+	}))
+	t.Cleanup(models.Close)
+
+	server, err := New(&app.App{Store: app.Store{Base: t.TempDir()}, Runner: modelProviderRunner{baseURL: models.URL}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	var ids []string
+	requestJSON(t, http.MethodGet, httpServer.URL+"/api/providers/model-gateway/models?gateway=openshell", nil, &ids)
+	if len(ids) != 2 || ids[0] != "alpha" || ids[1] != "zeta" {
+		t.Fatalf("models = %#v", ids)
+	}
 }
 
 func TestProviderListIncludesProfileUsage(t *testing.T) {

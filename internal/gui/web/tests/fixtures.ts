@@ -76,8 +76,18 @@ export const providers = [
     profile: 'agentbox-gateway-bearer-models-example-com',
     credential: 'MY_GATEWAY_KEY',
     credential_keys: ['MY_GATEWAY_KEY'],
+    base_url: 'https://models.example.test/v1',
     gateway: 'openshell',
     used_by: ['codex-default']
+  },
+  {
+    name: 'openai',
+    type: 'openai',
+    profile: 'agentbox-openai',
+    credential: 'OPENAI_API_KEY',
+    credential_keys: ['OPENAI_API_KEY'],
+    base_url: 'https://api.openai.com/v1',
+    gateway: 'openshell'
   },
   {
     name: 'unused-gateway',
@@ -85,12 +95,13 @@ export const providers = [
     profile: 'agentbox-gateway-header-models-example-com',
     credential: 'UNUSED_GATEWAY_KEY',
     credential_keys: ['UNUSED_GATEWAY_KEY'],
+    base_url: 'https://unused.example.test/v1',
     gateway: 'openshell'
   }
 ];
 
 export const overview: Overview = {
-  summary: { active: 1, finished: 1, failed: 0, unsynced: 1, images: 1, gateways: 1, profiles: 1, projects: 1 },
+  summary: { active: 1, finished: 1, failed: 0, unsynced: 1, images: 3, gateways: 1, profiles: 1, projects: 1 },
   tree: [
     {
       project: 'demo',
@@ -104,7 +115,11 @@ export const overview: Overview = {
   runs,
   projects: [{ version: 1, name: 'demo', root: '/repo', worktree: true }],
   profiles: [{ version: 1, name: 'codex-default', agent: 'codex', image: 'localhost/openshell:codex-1.0.0-r3', mode: 'gateway', model: 'model-x', provider: 'model-gateway', base_url: 'https://models.example.test/v1', api_key_env: 'UNIT_MODEL_KEY', policy: '/policies/default.yaml', approval: 'unattended' }],
-  images: [{ reference: 'localhost/openshell:codex-1.0.0-r3', agent: 'codex', version: '1.0.0', recipe: 3, os: 'linux', arch: 'arm64' }],
+  images: [
+    { reference: 'localhost/openshell:opencode-2.0.0-r3', agent: 'opencode', version: '2.0.0', recipe: 3, os: 'linux', arch: 'arm64' },
+    { reference: 'localhost/openshell:codex-1.0.0-r3', agent: 'codex', version: '1.0.0', recipe: 3, os: 'linux', arch: 'arm64' },
+    { reference: 'localhost/openshell:codex-0.9.0-r3', agent: 'codex', version: '0.9.0', recipe: 3, os: 'linux', arch: 'arm64' }
+  ],
   gateways: [{ name: 'openshell', active: true, endpoint: 'https://localhost:17670', type: 'podman', auth: 'bearer', source: 'local' }],
   doctor: [{ name: 'git', ok: true, detail: '/usr/bin/git' }]
 };

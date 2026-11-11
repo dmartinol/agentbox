@@ -15,6 +15,7 @@ export function App() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [log, setLog] = useState<LogDrawerState>(initialLog);
   const [doctor, setDoctor] = useState<Check[]>([]);
+  const [fleetRefreshKey, setFleetRefreshKey] = useState(0);
 
   useEffect(() => {
     void api.doctor().then(setDoctor).catch(() => setDoctor([]));
@@ -27,6 +28,8 @@ export function App() {
   const updateLog = useCallback((state: Partial<LogDrawerState>) => {
     setLog((current) => ({ ...current, ...state }));
   }, []);
+
+  const refreshFleet = useCallback(() => setFleetRefreshKey((value) => value + 1), []);
 
   const failed = doctor.filter((check) => !check.ok).length;
 
@@ -53,10 +56,10 @@ export function App() {
       </header>
 
       <main className="min-h-0 flex-1">
-        <FleetView openLog={openLog} updateLog={updateLog} />
+        <FleetView refreshKey={fleetRefreshKey} openLog={openLog} updateLog={updateLog} />
       </main>
 
-      <SetupSheet open={setupOpen} onOpenChange={setSetupOpen} openLog={openLog} updateLog={updateLog} />
+      <SetupSheet open={setupOpen} onOpenChange={setSetupOpen} onResourcesChanged={refreshFleet} openLog={openLog} updateLog={updateLog} />
       <LogDrawer state={log} onClose={() => setLog(initialLog)} onStop={async (taskId) => {
         const stopped = await api.stopTask(taskId);
         setLog((current) => ({ ...current, content: stopped.output, taskStatus: stopped.status }));
