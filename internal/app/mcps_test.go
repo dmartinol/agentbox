@@ -222,7 +222,7 @@ func TestResolveMCPSelection(t *testing.T) {
 
 func TestMCPSecretValueHeuristic(t *testing.T) {
 	for _, tc := range []struct {
-		value string
+		value  string
 		secret bool
 	}{
 		{"${GITHUB_TOKEN}", false},

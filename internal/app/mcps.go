@@ -428,7 +428,7 @@ func jsoncStrip(body []byte) []byte {
 // root, detected by filename only. Detection never reads file contents.
 func LocalMCPFiles(root string) []string {
 	candidates := []string{
-		".mcp.json", // claude
+		".mcp.json",                       // claude
 		"opencode.json", "opencode.jsonc", // opencode
 		filepath.Join(".opencode", "opencode.json"), filepath.Join(".opencode", "opencode.jsonc"),
 		filepath.Join(".codex", "config.toml"), // codex (trusted projects only)
