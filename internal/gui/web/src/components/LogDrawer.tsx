@@ -15,11 +15,13 @@ export interface LogDrawerState {
 export function LogDrawer({
   state,
   onClose,
-  onStop
+  onStop,
+  stopping = false
 }: {
   state: LogDrawerState;
   onClose: () => void;
   onStop?: (taskId: string) => void;
+  stopping?: boolean;
 }) {
   return (
     <Dialog.Root open={state.open} onOpenChange={(open) => !open && onClose()}>
@@ -34,8 +36,8 @@ export function LogDrawer({
             </div>
             <div className="flex items-center gap-1">
               {state.taskId && state.taskStatus === 'running' ? (
-                <Button size="xs" variant="danger" onClick={() => onStop?.(state.taskId!)}>
-                  <Square className="size-3" /> Stop
+                <Button size="xs" variant="danger" loading={stopping} onClick={() => onStop?.(state.taskId!)}>
+                  <Square className="size-3" /> {stopping ? 'Stopping' : 'Stop'}
                 </Button>
               ) : null}
               <Dialog.Close asChild>

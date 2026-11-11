@@ -8,6 +8,7 @@ import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input, Select } from '../../components/ui/input';
 import { Modal } from '../../components/ui/dialog';
+import { ConfirmDialog } from '../../components/ui/confirm';
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 
 const providerKinds = ['gateway-bearer', 'gateway-header', 'openai', 'anthropic'];
@@ -154,7 +155,7 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
         onOpenChange={setSetupOpen}
         title="Set up provider"
         description="Create an OpenShell inference provider."
-        footer={<><Button variant="ghost" onClick={() => setSetupOpen(false)}>Cancel</Button><Button loading={submitting} onClick={() => void setup()}>Set up</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setSetupOpen(false)}>Cancel</Button><Button loading={submitting} onClick={() => void setup()}>{submitting ? 'Setting up' : 'Set up'}</Button></>}
       >
         {setupError ? <Alert variant="danger" title="Provider setup failed" className="mb-3">{setupError}</Alert> : null}
         <div className="grid gap-3 sm:grid-cols-2">
@@ -192,7 +193,7 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
         open={Boolean(editProvider)}
         onOpenChange={(open) => !open && setEditProvider(undefined)}
         title={editProvider ? `Edit ${editProvider.name}` : 'Edit provider'}
-        footer={<><Button variant="ghost" onClick={() => setEditProvider(undefined)}>Cancel</Button><Button loading={editSubmitting} disabled={(editProvider?.credential_keys?.length ?? 0) > 1} onClick={() => void update()}>Save</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setEditProvider(undefined)}>Cancel</Button><Button loading={editSubmitting} disabled={(editProvider?.credential_keys?.length ?? 0) > 1} onClick={() => void update()}>{editSubmitting ? 'Saving' : 'Save'}</Button></>}
       >
         {editError ? <Alert variant="danger" title="Provider update failed" className="mb-3">{editError}</Alert> : null}
         {editProvider ? (
@@ -211,17 +212,21 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
         ) : null}
       </Modal>
 
-      <Modal
+      <ConfirmDialog
         open={Boolean(deleteProvider)}
         onOpenChange={(open) => !open && setDeleteProvider(undefined)}
         title={deleteProvider ? `Delete ${deleteProvider.name}` : 'Delete provider'}
-        footer={<><Button variant="ghost" onClick={() => setDeleteProvider(undefined)}>Cancel</Button><Button variant="danger" loading={deleteSubmitting} disabled={Boolean(deleteProvider?.used_by?.length)} onClick={() => void remove()}>Delete</Button></>}
+        confirmLabel="Delete"
+        busyLabel="Deleting"
+        busy={deleteSubmitting}
+        disabled={Boolean(deleteProvider?.used_by?.length)}
+        onConfirm={() => void remove()}
       >
         {deleteError ? <Alert variant="danger" title="Provider deletion failed" className="mb-3">{deleteError}</Alert> : null}
         {deleteProvider?.used_by?.length ? (
           <Alert variant="warning" title="Provider is in use">Edit or delete these profiles first: {deleteProvider.used_by.join(', ')}</Alert>
         ) : <p className="text-sm text-muted">Delete this OpenShell provider?</p>}
-      </Modal>
+      </ConfirmDialog>
     </div>
   );
 }

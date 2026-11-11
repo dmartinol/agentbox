@@ -10,12 +10,15 @@ import { EmptyState } from '../components/ui/empty';
 import { Field } from '../components/ui/field';
 import { Input, Select, Textarea } from '../components/ui/input';
 import { Modal } from '../components/ui/dialog';
+import { ConfirmDialog } from '../components/ui/confirm';
 import { Table, TBody, TD, TH, THead, TR } from '../components/ui/table';
 const AgentTerminal = lazy(() => import('../components/AgentTerminal').then((module) => ({ default: module.AgentTerminal })));
 import { StatusBadge, canAttachRun, isActiveRun, canStopRun } from '../components/StatusBadge';
 import type { LogDrawerState } from '../components/LogDrawer';
 
 const allProjects = 'All projects';
+
+type AgentAction = 'sync' | 'stop' | 'delete';
 
 export function FleetView({
   refreshKey = 0,
@@ -41,6 +44,9 @@ export function FleetView({
   const [startForm, setStartForm] = useState<StartRunRequest>({ project: '', profile: '', gateway: '', name: '', prompt: '' });
   const [useOverrides, setUseOverrides] = useState(false);
   const [overrides, setOverrides] = useState({ image: '', model: '', approval: 'prompted' });
+  const [pending, setPending] = useState<Record<string, AgentAction>>({});
+  const [deleteTarget, setDeleteTarget] = useState<Run>();
+  const [copySource, setCopySource] = useState<Run>();
 
   const load = async () => {
     try {
@@ -91,36 +97,85 @@ export function FleetView({
 
   const selectedProfile: Profile | undefined = overview?.profiles.find((profile) => profile.name === startForm.profile);
 
-  const action = async (callback: () => Promise<unknown>, message: string) => {
+  const inFlightStatus = (agent: Run): string => {
+    const kind = pending[agent.id];
+    if (kind === 'stop') return 'stopping';
+    if (kind === 'delete') return 'deleting';
+    return agent.status;
+  };
+
+  const runAgentAction = async (agent: Run, kind: AgentAction, callback: () => Promise<unknown>, message: string) => {
     setActionError('');
     setNotice('');
+    setPending((current) => ({ ...current, [agent.id]: kind }));
     try {
       await callback();
       setNotice(message);
       await load();
     } catch (err) {
       setActionError((err as Error).message);
+    } finally {
+      setPending((current) => {
+        const next = { ...current };
+        delete next[agent.id];
+        return next;
+      });
     }
   };
 
   const openStart = async () => {
     setStartError('');
+    setCopySource(undefined);
+    setStartForm((form) => ({
+      ...form,
+      project: form.project || overview?.projects[0]?.name || '',
+      profile: form.profile || overview?.profiles[0]?.name || '',
+      gateway: form.gateway || overview?.gateways[0]?.name || 'openshell',
+      name: '',
+      prompt: ''
+    }));
+    setUseOverrides(false);
+    setOverrides({ image: '', model: '', approval: 'prompted' });
     await load();
     setStartOpen(true);
   };
 
+  const copyAgent = (run: Run) => {
+    const profiles = overview?.profiles ?? [];
+    const profile = profiles.find((item) => item.image === run.image) ?? profiles.find((item) => item.agent === run.agent);
+    setStartError('');
+    setCopySource(run);
+    setStartForm({
+      project: run.project || overview?.projects[0]?.name || '',
+      profile: profile?.name || profiles[0]?.name || '',
+      gateway: run.gateway || overview?.gateways[0]?.name || 'openshell',
+      name: '',
+      prompt: ''
+    });
+    setUseOverrides(true);
+    setOverrides({ image: run.image, model: run.model, approval: run.approval || 'prompted' });
+    setStartOpen(true);
+  };
+
+  const closeStart = () => {
+    setStartOpen(false);
+    setCopySource(undefined);
+  };
+
   const startAgent = async () => {
     setStartError('');
+    setNotice('');
     setStartSubmitting(true);
     try {
-      await api.startRun({
+      const created = await api.startRun({
         ...startForm,
         ...(useOverrides ? overrides : {}),
         name: startForm.name?.trim() || undefined,
         prompt: startForm.prompt?.trim() || undefined
       });
-      setStartOpen(false);
-      setNotice('Agent started');
+      closeStart();
+      setSelected(created);
+      setNotice(`Agent ${created.name || created.id} started`);
       await load();
     } catch (err) {
       setStartError((err as Error).message);
@@ -128,6 +183,17 @@ export function FleetView({
       setStartSubmitting(false);
     }
   };
+
+  const confirmDelete = () => {
+    const target = deleteTarget;
+    if (!target) return;
+    setDeleteTarget(undefined);
+    void runAgentAction(target, 'delete', async () => {
+      await api.deleteRun(target.id);
+      setSelected((current) => (current?.id === target.id ? undefined : current));
+    }, 'Agent deleted');
+  };
+
 
   const openDetail = async (agent: Run, kind: 'logs' | 'diff' | 'policy') => {
     setSelected(agent);
@@ -217,28 +283,49 @@ export function FleetView({
                     </TR>
                   </THead>
                   <TBody>
-                    {projectAgents.map((agent) => (
-                      <TR
-                        key={agent.id}
-                        className={selected?.id === agent.id ? 'bg-accent/10' : undefined}
-                        onClick={() => setSelected(agent)}
-                      >
-                        <TD className="truncate font-medium" onClick={(event) => { event.stopPropagation(); setSelected(agent); }}>{agent.name || agent.id}</TD>
-                        <TD>{agent.agent}</TD>
-                        <TD><StatusBadge status={agent.status} /></TD>
-                        <TD className={agent.synced ? 'text-success' : 'text-warning'}>{agent.synced ? 'Synced' : 'Unsynced'}</TD>
-                        <TD className="truncate font-mono text-xs text-muted">{agent.branch}</TD>
-                        <TD>
-                          <div className="flex flex-wrap gap-1">
-                            <Button size="xs" variant="ghost" disabled={!canAttachRun(agent.status)} onClick={(event) => { event.stopPropagation(); setAttachedRun(agent); }}><Monitor className="size-3" /> Attach</Button>
-                            <Button size="xs" variant="ghost" onClick={(event) => { event.stopPropagation(); void openDetail(agent, 'logs'); }}><Terminal className="size-3" /> Logs</Button>
-                            <Button size="xs" variant="ghost" onClick={(event) => { event.stopPropagation(); void openDetail(agent, 'diff'); }}>Diff</Button>
-                            <Button size="xs" variant="ghost" onClick={(event) => { event.stopPropagation(); void action(() => api.syncRun(agent.id), `Sync requested for ${agent.name || agent.id}`); }}>Sync</Button>
-                            <Button size="xs" variant="ghost" disabled={!canStopRun(agent.status)} onClick={(event) => { event.stopPropagation(); void action(() => api.stopRun(agent.id), `Stop requested for ${agent.name || agent.id}`); }}>Stop</Button>
-                          </div>
-                        </TD>
-                      </TR>
-                    ))}
+                    {projectAgents.map((agent) => {
+                      const busy = pending[agent.id];
+                      return (
+                        <TR
+                          key={agent.id}
+                          className={selected?.id === agent.id ? 'bg-accent/10' : undefined}
+                          onClick={() => setSelected(agent)}
+                        >
+                          <TD className="truncate font-medium" onClick={(event) => { event.stopPropagation(); setSelected(agent); }}>{agent.name || agent.id}</TD>
+                          <TD>{agent.agent}</TD>
+                          <TD><StatusBadge status={inFlightStatus(agent)} /></TD>
+                          <TD className={busy === 'sync' ? 'text-info' : agent.synced ? 'text-success' : 'text-warning'}>
+                            {busy === 'sync' ? 'Syncing' : agent.synced ? 'Synced' : 'Unsynced'}
+                          </TD>
+                          <TD className="truncate font-mono text-xs text-muted">{agent.branch}</TD>
+                          <TD>
+                            <div className="flex flex-wrap gap-1">
+                              <Button size="xs" variant="ghost" disabled={!canAttachRun(agent.status)} onClick={(event) => { event.stopPropagation(); setAttachedRun(agent); }}><Monitor className="size-3" /> Attach</Button>
+                              <Button size="xs" variant="ghost" onClick={(event) => { event.stopPropagation(); void openDetail(agent, 'logs'); }}><Terminal className="size-3" /> Logs</Button>
+                              <Button size="xs" variant="ghost" onClick={(event) => { event.stopPropagation(); void openDetail(agent, 'diff'); }}>Diff</Button>
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                loading={busy === 'sync'}
+                                disabled={Boolean(busy)}
+                                onClick={(event) => { event.stopPropagation(); void runAgentAction(agent, 'sync', () => api.syncRun(agent.id), `Sync requested for ${agent.name || agent.id}`); }}
+                              >
+                                {busy === 'sync' ? 'Syncing' : 'Sync'}
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                loading={busy === 'stop'}
+                                disabled={Boolean(busy) || !canStopRun(agent.status)}
+                                onClick={(event) => { event.stopPropagation(); void runAgentAction(agent, 'stop', () => api.stopRun(agent.id), `Stop requested for ${agent.name || agent.id}`); }}
+                              >
+                                {busy === 'stop' ? 'Stopping' : 'Stop'}
+                              </Button>
+                            </div>
+                          </TD>
+                        </TR>
+                      );
+                    })}
                   </TBody>
                 </Table>
               </Card>
@@ -254,7 +341,7 @@ export function FleetView({
                   <div className="truncate text-sm font-semibold">{selected.name || selected.id}</div>
                   <div className="text-sm text-muted">{selected.project || 'Unassigned'} · {selected.agent}</div>
                 </div>
-                <StatusBadge status={selected.status} />
+                <StatusBadge status={inFlightStatus(selected)} />
               </div>
               <dl className="space-y-1.5 rounded-lg border border-border bg-surface/50 p-2.5 text-sm">
                 {[
@@ -278,7 +365,15 @@ export function FleetView({
                 <Button variant="outline" onClick={() => void openDetail(selected, 'logs')}>View logs</Button>
                 <Button variant="outline" onClick={() => void openDetail(selected, 'diff')}>View diff</Button>
                 <Button variant="outline" onClick={() => void openDetail(selected, 'policy')}>View policy</Button>
-                <Button variant="danger" onClick={() => void action(async () => { await api.deleteRun(selected.id); setSelected(undefined); }, 'Agent deleted')}>Delete agent</Button>
+                <Button variant="outline" onClick={() => copyAgent(selected)}>Copy agent</Button>
+                <Button
+                  variant="danger"
+                  loading={pending[selected.id] === 'delete'}
+                  disabled={Boolean(pending[selected.id])}
+                  onClick={() => setDeleteTarget(selected)}
+                >
+                  {pending[selected.id] === 'delete' ? 'Deleting agent' : 'Delete agent'}
+                </Button>
               </div>
             </div>
           ) : (
@@ -301,13 +396,18 @@ export function FleetView({
 
       <Modal
         open={startOpen}
-        onOpenChange={setStartOpen}
-        title="New agent"
-        description="Start an OpenShell-backed agent from a registered project and profile."
+        onOpenChange={(open) => {
+          setStartOpen(open);
+          if (!open) setCopySource(undefined);
+        }}
+        title={copySource ? `Copy ${copySource.name || copySource.id}` : 'New agent'}
+        description={copySource
+          ? `Start a new agent with the configuration of ${copySource.name || copySource.id}.`
+          : 'Start an OpenShell-backed agent from a registered project and profile.'}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setStartOpen(false)}>Cancel</Button>
-            <Button loading={startSubmitting} onClick={() => void startAgent()}>Start</Button>
+            <Button variant="ghost" onClick={closeStart}>Cancel</Button>
+            <Button loading={startSubmitting} onClick={() => void startAgent()}>{startSubmitting ? 'Starting' : 'Start'}</Button>
           </>
         }
       >
@@ -367,6 +467,18 @@ export function FleetView({
           ) : null}
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(undefined)}
+        title={deleteTarget ? `Delete ${deleteTarget.name || deleteTarget.id}` : 'Delete agent'}
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+      >
+        <p className="text-sm text-muted">
+          This stops the agent and permanently removes its sandbox, worktree, and branch. Unsynced work is discarded.
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }

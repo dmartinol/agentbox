@@ -15,7 +15,9 @@ const meta: Record<string, { tone: BadgeTone; label: string }> = {
   unreachable: { tone: 'warning', label: 'Unreachable' },
   succeeded: { tone: 'success', label: 'Succeeded' },
   failed: { tone: 'danger', label: 'Failed' },
-  canceled: { tone: 'neutral', label: 'Canceled' }
+  canceled: { tone: 'neutral', label: 'Canceled' },
+  stopping: { tone: 'warning', label: 'Stopping' },
+  deleting: { tone: 'danger', label: 'Deleting' }
 };
 
 export const activeStatuses = new Set(['running', 'created', 'prepared']);

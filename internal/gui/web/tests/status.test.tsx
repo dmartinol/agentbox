@@ -25,4 +25,15 @@ describe('agent status presentation', () => {
     expect(canStopRun('idle')).toBe(true);
     expect(statusLabel('unreachable')).toBe('Unreachable');
   });
+
+  it('labels in-flight action states', () => {
+    render(
+      <>
+        <StatusBadge status="stopping" />
+        <StatusBadge status="deleting" />
+      </>
+    );
+    expect(screen.getByText('Stopping')).toBeInTheDocument();
+    expect(screen.getByText('Deleting')).toBeInTheDocument();
+  });
 });

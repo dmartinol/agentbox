@@ -18,6 +18,7 @@ export function GatewaysPanel() {
   const [connectOpen, setConnectOpen] = useState(false);
   const [form, setForm] = useState({ url: 'https://localhost:17670', name: 'openshell' });
   const [info, setInfo] = useState<unknown>();
+  const [busy, setBusy] = useState<string>();
 
   const load = async () => {
     try {
@@ -32,20 +33,25 @@ export function GatewaysPanel() {
 
   useEffect(() => { void load(); }, []);
 
-  const action = async (callback: () => Promise<unknown>, message: string) => {
+  const action = async (key: string, callback: () => Promise<unknown>, message: string) => {
+    setBusy(key);
     try {
       await callback();
       setNotice(message);
       await load();
     } catch (err) {
       setError(err as Error);
+    } finally {
+      setBusy(undefined);
     }
   };
 
   return (
     <div className="space-y-3">
       <div className="flex justify-end gap-2">
-        <Button size="sm" variant="outline" onClick={() => void action(() => api.startGateway(), 'Gateway start requested')}>Start service</Button>
+        <Button size="sm" variant="outline" loading={busy === 'start'} onClick={() => void action('start', () => api.startGateway(), 'Gateway start requested')}>
+          {busy === 'start' ? 'Starting' : 'Start service'}
+        </Button>
         <Button size="sm" onClick={() => setConnectOpen(true)}>Connect gateway</Button>
       </div>
       {notice ? <Alert variant="success" title={notice} /> : null}
@@ -62,7 +68,7 @@ export function GatewaysPanel() {
                 <TD><Badge tone={gateway.active ? 'success' : 'neutral'}>{gateway.active ? 'Active' : 'Inactive'}</Badge></TD>
                 <TD className="truncate font-mono text-xs text-muted">{gateway.endpoint}</TD>
                 <TD>{gateway.type}</TD>
-                <TD><Button size="xs" variant="ghost" onClick={() => void action(async () => setInfo(await api.gatewayInfo(gateway.name)), 'Gateway inspected')}>Inspect</Button></TD>
+                <TD><Button size="xs" variant="ghost" loading={busy === `inspect:${gateway.name}`} onClick={() => void action(`inspect:${gateway.name}`, async () => setInfo(await api.gatewayInfo(gateway.name)), 'Gateway inspected')}>Inspect</Button></TD>
               </TR>
             ))}
           </TBody>
@@ -74,7 +80,7 @@ export function GatewaysPanel() {
         open={connectOpen}
         onOpenChange={setConnectOpen}
         title="Connect gateway"
-        footer={<><Button variant="ghost" onClick={() => setConnectOpen(false)}>Cancel</Button><Button onClick={() => void action(async () => { await api.connectGateway(form); setConnectOpen(false); }, 'Gateway connected')}>Connect</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setConnectOpen(false)}>Cancel</Button><Button loading={busy === 'connect'} onClick={() => void action('connect', async () => { await api.connectGateway(form); setConnectOpen(false); }, 'Gateway connected')}>{busy === 'connect' ? 'Connecting' : 'Connect'}</Button></>}
       >
         <div className="grid gap-3">
           <Field label="Endpoint URL" htmlFor="gateway-url" required><Input id="gateway-url" value={form.url} onChange={(event) => setForm({ ...form, url: event.target.value })} /></Field>
