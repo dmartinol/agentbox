@@ -1,0 +1,29 @@
+title: AgentBox
+description: A local CLI and web GUI for running coding agents in isolated OpenShell sandboxes.
+url: https://dmartinol.github.io
+baseurl: /agentbox
+theme: minima
+markdown: kramdown
+permalink: pretty
+
+header_pages:
+  - getting-started.md
+  - cli-reference.md
+  - architecture.md
+
+plugins:
+  - jekyll-seo-tag
+
+exclude:
+  - AGENTS.md
+  - IT01-REPORT.md
+  - README.md
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor
+  - .bundle
+  - .sass-cache
+  - .jekyll-cache
+  - .jekyll-metadata
+  - _site

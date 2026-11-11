@@ -21,6 +21,8 @@ The animated tour uses sample data and shows a typical profile-to-agent workflow
 
 ## Documentation
 
+- [User guide](https://dmartinol.github.io/agentbox/) — installation and first-run workflow.
+- [CLI reference](https://dmartinol.github.io/agentbox/cli-reference/) — command syntax and options.
 - [OpenShell integration architecture](docs/openshell-architecture.md) — how images, providers, profiles, policies, and runs fit together.
 - [AGENTS.md](AGENTS.md) — operating instructions and scope guardrails for AI agents contributing to this repository.
 
