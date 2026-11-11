@@ -1,8 +1,30 @@
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="AgentBox logo" width="260">
+</p>
+
 # AgentBox
 
 AgentBox is a local CLI and web GUI for running multiple coding agents in isolated OpenShell sandboxes. It manages OpenShell-backed images, gateway policies, providers, and concurrent agent runs while keeping each run’s checkout, state, logs, and configuration separate.
 
 This repository is an autonomous OpenShell spike. It is not a supported product release.
+
+## Screenshots
+
+The screenshots use sample data.
+
+<p align="center">
+  <img src="docs/screenshots/fleet.png" alt="AgentBox Fleet view showing agents grouped by project" width="49%">
+  <img src="docs/screenshots/setup.png" alt="AgentBox Setup sheet showing profiles" width="49%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/model-selection.png" alt="AgentBox profile form with discovered model selection" width="72%">
+</p>
+
+## Documentation
+
+- [OpenShell integration architecture](docs/openshell-architecture.md) — how images, providers, profiles, policies, and runs fit together.
+- [AGENTS.md](AGENTS.md) — operating instructions and scope guardrails for AI agents contributing to this repository.
 
 ## Status
 
@@ -16,7 +38,7 @@ The current implementation provides:
 - `run` commands for start, list, show, attach, logs, stop, sync, diff, and delete.
 - A compact React web GUI for the consolidated agent fleet and setup workflows.
 
-Unit tests cover the core behavior with temporary repositories and fake command runners. Live gateway, registry, policy-enforcement, and real-agent validation are not yet exercised.
+Unit tests cover the core behavior with temporary repositories and fake command runners. Live OpenShell, registry, policy-enforcement, and real-agent checks are opt-in and documented below.
 
 ## Install
 
@@ -218,6 +240,9 @@ New isolated runs use `<worktree-root>/<project>/<run-name>` and
 `<branch-prefix>/<project>/<run-name>`.
 
 ### Model gateway configuration
+
+For the full image/provider/profile/run architecture, see
+[docs/openshell-architecture.md](docs/openshell-architecture.md).
 
 Gateway-mode profiles route agent model traffic through an OpenShell
 inference provider instead of a direct model-provider credential. Configuration
@@ -423,12 +448,31 @@ AgentBox stores all default state under `~/.agentbox`:
 Set `AGENTBOX_HOME` to use a different private state directory for testing or
 custom layouts. Worktrees then live under `$AGENTBOX_HOME/worktrees`.
 
+## Repository artwork
+
+The repository logo is stored at:
+
+```text
+docs/assets/logo.svg
+```
+
+A GitHub social-preview image is stored at:
+
+```text
+docs/assets/social-preview.png
+```
+
+GitHub does not expose repository social-preview upload through its public REST
+or GraphQL API. To use the generated artwork as the repository card image, upload
+`docs/assets/social-preview.png` manually under **Settings → Social preview**.
+
 ## Repository layout
 
 ```text
 cmd/agentbox     CLI entry point
 internal/app     Core application logic
 internal/gui     JSON API and embedded React web GUI
+docs             Architecture guide, artwork, and screenshots
 .github          CI workflow
 Makefile         Build and test targets
 ```

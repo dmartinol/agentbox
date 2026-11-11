@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, Boxes, Settings } from 'lucide-react';
+import { Activity, Settings } from 'lucide-react';
 import { ThemeToggle } from './components/ThemeToggle';
 import { api } from './api';
 import type { Check } from './types';
@@ -19,6 +19,7 @@ export function App() {
   const [fleetRefreshKey, setFleetRefreshKey] = useState(0);
 
   useEffect(() => {
+    document.getElementById('agentbox-splash')?.remove();
     void api.doctor().then(setDoctor).catch(() => setDoctor([]));
   }, []);
 
@@ -37,10 +38,7 @@ export function App() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-surface px-3">
-        <div className="flex items-center gap-2">
-          <Boxes className="size-4 text-accent" />
-          <span className="text-sm font-semibold tracking-tight">AgentBox</span>
-        </div>
+        <img src="/agentbox-logo.svg" alt="AgentBox" className="h-6 w-auto" />
         <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted">
           <Activity className="size-3.5" />
           OpenShell fleet

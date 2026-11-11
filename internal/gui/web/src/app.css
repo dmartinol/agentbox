@@ -69,3 +69,25 @@ textarea {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
 }
+
+#agentbox-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-content: center;
+  gap: 0.75rem;
+  justify-items: center;
+  background: var(--color-background);
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+#agentbox-splash img {
+  width: 11.25rem;
+  max-width: 70vw;
+}
+
+#agentbox-splash p {
+  margin: 0;
+}
