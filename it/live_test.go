@@ -164,7 +164,7 @@ func TestLivePolicyAndRunState(t *testing.T) {
 		t.Fatal(err)
 	}
 	if run.ID != runID {
-		t.Fatalf("run show returned ID %q; want %q", run.ID, runID)
+		t.Fatalf("agent show returned ID %q; want %q", run.ID, runID)
 	}
 	var policy map[string]json.RawMessage
 	if err := json.Unmarshal(runLive(t, "policy", "show", "--json", runID), &policy); err != nil {
@@ -288,7 +288,7 @@ func liveRunStatus(t *testing.T, id string) app.Run {
 			return run
 		}
 	}
-	t.Fatalf("run %s not found in run list", id)
+	t.Fatalf("agent %s not found in agent list", id)
 	return app.Run{}
 }
 
