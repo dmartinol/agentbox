@@ -308,7 +308,7 @@ func (a *App) ProviderSetup(ctx context.Context, kind, name, host, credential, g
 	if strings.HasPrefix(kind, "gateway-") {
 		displayName += " (" + host + ")"
 	}
-	profile := fmt.Sprintf("id: %s\ndisplay_name: %s\ncategory: inference\ninference_capable: true\ncredentials:\n  - name: api_key\n    env_vars: [%s]\n    required: true\n    auth_style: %s\n    header_name: %s\nendpoints:\n  - host: %s\n    port: 443\n    path: /v1/**\n    protocol: rest\n    access: full\n    enforcement: enforce\nbinaries:\n  - /usr/local/bin/claude\n  - /usr/local/bin/codex\n  - /usr/local/bin/opencode\n  - /usr/local/bin/node\n  - /usr/local/lib/node_modules/@openai/codex/**/bin/codex\n  - /usr/local/lib/node_modules/@opencode/**/bin/opencode\n  - /usr/local/lib/node_modules/@anthropic-ai/claude-code/**\n", profileID, displayName, envNameValue, authStyle, header, host)
+	profile := fmt.Sprintf("id: %s\ndisplay_name: %s\ncategory: inference\ninference_capable: true\ncredentials:\n  - name: api_key\n    env_vars: [%s]\n    required: true\n    auth_style: %s\n    header_name: %s\nendpoints:\n  - host: %s\n    port: 443\n    path: /v1/**\n    protocol: rest\n    access: full\n    enforcement: enforce\nbinaries:\n  - /usr/local/bin/claude\n  - /usr/local/bin/codex\n  - /usr/local/bin/opencode\n  - /usr/local/bin/node\n  - /usr/local/lib/node_modules/@openai/codex/**\n  - /usr/local/lib/node_modules/@opencode/**\n  - /usr/local/lib/node_modules/@anthropic-ai/claude-code/**\n", profileID, displayName, envNameValue, authStyle, header, host)
 	path := filepath.Join(a.Store.ProfilesDir(), profileID+"-provider.yaml")
 	if dry {
 		fmt.Print(profile)

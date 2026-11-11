@@ -190,6 +190,43 @@ func TestProviderSetupKeepsCredentialValueOutOfGeneratedData(t *testing.T) {
 	}
 }
 
+func TestProviderSetupAllowsCurrentAgentBinaryLayouts(t *testing.T) {
+	t.Setenv("UNIT_MODEL_KEY", "unit-secret")
+	runner := &fakeRunner{}
+	store := Store{Base: t.TempDir()}
+	app := App{Store: store, Runner: runner}
+	if err := app.ProviderSetup(context.Background(), "gateway-bearer", "unit-provider", "models.example.test", "UNIT_MODEL_KEY", "gateway-one", false, false); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := os.ReadFile(filepath.Join(store.ProfilesDir(), "agentbox-gateway-bearer-models-example-test-provider.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The agent images install npm packages whose bin entries moved over time:
+	// @opencode/cli ships a self-contained bun executable at
+	// @opencode/cli/bin/opencode.exe and @openai/codex ships a node shim at
+	// @openai/codex/bin/codex.js. The middleware only lets allowlisted
+	// binaries connect to enforced endpoints, so the generated profile must
+	// cover the whole package trees rather than stale bin paths.
+	for _, want := range []string{
+		"/usr/local/lib/node_modules/@openai/codex/**\n",
+		"/usr/local/lib/node_modules/@opencode/**\n",
+		"/usr/local/lib/node_modules/@anthropic-ai/claude-code/**\n",
+	} {
+		if !strings.Contains(string(provider), want) {
+			t.Fatalf("provider profile missing binary allowlist entry %q:\n%s", want, provider)
+		}
+	}
+	for _, stale := range []string{
+		"@openai/codex/**/bin/codex",
+		"@opencode/**/bin/opencode",
+	} {
+		if strings.Contains(string(provider), stale) {
+			t.Fatalf("provider profile still pins stale binary path %q:\n%s", stale, provider)
+		}
+	}
+}
+
 func TestSessionScriptOffersIdleReattach(t *testing.T) {
 	for _, want := range []string{
 		"Keep this run idle for reattach?",
