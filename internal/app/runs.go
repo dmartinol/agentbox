@@ -120,6 +120,19 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if !strings.Contains(strings.ToLower(string(gw)), "podman") {
 		return Run{}, fmt.Errorf("selected gateway does not report the Podman driver")
 	}
+	if definition, ok := BuiltinProviderByName(p.Provider); ok {
+		status := a.ensureBuiltinProvider(ctx, definition, opt.Gateway)
+		if !status.Registered {
+			if !status.CredentialPresent {
+				return Run{}, fmt.Errorf("provider %q is built in but %s is not set in the environment where AgentBox and the OpenShell gateway run", p.Provider, definition.Credential)
+			}
+			detail := status.Error
+			if detail == "" {
+				detail = "not registered with OpenShell"
+			}
+			return Run{}, fmt.Errorf("provider %q is built in but could not be registered: %s", p.Provider, detail)
+		}
+	}
 	if _, err := a.Runner.Output(ctx, "openshell", "provider", "get", p.Provider, "--gateway", opt.Gateway); err != nil {
 		return Run{}, fmt.Errorf("provider %q unavailable: %w", p.Provider, err)
 	}

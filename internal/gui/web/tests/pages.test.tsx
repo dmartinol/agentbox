@@ -244,6 +244,15 @@ describe('provider management', () => {
     await user.click(await screen.findByRole('button', { name: 'Delete' }));
     expect(await screen.findByText('Provider unused-gateway deleted')).toBeInTheDocument();
   });
+
+  it('marks built-in providers as non-editable and non-deletable', async () => {
+    render(<ProvidersPanel />);
+    const row = (await screen.findByText('OPENAI_API_KEY')).closest('tr');
+    if (!row) throw new Error('provider row missing');
+    expect(within(row).getByText('Built-in')).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Edit' })).toBeDisabled();
+    expect(within(row).getByRole('button', { name: 'Delete' })).toBeDisabled();
+  });
 });
 
 describe('profiles', () => {
@@ -495,15 +504,13 @@ describe('image pulls', () => {
 });
 
 describe('provider setup', () => {
-  it('prefills direct OpenAI defaults', async () => {
+  it('only offers gateway provider types because direct providers are built in', async () => {
     const user = userEvent.setup();
     render(<ProvidersPanel />);
     await user.click(await screen.findByRole('button', { name: 'Set up provider' }));
     const dialog = await screen.findByRole('dialog');
-    await user.selectOptions(within(dialog).getByLabelText(/^Type/), 'openai');
-    expect(within(dialog).getByLabelText(/^Provider host/)).toHaveValue('api.openai.com');
-    expect(within(dialog).getByLabelText(/^Credential env/)).toHaveValue('OPENAI_API_KEY');
-    expect(within(dialog).getByLabelText(/^Provider host/)).toBeDisabled();
-    expect(within(dialog).getByLabelText(/^Credential env/)).toBeDisabled();
+    const type = within(dialog).getByLabelText(/^Type/);
+    expect(within(type).queryByRole('option', { name: 'openai' })).not.toBeInTheDocument();
+    expect(within(type).queryByRole('option', { name: 'anthropic' })).not.toBeInTheDocument();
   });
 });

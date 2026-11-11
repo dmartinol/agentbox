@@ -90,8 +90,17 @@ network access to the provider endpoint.
 - `gateway-bearer` — OpenAI-compatible APIs such as Codex and OpenCode through
   EnMaaS or another gateway.
 - `gateway-header` — Anthropic-compatible APIs such as Claude through EnMaaS.
-- `openai` — direct OpenAI API access; use with profile mode `standard`.
-- `anthropic` — direct Anthropic API access; use with profile mode `standard`.
+- `openai` — built-in direct OpenAI API access; use with profile mode
+  `standard`.
+- `anthropic` — built-in direct Anthropic API access; use with profile mode
+  `standard`.
+
+The `openai` and `anthropic` providers are built in because their endpoint and
+credential environment are fixed by the vendor. AgentBox ensures both exist for
+a gateway when the provider list is loaded and before starting a run that
+references one. If the matching credential environment is absent, the provider
+is reported as unregistered rather than created. Built-in providers cannot use
+a custom name and cannot be edited or deleted through AgentBox.
 
 ## Profile layer
 

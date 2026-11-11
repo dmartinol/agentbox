@@ -575,16 +575,20 @@ type providerRequest struct {
 }
 
 type providerRecord struct {
-	Name           string   `json:"name"`
-	UsedBy         []string `json:"used_by,omitempty"`
-	Type           string   `json:"type"`
-	ProviderType   string   `json:"provider_type"`
-	Profile        string   `json:"profile"`
-	ProfileID      string   `json:"profile_id"`
-	Credential     string   `json:"credential"`
-	CredentialKeys []string `json:"credential_keys"`
-	BaseURL        string   `json:"base_url,omitempty"`
-	Gateway        string   `json:"gateway"`
+	Name              string   `json:"name"`
+	UsedBy            []string `json:"used_by,omitempty"`
+	Type              string   `json:"type"`
+	ProviderType      string   `json:"provider_type"`
+	Profile           string   `json:"profile"`
+	ProfileID         string   `json:"profile_id"`
+	Credential        string   `json:"credential"`
+	CredentialKeys    []string `json:"credential_keys"`
+	BaseURL           string   `json:"base_url,omitempty"`
+	Gateway           string   `json:"gateway"`
+	Builtin           bool     `json:"builtin,omitempty"`
+	Registered        bool     `json:"registered"`
+	CredentialPresent bool     `json:"credential_present,omitempty"`
+	Error             string   `json:"error,omitempty"`
 }
 
 type providerEndpoint struct {
@@ -675,6 +679,7 @@ func normalizeProviderType(value string) string {
 }
 
 func (r providerRecord) normalized(gateway string) providerRecord {
+	r.Registered = true
 	if r.Type == "" {
 		r.Type = r.ProviderType
 	}
@@ -751,6 +756,7 @@ func (s *Server) providerModels(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
 	gateway := r.URL.Query().Get("gateway")
+	builtinStatuses := s.app.EnsureBuiltinProviders(r.Context(), gateway)
 	data, err := s.app.ProviderList(r.Context(), gateway)
 	if err != nil {
 		writeError(w, err)
@@ -770,12 +776,29 @@ func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
 	for _, profile := range profiles {
 		usedBy[profile.Provider] = append(usedBy[profile.Provider], profile.Name)
 	}
-	providers := make([]providerRecord, 0, len(payload.Providers))
+	builtinByName := make(map[string]app.BuiltinProviderStatus, len(builtinStatuses))
+	for _, status := range builtinStatuses {
+		builtinByName[status.Name] = status
+	}
+	providers := make([]providerRecord, 0, len(payload.Providers)+len(builtinStatuses))
+	seen := make(map[string]bool, len(payload.Providers))
 	for _, provider := range payload.Providers {
 		if provider.Name == "" {
 			continue
 		}
 		provider = provider.normalized(gateway)
+		if status, ok := builtinByName[provider.Name]; ok {
+			provider.Builtin = true
+			provider.Registered = status.Registered
+			provider.CredentialPresent = status.CredentialPresent
+			provider.Error = status.Error
+			provider.Type = status.Kind
+			provider.Profile = status.ProfileID
+			provider.ProfileID = status.ProfileID
+			provider.Credential = status.Credential
+			provider.CredentialKeys = []string{status.Credential}
+			provider.BaseURL = status.BaseURL
+		}
 		if provider.BaseURL == "" || provider.Credential == "" {
 			baseURL, credential := s.providerDefaults(provider)
 			if provider.BaseURL == "" {
@@ -788,8 +811,33 @@ func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
 		users := usedBy[provider.Name]
 		sort.Strings(users)
 		provider.UsedBy = users
+		seen[provider.Name] = true
 		providers = append(providers, provider)
 	}
+	for _, status := range builtinStatuses {
+		if seen[status.Name] {
+			continue
+		}
+		users := usedBy[status.Name]
+		sort.Strings(users)
+		providers = append(providers, providerRecord{
+			Name:              status.Name,
+			Type:              status.Kind,
+			ProviderType:      status.Kind,
+			Profile:           status.ProfileID,
+			ProfileID:         status.ProfileID,
+			Credential:        status.Credential,
+			CredentialKeys:    []string{status.Credential},
+			BaseURL:           status.BaseURL,
+			Gateway:           gateway,
+			Builtin:           true,
+			Registered:        status.Registered,
+			CredentialPresent: status.CredentialPresent,
+			Error:             status.Error,
+			UsedBy:            users,
+		})
+	}
+	sort.Slice(providers, func(i, j int) bool { return providers[i].Name < providers[j].Name })
 	writeJSON(w, http.StatusOK, providers)
 }
 
@@ -806,7 +854,11 @@ func (s *Server) updateProvider(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := s.app.ProviderUpdateCredential(r.Context(), name, request.Credential, request.Gateway); err != nil {
 		log.Printf("gui: provider update failed name=%q credential_env=%q gateway=%q: %v", name, request.Credential, request.Gateway, err)
-		writeError(w, fmt.Errorf("provider update failed: %w", err))
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "is built in") {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, map[string]string{"error": fmt.Errorf("provider update failed: %w", err).Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -817,7 +869,7 @@ func (s *Server) deleteProvider(w http.ResponseWriter, r *http.Request) {
 	gateway := r.URL.Query().Get("gateway")
 	if err := s.app.ProviderDelete(r.Context(), name, gateway); err != nil {
 		status := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "is used by profiles") {
+		if strings.Contains(err.Error(), "is used by profiles") || strings.Contains(err.Error(), "is built in") {
 			status = http.StatusConflict
 		}
 		log.Printf("gui: provider delete failed name=%q gateway=%q: %v", name, gateway, err)

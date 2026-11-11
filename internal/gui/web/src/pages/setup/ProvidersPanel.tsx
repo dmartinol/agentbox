@@ -11,7 +11,7 @@ import { Modal } from '../../components/ui/dialog';
 import { ConfirmDialog } from '../../components/ui/confirm';
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 
-const providerKinds = ['gateway-bearer', 'gateway-header', 'openai', 'anthropic'];
+const providerKinds = ['gateway-bearer', 'gateway-header'];
 
 export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -122,7 +122,7 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
       {notice ? <Alert variant="success" title={notice} /> : null}
       {error ? <Alert variant="danger" title="Unable to load providers">{error.message}</Alert> : null}
       {loading ? <EmptyState title="Loading providers" /> : providers.length === 0 ? (
-        <EmptyState title="No providers" description="Set up an EnMaaS or direct provider before creating gateway profiles." />
+        <EmptyState title="No providers" description="Built-in OpenAI and Anthropic providers appear here automatically; add an EnMaaS or other gateway provider before creating gateway profiles." />
       ) : (
         <Table>
           <THead><TR><TH className="w-[18%]">Name</TH><TH className="w-[18%]">Type</TH><TH className="w-[18%]">Credential</TH><TH className="w-[20%]">Used by</TH><TH>Actions</TH></TR></THead>
@@ -131,7 +131,15 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
               const usedCount = provider.used_by?.length ?? 0;
               return (
                 <TR key={`${provider.gateway ?? gateway}/${provider.name}`}>
-                  <TD className="truncate font-medium">{provider.name}</TD>
+                  <TD className="truncate font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      {provider.name}
+                      {provider.builtin ? <Badge tone="info">Built-in</Badge> : null}
+                      {provider.builtin && provider.registered === false ? (
+                        <Badge tone="warning" title={provider.error || `Set ${provider.credential ?? 'the credential environment'} in the environment where AgentBox and OpenShell run`}>Not registered</Badge>
+                      ) : null}
+                    </span>
+                  </TD>
                   <TD className="truncate text-muted">{provider.type || '-'}</TD>
                   <TD className="truncate font-mono text-xs">{provider.credential_keys?.length ? provider.credential_keys.join(', ') : provider.credential || '-'}</TD>
                   <TD className="truncate">
@@ -139,8 +147,8 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
                   </TD>
                   <TD>
                     <div className="flex gap-1">
-                      <Button size="xs" variant="ghost" onClick={() => { setEditProvider(provider); setEditCredential(provider.credential ?? provider.credential_keys?.[0] ?? ''); setEditGateway(provider.gateway || gateway); setEditError(''); }}>Edit</Button>
-                      <Button size="xs" variant="ghost" className="text-danger" disabled={usedCount > 0} title={usedCount ? 'Delete dependent profiles first' : undefined} onClick={() => { setDeleteError(''); setDeleteProvider(provider); }}>Delete</Button>
+                      <Button size="xs" variant="ghost" disabled={provider.builtin} title={provider.builtin ? 'Built-in providers are managed automatically' : undefined} onClick={() => { setEditProvider(provider); setEditCredential(provider.credential ?? provider.credential_keys?.[0] ?? ''); setEditGateway(provider.gateway || gateway); setEditError(''); }}>Edit</Button>
+                      <Button size="xs" variant="ghost" className="text-danger" disabled={provider.builtin || usedCount > 0} title={provider.builtin ? 'Built-in providers cannot be deleted' : usedCount ? 'Delete dependent profiles first' : undefined} onClick={() => { setDeleteError(''); setDeleteProvider(provider); }}>Delete</Button>
                     </div>
                   </TD>
                 </TR>
@@ -164,9 +172,7 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
               const kind = event.target.value;
               setForm({
                 ...form,
-                kind,
-                host: kind === 'openai' ? 'api.openai.com' : kind === 'anthropic' ? 'api.anthropic.com' : form.host,
-                credential: kind === 'openai' ? 'OPENAI_API_KEY' : kind === 'anthropic' ? 'ANTHROPIC_API_KEY' : form.credential
+                kind
               });
             }}>
               {providerKinds.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
@@ -176,10 +182,10 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
             <Input id="provider-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
           </Field>
           <Field label="Provider host" htmlFor="provider-host" required helper="A hostname or URL; AgentBox extracts the hostname for OpenShell.">
-            <Input id="provider-host" disabled={form.kind === 'openai' || form.kind === 'anthropic'} value={form.host} onChange={(event) => setForm({ ...form, host: event.target.value })} />
+            <Input id="provider-host" value={form.host} onChange={(event) => setForm({ ...form, host: event.target.value })} />
           </Field>
           <Field label="Credential env" htmlFor="provider-credential" required helper="Name only; value stays external.">
-            <Input id="provider-credential" disabled={form.kind === 'openai' || form.kind === 'anthropic'} value={form.credential} onChange={(event) => setForm({ ...form, credential: event.target.value })} />
+            <Input id="provider-credential" value={form.credential} onChange={(event) => setForm({ ...form, credential: event.target.value })} />
           </Field>
           <Field label="Gateway" htmlFor="provider-gateway" required>
             <Select id="provider-gateway" value={form.gateway} onChange={(event) => setForm({ ...form, gateway: event.target.value })}>

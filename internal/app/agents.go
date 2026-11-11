@@ -259,13 +259,24 @@ func normalizeGatewayHost(value string) (string, error) {
 }
 
 func (a *App) ProviderSetup(ctx context.Context, kind, name, host, credential, gateway string, dry, update bool) error {
-	if kind != "gateway-bearer" && kind != "gateway-header" && kind != "openai" && kind != "anthropic" {
+	var builtin BuiltinProvider
+	var isBuiltin bool
+	switch kind {
+	case "gateway-bearer", "gateway-header":
+	case "openai", "anthropic":
+		builtin, isBuiltin = BuiltinProviderByKind(kind)
+	default:
 		return fmt.Errorf("provider type must be gateway-bearer, gateway-header, openai, or anthropic")
 	}
 	if !safeName.MatchString(name) {
 		return fmt.Errorf("invalid provider name")
 	}
-	if kind == "gateway-bearer" || kind == "gateway-header" {
+	if isBuiltin {
+		if name != builtin.Name {
+			return fmt.Errorf("provider type %s is built in as %q; custom provider names are not supported", kind, builtin.Name)
+		}
+		host, credential = builtin.Host, builtin.Credential
+	} else {
 		normalizedHost, err := normalizeGatewayHost(host)
 		if err != nil {
 			return err
@@ -274,14 +285,6 @@ func (a *App) ProviderSetup(ctx context.Context, kind, name, host, credential, g
 		if !envName.MatchString(credential) {
 			return fmt.Errorf("gateway provider type requires an API key environment variable name")
 		}
-	}
-	switch kind {
-	case "openai":
-		host = "api.openai.com"
-		credential = "OPENAI_API_KEY"
-	case "anthropic":
-		host = "api.anthropic.com"
-		credential = "ANTHROPIC_API_KEY"
 	}
 	if os.Getenv(credential) == "" {
 		return fmt.Errorf("%s environment reference is missing", credential)
@@ -400,6 +403,9 @@ func (a *App) ProviderSetup(ctx context.Context, kind, name, host, credential, g
 }
 
 func (a *App) ProviderUpdateCredential(ctx context.Context, name, credential, gateway string) error {
+	if definition, ok := BuiltinProviderByName(name); ok {
+		return fmt.Errorf("provider %q is built in; its credential environment is fixed to %s", name, definition.Credential)
+	}
 	if !safeName.MatchString(name) {
 		return fmt.Errorf("invalid provider name")
 	}
@@ -415,6 +421,9 @@ func (a *App) ProviderUpdateCredential(ctx context.Context, name, credential, ga
 }
 
 func (a *App) ProviderDelete(ctx context.Context, name, gateway string) error {
+	if _, ok := BuiltinProviderByName(name); ok {
+		return fmt.Errorf("provider %q is built in and cannot be deleted", name)
+	}
 	if !safeName.MatchString(name) {
 		return fmt.Errorf("invalid provider name")
 	}

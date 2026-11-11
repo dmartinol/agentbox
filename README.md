@@ -301,12 +301,15 @@ In the GUI, **Use provider base URL and credential environment** copies the
 provider defaults into the profile; unchecking it allows those two values to be
 overridden for that profile.
 
-The `openai` and `anthropic` provider types remain available for `standard`
-mode profiles that use direct model-provider credentials. In the GUI, selecting
-one of these types prefills and locks the fixed provider host and credential
-environment variable:
+`openai` and `anthropic` are built-in providers for `standard` mode profiles.
+AgentBox registers them automatically for each OpenShell gateway when
+`OPENAI_API_KEY` or `ANTHROPIC_API_KEY` is present in the environment where
+AgentBox and the gateway run. Their host and credential environment are fixed:
 `openai` uses `api.openai.com` and `OPENAI_API_KEY`; `anthropic` uses
-`api.anthropic.com` and `ANTHROPIC_API_KEY`.
+`api.anthropic.com` and `ANTHROPIC_API_KEY`. Built-in providers cannot be
+created under another name, edited, or deleted. The Setup provider list shows
+them as `Not registered` when the matching credential environment is missing.
+Use the **Set up provider** dialog only for EnMaaS and other gateway providers.
 
 EnMaaS uses one key but more than one API authentication dialect. Create two
 provider configurations with the same `ENMAAS_KEY` credential reference when

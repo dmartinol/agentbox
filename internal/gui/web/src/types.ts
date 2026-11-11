@@ -84,6 +84,10 @@ export interface Provider {
   base_url?: string;
   gateway?: string;
   used_by?: string[];
+  builtin?: boolean;
+  registered?: boolean;
+  credential_present?: boolean;
+  error?: string;
 }
 
 export interface PolicyConfiguration {
