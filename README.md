@@ -13,7 +13,7 @@ The current implementation provides:
 - `gateway` commands for listing, connecting, starting, and inspecting gateways.
 - `provider` setup for OpenShell inference providers.
 - `policy` commands for showing and editing sandbox policies.
-- `run` commands for start, list, show, attach, logs, stop, sync, diff, and delete.
+- `agent` commands for start, list, show, attach, logs, stop, sync, diff, and delete.
 - A compact React web GUI for the consolidated agent fleet and setup workflows.
 
 Unit tests cover the core behavior with temporary repositories and fake command runners. Live gateway, registry, policy-enforcement, and real-agent validation are not yet exercised.
@@ -116,7 +116,7 @@ make vet
 make race
 ```
 
-The Go suite covers the API server and application behavior. The GUI suite uses Vitest and Testing Library to cover navigation, page layout, filters, status presentation, forms, API error handling, and the aggregated project/run tree.
+The Go suite covers the API server and application behavior. The GUI suite uses Vitest and Testing Library to cover navigation, page layout, filters, status presentation, forms, API error handling, and the aggregated project/agent tree.
 
 ## Usage
 
@@ -204,7 +204,7 @@ Register a Git project and choose its workspace isolation policy:
 ```
 
 Worktree isolation is enabled by default. With isolation disabled, AgentBox
-requires a clean checkout and allows only one active run against that project
+requires a clean checkout and allows only one active agent against that project
 at a time.
 
 Configure global worktree placement and branch naming:
@@ -214,8 +214,8 @@ Configure global worktree placement and branch naming:
 ./agentbox settings set --worktree-root ~/.agentbox/worktrees --branch-prefix agentbox
 ```
 
-New isolated runs use `<worktree-root>/<project>/<run-name>` and
-`<branch-prefix>/<project>/<run-name>`.
+New isolated agents use `<worktree-root>/<project>/<agent-name>` and
+`<branch-prefix>/<project>/<agent-name>`.
 
 ### Model gateway configuration
 
@@ -348,15 +348,15 @@ form updates a provider's credential environment-variable reference and target
 gateway. A provider referenced by any AgentBox profile cannot be deleted; edit
 or delete the dependent profile first.
 
-Start a run from a registered project:
+Start an agent from a registered project:
 
 ```sh
-./agentbox run start --project dev --profile codex-gateway --gateway openshell
-./agentbox run start --project dev --profile codex-gateway --name auth-refactor --gateway openshell
+./agentbox agent start --project dev --profile codex-gateway --gateway openshell
+./agentbox agent start --project dev --profile codex-gateway --name auth-refactor --gateway openshell
 ```
 
-A run name is optional, must be unique within the project, and defaults to the
-generated run ID.
+An agent name is optional, must be unique within the project, and defaults to
+the generated run ID.
 
 Open the GUI:
 
@@ -392,18 +392,18 @@ Attach is available from both the GUI and CLI.
 In the GUI, click **Attach** on an active or idle agent. AgentBox opens an
 xterm.js terminal connected to the agent's existing tmux session over a
 same-origin WebSocket. Closing the terminal dialog detaches the browser client;
-it does not finish the run. Inside the terminal, `Ctrl-b d` also detaches.
+it does not finish the agent. Inside the terminal, `Ctrl-b d` also detaches.
 
 From the CLI:
 
 ```sh
-./agentbox run attach <run-id>
+./agentbox agent attach <run-id>
 ```
 
-When the agent exits, the session asks whether to keep the run idle for later
+When the agent exits, the session asks whether to keep the agent idle for later
 reattachment or finish it. Choosing idle creates an idle marker, keeps the
-sandbox and tmux session available, and shows the run as **Idle**. Exiting the
-idle shell returns to the idle/finish prompt rather than finishing the run.
+sandbox and tmux session available, and shows the agent as **Idle**. Exiting the
+idle shell returns to the idle/finish prompt rather than finishing the agent.
 Choosing finish writes the finished marker and closes the tmux session.
 
 ## State location

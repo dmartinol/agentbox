@@ -85,8 +85,8 @@ func dispatch(ctx context.Context, a *app.App, args []string) error {
 		return providerCmd(ctx, a, args[1:])
 	case "policy":
 		return policyCmd(ctx, a, args[1:])
-	case "run":
-		return runCmd(ctx, a, args[1:])
+	case "agent":
+		return agentCmd(ctx, a, args[1:])
 	case "gui":
 		return guiCmd(ctx, a, args[1:])
 	default:
@@ -114,7 +114,7 @@ func usage() {
 	fmt.Println("  gateway list|connect|start|info")
 	fmt.Println("  provider setup")
 	fmt.Println("  policy show|edit")
-	fmt.Println("  run start|list|show|attach|logs|stop|sync|diff|delete")
+	fmt.Println("  agent start|list|show|attach|logs|stop|sync|diff|delete")
 	fmt.Println("  gui [--address host:port]")
 }
 
@@ -689,16 +689,16 @@ func policyCmd(ctx context.Context, a *app.App, args []string) error {
 	}
 }
 
-func runCmd(ctx context.Context, a *app.App, args []string) error {
+func agentCmd(ctx context.Context, a *app.App, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("run start|list|show|attach|logs|stop|sync|diff|delete required")
+		return fmt.Errorf("agent start|list|show|attach|logs|stop|sync|diff|delete required")
 	}
 	switch args[0] {
 	case "start":
-		f := flags("run start")
+		f := flags("agent start")
 		profile := f.String("profile", "", "saved profile name")
 		project := f.String("project", "", "registered project name")
-		name := f.String("name", "", "optional unique run name")
+		name := f.String("name", "", "optional unique agent name")
 		source := f.String("source", ".", "Git source checkout (when --project is omitted)")
 		gateway := f.String("gateway", "", "OpenShell gateway name")
 		image := f.String("image", "", "image override")
@@ -721,7 +721,7 @@ func runCmd(ctx context.Context, a *app.App, args []string) error {
 		fmt.Printf("%s %s %s\n", r.ID, r.Agent, r.Worktree)
 		return nil
 	case "list":
-		f := flags("run list")
+		f := flags("agent list")
 		jsonOut := f.Bool("json", false, "JSON output")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
@@ -746,7 +746,7 @@ func runCmd(ctx context.Context, a *app.App, args []string) error {
 		}
 		return nil
 	case "show":
-		f := flags("run show")
+		f := flags("agent show")
 		jsonOut := f.Bool("json", false, "JSON output")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
@@ -803,8 +803,8 @@ func runCmd(ctx context.Context, a *app.App, args []string) error {
 		_, err = os.Stdout.Write(b)
 		return err
 	case "delete":
-		f := flags("run delete")
-		discard := f.Bool("discard", false, "acknowledge discarding run results")
+		f := flags("agent delete")
+		discard := f.Bool("discard", false, "acknowledge discarding agent results")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -813,6 +813,6 @@ func runCmd(ctx context.Context, a *app.App, args []string) error {
 		}
 		return a.Delete(ctx, f.Args()[0], *discard)
 	default:
-		return fmt.Errorf("unknown run command %q", strings.Join(args, " "))
+		return fmt.Errorf("unknown agent command %q", strings.Join(args, " "))
 	}
 }
