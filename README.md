@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo.svg" alt="AgentBox logo" width="260">
+  <img src="docs/assets/agentbox-icon.svg" alt="AgentBox OpenShell fleet activity icon" width="64">
 </p>
 
 # AgentBox
@@ -448,11 +448,13 @@ custom layouts. Worktrees then live under `$AGENTBOX_HOME/worktrees`.
 
 ## Repository artwork
 
-The repository logo is stored at:
+The blue OpenShell fleet icon shown above and used as the web app favicon is stored at:
 
 ```text
-docs/assets/logo.svg
+docs/assets/agentbox-icon.svg
 ```
+
+The AgentBox wordmark remains at `docs/assets/logo.svg`.
 
 A GitHub social-preview image is stored at:
 

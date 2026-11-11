@@ -40,7 +40,7 @@ export function App() {
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-surface px-3">
         <img src="/agentbox-logo.svg" alt="AgentBox" className="h-6 w-auto" />
         <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted">
-          <Activity className="size-3.5" />
+          <Activity className="size-3.5 text-info" />
           OpenShell fleet
         </div>
         <div className="ml-auto flex items-center gap-2">
