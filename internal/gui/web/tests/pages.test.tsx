@@ -17,16 +17,17 @@ function mockRoutes(routes: Record<string, unknown>) {
     const key = `${method} ${url}`;
     if (!(key in routes)) throw new Error(`unmocked request ${key}`);
     const route = routes[key];
-    if (route && typeof route === 'object' && 'mockStatus' in route) {
-      const response = route as { mockStatus: number; body: unknown };
+    const value = typeof route === 'function' ? await (route as () => unknown)() : route;
+    if (value && typeof value === 'object' && 'mockStatus' in value) {
+      const response = value as { mockStatus: number; body: unknown };
       return jsonResponse(response.body, response.mockStatus);
     }
-    return jsonResponse(route);
+    return jsonResponse(value);
   }));
 }
 
-beforeEach(() => {
-  mockRoutes({
+function defaultRoutes(): Record<string, unknown> {
+  return {
     'GET /api/overview': overview,
     'GET /api/doctor': overview.doctor,
     'GET /api/runs': runs,
@@ -41,7 +42,11 @@ beforeEach(() => {
     'GET /api/runs/run-active/policy': { effective: { version: 1 } },
     'POST /api/providers/model-gateway/update': { ok: true },
     'POST /api/providers/unused-gateway/delete?gateway=openshell': { deleted: true }
-  });
+  };
+}
+
+beforeEach(() => {
+  mockRoutes(defaultRoutes());
 });
 
 afterEach(() => {
@@ -184,6 +189,164 @@ describe('image builds', () => {
     await waitFor(() => expect(screen.getByText(/build line two/i)).toBeInTheDocument(), { timeout: 1800 });
     await user.click(screen.getByRole('button', { name: /stop/i }));
     await waitFor(() => expect(screen.getByText(/build stopped/i)).toBeInTheDocument());
+  });
+});
+
+describe('fleet actions', () => {
+  it('marks a sync in flight until it settles', async () => {
+    let resolveSync!: (value: unknown) => void;
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/runs/run-active/sync': () => new Promise((resolve) => { resolveSync = resolve; })
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    const row = (await screen.findByText('active-run')).closest('tr');
+    if (!row) throw new Error('agent row missing');
+    await user.click(within(row).getByRole('button', { name: 'Sync' }));
+    expect(within(row).getByRole('button', { name: 'Syncing' })).toBeDisabled();
+    expect(within(row).getByText('Syncing', { selector: 'td' })).toBeInTheDocument();
+    resolveSync(runs[0]);
+    await waitFor(() => expect(within(row).getByRole('button', { name: 'Sync' })).toBeEnabled());
+    expect(await screen.findByText('Sync requested for active-run')).toBeInTheDocument();
+  });
+
+  it('marks a stop in flight until it settles', async () => {
+    let resolveStop!: (value: unknown) => void;
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/runs/run-active/stop': () => new Promise((resolve) => { resolveStop = resolve; })
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    const row = (await screen.findByText('active-run')).closest('tr');
+    if (!row) throw new Error('agent row missing');
+    await user.click(within(row).getByRole('button', { name: 'Stop' }));
+    expect(within(row).getByRole('button', { name: 'Stopping' })).toBeDisabled();
+    expect(within(row).getByText('Stopping', { selector: 'span' })).toBeInTheDocument();
+    resolveStop(runs[0]);
+    await waitFor(() => expect(within(row).getByText('Running')).toBeInTheDocument());
+  });
+
+  it('marks a new agent start in flight', async () => {
+    let resolveStart!: (value: unknown) => void;
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/runs': () => new Promise((resolve) => { resolveStart = resolve; })
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'New agent' }));
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
+    expect(screen.getByRole('button', { name: 'Starting' })).toBeDisabled();
+    resolveStart(runs[0]);
+    expect(await screen.findByText('Agent active-run started')).toBeInTheDocument();
+    expect(await screen.findByText('Agent type')).toBeInTheDocument();
+  });
+
+  it('selects a started agent so its details stay visible', async () => {
+    let resolveStart!: (value: unknown) => void;
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/runs': () => new Promise((resolve) => { resolveStart = resolve; })
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    expect(screen.queryByText('Agent type')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'New agent' }));
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
+    resolveStart(runs[0]);
+    const sidebar = await screen.findByText('Agent type');
+    const metadata = sidebar.closest('dl');
+    if (!metadata) throw new Error('agent metadata missing');
+    await waitFor(() => expect(within(metadata).getByText('agentbox/demo/active-run')).toBeInTheDocument());
+  });
+
+  it('prefills a new agent from a copied run', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText('active-run'));
+    await user.click(screen.getByRole('button', { name: 'Copy agent' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Copy active-run')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/^Project/)).toHaveValue('demo');
+    expect(within(dialog).getByLabelText(/^Profile/)).toHaveValue('codex-default');
+    expect(within(dialog).getByLabelText(/^Gateway/)).toHaveValue('openshell');
+    expect(within(dialog).getByLabelText('Override image, model, and approval')).toBeChecked();
+    expect(within(dialog).getByLabelText(/^Image/)).toHaveValue('localhost/openshell:codex-1.0.0-r3');
+    expect(within(dialog).getByLabelText(/^Model/)).toHaveValue('model-x');
+    expect(within(dialog).getByLabelText(/^Approval/)).toHaveValue('unattended');
+  });
+
+  it('opens a fresh form after copying', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText('active-run'));
+    await user.click(screen.getByRole('button', { name: 'Copy agent' }));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    await user.click(screen.getByRole('button', { name: 'New agent' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('New agent')).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText(/^Image/)).toBeNull();
+    expect(within(dialog).getByLabelText('Override image, model, and approval')).not.toBeChecked();
+  });
+
+  it('requires confirmation before deleting an agent', async () => {
+    let deleteRequested = false;
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/runs/run-active/delete': () => {
+        deleteRequested = true;
+        return { deleted: true };
+      }
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText('active-run'));
+    await user.click(screen.getByRole('button', { name: 'Delete agent' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('Delete active-run')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(deleteRequested).toBe(false);
+  });
+
+  it('marks an agent Deleting while deletion is in flight', async () => {
+    let resolveDelete!: (value: unknown) => void;
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/runs/run-active/delete': () => new Promise((resolve) => { resolveDelete = resolve; })
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    const row = (await screen.findByText('active-run')).closest('tr');
+    if (!row) throw new Error('agent row missing');
+    await user.click(await screen.findByText('active-run'));
+    await user.click(screen.getByRole('button', { name: 'Delete agent' }));
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(within(row).getByText('Deleting', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deleting agent' })).toBeDisabled();
+    resolveDelete({ deleted: true });
+    expect(await screen.findByText('Agent deleted')).toBeInTheDocument();
+  });
+});
+
+describe('image pulls', () => {
+  it('marks an image pull in flight', async () => {
+    let resolvePull!: (value: unknown) => void;
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/images/pull': () => new Promise((resolve) => { resolvePull = resolve; })
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /setup/i }))[0]);
+    await user.click(await screen.findByRole('tab', { name: 'Images' }));
+    await user.click(await screen.findByRole('button', { name: 'Pull image' }));
+    await user.click(await screen.findByRole('button', { name: 'Pull' }));
+    expect(screen.getByRole('button', { name: 'Pulling' })).toBeDisabled();
+    resolvePull({ ok: true });
+    expect(await screen.findByText('Image pull requested')).toBeInTheDocument();
   });
 });
 

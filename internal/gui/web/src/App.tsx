@@ -15,6 +15,7 @@ export function App() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [log, setLog] = useState<LogDrawerState>(initialLog);
   const [doctor, setDoctor] = useState<Check[]>([]);
+  const [stoppingTask, setStoppingTask] = useState(false);
 
   useEffect(() => {
     void api.doctor().then(setDoctor).catch(() => setDoctor([]));
@@ -57,10 +58,22 @@ export function App() {
       </main>
 
       <SetupSheet open={setupOpen} onOpenChange={setSetupOpen} openLog={openLog} updateLog={updateLog} />
-      <LogDrawer state={log} onClose={() => setLog(initialLog)} onStop={async (taskId) => {
-        const stopped = await api.stopTask(taskId);
-        setLog((current) => ({ ...current, content: stopped.output, taskStatus: stopped.status }));
-      }} />
+      <LogDrawer
+        state={log}
+        stopping={stoppingTask}
+        onClose={() => setLog(initialLog)}
+        onStop={async (taskId) => {
+          setStoppingTask(true);
+          try {
+            const stopped = await api.stopTask(taskId);
+            setLog((current) => ({ ...current, content: stopped.output, taskStatus: stopped.status }));
+          } catch {
+            // Leave the drawer as-is; the task stays stoppable.
+          } finally {
+            setStoppingTask(false);
+          }
+        }}
+      />
     </div>
   );
 }

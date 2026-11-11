@@ -24,6 +24,7 @@ export function PoliciesPanel() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorName, setEditorName] = useState('');
   const [editorContent, setEditorContent] = useState('');
+  const [busy, setBusy] = useState<string>();
 
   const load = async () => {
     try {
@@ -40,13 +41,16 @@ export function PoliciesPanel() {
 
   useEffect(() => { void load(); }, []);
 
-  const action = async (callback: () => Promise<unknown>, message: string) => {
+  const action = async (key: string, callback: () => Promise<unknown>, message: string) => {
+    setBusy(key);
     try {
       await callback();
       setNotice(message);
       await load();
     } catch (err) {
       setError(err as Error);
+    } finally {
+      setBusy(undefined);
     }
   };
 
@@ -79,11 +83,11 @@ export function PoliciesPanel() {
         </Table>
       )}
 
-      <Modal open={createOpen} onOpenChange={setCreateOpen} title="Create policy" footer={<><Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button><Button onClick={() => void action(async () => { await api.createPolicy(createName); setCreateOpen(false); }, 'Policy created')}>Create</Button></>}>
+      <Modal open={createOpen} onOpenChange={setCreateOpen} title="Create policy" footer={<><Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button><Button loading={busy === 'create'} onClick={() => void action('create', async () => { await api.createPolicy(createName); setCreateOpen(false); }, 'Policy created')}>Create</Button></>}>
         <Field label="Name" htmlFor="policy-name" required><Input id="policy-name" value={createName} onChange={(event) => setCreateName(event.target.value)} /></Field>
       </Modal>
 
-      <Modal open={hostOpen} onOpenChange={setHostOpen} title="Add network host" footer={<><Button variant="ghost" onClick={() => setHostOpen(false)}>Cancel</Button><Button onClick={() => void action(async () => { await api.addPolicyHost(hostForm.name, hostForm.agent, hostForm.host); setHostOpen(false); }, 'Network rule added')}>Allow host</Button></>}>
+      <Modal open={hostOpen} onOpenChange={setHostOpen} title="Add network host" footer={<><Button variant="ghost" onClick={() => setHostOpen(false)}>Cancel</Button><Button loading={busy === 'host'} onClick={() => void action('host', async () => { await api.addPolicyHost(hostForm.name, hostForm.agent, hostForm.host); setHostOpen(false); }, 'Network rule added')}>Allow host</Button></>}>
         <div className="grid gap-3">
           <Field label="Policy" htmlFor="host-policy" required><Input id="host-policy" value={hostForm.name} onChange={(event) => setHostForm({ ...hostForm, name: event.target.value })} /></Field>
           <Field label="Agent" htmlFor="host-agent" required>
@@ -95,7 +99,7 @@ export function PoliciesPanel() {
         </div>
       </Modal>
 
-      <Modal open={applyOpen} onOpenChange={setApplyOpen} title="Apply policy" footer={<><Button variant="ghost" onClick={() => setApplyOpen(false)}>Cancel</Button><Button onClick={() => void action(async () => { await api.applyPolicy(applyForm.name, applyForm.runId); setApplyOpen(false); }, 'Policy apply requested')}>Apply</Button></>}>
+      <Modal open={applyOpen} onOpenChange={setApplyOpen} title="Apply policy" footer={<><Button variant="ghost" onClick={() => setApplyOpen(false)}>Cancel</Button><Button loading={busy === 'apply'} onClick={() => void action('apply', async () => { await api.applyPolicy(applyForm.name, applyForm.runId); setApplyOpen(false); }, 'Policy apply requested')}>{busy === 'apply' ? 'Applying' : 'Apply'}</Button></>}>
         <div className="grid gap-3">
           <Field label="Policy" htmlFor="apply-policy" required><Input id="apply-policy" value={applyForm.name} onChange={(event) => setApplyForm({ ...applyForm, name: event.target.value })} /></Field>
           <Field label="Run" htmlFor="apply-run" required>
@@ -106,7 +110,7 @@ export function PoliciesPanel() {
         </div>
       </Modal>
 
-      <Modal open={editorOpen} onOpenChange={setEditorOpen} title={`Edit ${editorName}`} className="w-[min(94vw,56rem)]" footer={<><Button variant="ghost" onClick={() => setEditorOpen(false)}>Cancel</Button><Button onClick={() => void action(async () => { await api.savePolicyContent(editorName, editorContent); setEditorOpen(false); }, 'Policy saved')}>Save</Button></>}>
+      <Modal open={editorOpen} onOpenChange={setEditorOpen} title={`Edit ${editorName}`} className="w-[min(94vw,56rem)]" footer={<><Button variant="ghost" onClick={() => setEditorOpen(false)}>Cancel</Button><Button loading={busy === 'save'} onClick={() => void action('save', async () => { await api.savePolicyContent(editorName, editorContent); setEditorOpen(false); }, 'Policy saved')}>Save</Button></>}>
         <Textarea aria-label="Policy YAML" rows={20} value={editorContent} onChange={(event) => setEditorContent(event.target.value)} />
       </Modal>
     </div>

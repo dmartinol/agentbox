@@ -29,6 +29,7 @@ export function ImagesPanel({
   const [task, setTask] = useState<GuiTask>();
   const [pullOpen, setPullOpen] = useState(false);
   const [pullRef, setPullRef] = useState('');
+  const [busy, setBusy] = useState<string>();
 
   const load = async () => {
     try {
@@ -62,13 +63,16 @@ export function ImagesPanel({
     return () => { active = false; window.clearInterval(timer); };
   }, [task, updateLog]);
 
-  const action = async (callback: () => Promise<unknown>, message: string) => {
+  const action = async (key: string, callback: () => Promise<unknown>, message: string) => {
+    setBusy(key);
     try {
       await callback();
       setNotice(message);
       await load();
     } catch (err) {
       setError(err as Error);
+    } finally {
+      setBusy(undefined);
     }
   };
 
@@ -111,10 +115,16 @@ export function ImagesPanel({
           <Field label="Registry repository" htmlFor="registry-reference" className="flex-1">
             <Input id="registry-reference" value={registry.reference} onChange={(event) => setRegistry({ reference: event.target.value })} />
           </Field>
-          <Button size="sm" onClick={() => void action(async () => {
-            await api.saveRegistry(registry.reference);
-            setRegistryImages((await api.discoverRegistry()) ?? []);
-          }, 'Registry discovery complete')}>Discover</Button>
+          <Button
+            size="sm"
+            loading={busy === 'discover'}
+            onClick={() => void action('discover', async () => {
+              await api.saveRegistry(registry.reference);
+              setRegistryImages((await api.discoverRegistry()) ?? []);
+            }, 'Registry discovery complete')}
+          >
+            {busy === 'discover' ? 'Discovering' : 'Discover'}
+          </Button>
         </div>
         {registryImages.length > 0 ? (
           <Table className="mt-3">
@@ -133,7 +143,7 @@ export function ImagesPanel({
         onOpenChange={setBuildOpen}
         title="Build image"
         description="Build a local AgentBox agent image."
-        footer={<><Button variant="ghost" onClick={() => setBuildOpen(false)}>Cancel</Button><Button onClick={() => void action(build, 'Image build started')}>Build</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setBuildOpen(false)}>Cancel</Button><Button loading={busy === 'build'} onClick={() => void action('build', build, 'Image build started')}>{busy === 'build' ? 'Building' : 'Build'}</Button></>}
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Agent" htmlFor="image-agent" required>
@@ -142,7 +152,13 @@ export function ImagesPanel({
             </select>
           </Field>
           <Field label="Exact version" htmlFor="image-version" helper="Blank resolves latest."><Input id="image-version" value={buildForm.version} onChange={(event) => setBuildForm({ ...buildForm, version: event.target.value })} /></Field>
-          <Button variant="outline" onClick={() => void action(async () => setBuildForm({ ...buildForm, version: (await api.imageVersion(buildForm.agent)).version }), 'Version discovered')}>Discover latest</Button>
+          <Button
+            variant="outline"
+            loading={busy === 'version'}
+            onClick={() => void action('version', async () => setBuildForm({ ...buildForm, version: (await api.imageVersion(buildForm.agent)).version }), 'Version discovered')}
+          >
+            {busy === 'version' ? 'Discovering' : 'Discover latest'}
+          </Button>
         </div>
         {task ? <div className="mt-3 flex items-center gap-2 text-sm text-muted"><StatusBadge status={task.status} /> Build output opens in the log drawer.</div> : null}
       </Modal>
@@ -151,7 +167,7 @@ export function ImagesPanel({
         open={pullOpen}
         onOpenChange={setPullOpen}
         title="Pull image"
-        footer={<><Button variant="ghost" onClick={() => setPullOpen(false)}>Cancel</Button><Button onClick={() => void action(async () => { await api.pullImage(pullRef); setPullOpen(false); }, 'Image pull requested')}>Pull</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setPullOpen(false)}>Cancel</Button><Button loading={busy === 'pull'} onClick={() => void action('pull', async () => { await api.pullImage(pullRef); setPullOpen(false); }, 'Image pull requested')}>{busy === 'pull' ? 'Pulling' : 'Pull'}</Button></>}
       >
         <Field label="Remote reference" htmlFor="pull-reference" required><Input id="pull-reference" value={pullRef} onChange={(event) => setPullRef(event.target.value)} /></Field>
       </Modal>
