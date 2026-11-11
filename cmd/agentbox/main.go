@@ -632,7 +632,7 @@ func providerCmd(ctx context.Context, a *app.App, args []string) error {
 		return fmt.Errorf("provider setup required")
 	}
 	f := flags("provider setup")
-	kind := f.String("type", "gateway-bearer", "gateway-bearer, gateway-header, openai, or anthropic")
+	kind := f.String("type", "gateway-bearer", "gateway-bearer, gateway-header, or built-in openai/anthropic")
 	host := f.String("host", "", "gateway host (gateway provider types)")
 	credential := f.String("credential", "AGENTBOX_MODEL_KEY", "environment variable holding the API key")
 	gateway := f.String("gateway", "", "gateway name")

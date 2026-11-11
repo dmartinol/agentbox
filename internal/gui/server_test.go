@@ -813,7 +813,13 @@ endpoints:
 
 	var providers []providerRecord
 	requestJSON(t, http.MethodGet, httpServer.URL+"/api/providers?gateway=openshell", nil, &providers)
-	if len(providers) != 1 || providers[0].Name != "model-gateway" || providers[0].Type != "gateway-bearer" || providers[0].Credential != "MY_GATEWAY_KEY" || providers[0].BaseURL != "https://models.example.com/v1" || providers[0].Gateway != "openshell" {
+	var selected providerRecord
+	for _, provider := range providers {
+		if provider.Name == "model-gateway" {
+			selected = provider
+		}
+	}
+	if selected.Name != "model-gateway" || selected.Type != "gateway-bearer" || selected.Credential != "MY_GATEWAY_KEY" || selected.BaseURL != "https://models.example.com/v1" || selected.Gateway != "openshell" {
 		t.Fatalf("providers = %#v", providers)
 	}
 }
@@ -920,8 +926,40 @@ func TestProviderListIncludesProfileUsage(t *testing.T) {
 
 	var providers []providerRecord
 	requestJSON(t, http.MethodGet, httpServer.URL+"/api/providers?gateway=openshell", nil, &providers)
-	if len(providers) != 1 || len(providers[0].UsedBy) != 1 || providers[0].UsedBy[0] != "codex-gateway" {
+	var gatewayProvider *providerRecord
+	for i := range providers {
+		if providers[i].Name == "model-gateway" {
+			gatewayProvider = &providers[i]
+		}
+	}
+	if gatewayProvider == nil || len(gatewayProvider.UsedBy) != 1 || gatewayProvider.UsedBy[0] != "codex-gateway" {
 		t.Fatalf("providers = %#v", providers)
+	}
+}
+
+func TestProviderListIncludesBuiltinProviders(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(&app.App{Store: store, Runner: providerListRunner{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	var providers []providerRecord
+	requestJSON(t, http.MethodGet, httpServer.URL+"/api/providers?gateway=openshell", nil, &providers)
+	byName := map[string]providerRecord{}
+	for _, provider := range providers {
+		byName[provider.Name] = provider
+	}
+	for _, name := range []string{"openai", "anthropic"} {
+		provider, ok := byName[name]
+		if !ok || !provider.Builtin || !provider.Registered || provider.Gateway != "openshell" {
+			t.Fatalf("built-in %q = %#v (all providers: %#v)", name, provider, providers)
+		}
 	}
 }
 
@@ -1007,5 +1045,29 @@ func TestProviderDeleteEndpoint(t *testing.T) {
 		if !slices.Contains(command, want) {
 			t.Fatalf("delete command missing %q: %#v", want, command)
 		}
+	}
+}
+
+func TestBuiltinProviderDeleteIsRejected(t *testing.T) {
+	runner := &providerCommandRunner{}
+	server, err := New(&app.App{Store: app.Store{Base: t.TempDir()}, Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	var response struct {
+		Error string `json:"error"`
+	}
+	httpResponse := requestJSON(t, http.MethodPost, httpServer.URL+"/api/providers/openai/delete?gateway=openshell", nil, &response)
+	if httpResponse.StatusCode != http.StatusConflict {
+		t.Fatalf("status = %d", httpResponse.StatusCode)
+	}
+	if !strings.Contains(response.Error, "built in") {
+		t.Fatalf("error = %q", response.Error)
+	}
+	if len(runner.commands) != 0 {
+		t.Fatalf("delete command unexpectedly issued: %#v", runner.commands)
 	}
 }

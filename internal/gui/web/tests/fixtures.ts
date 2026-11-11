@@ -87,7 +87,20 @@ export const providers = [
     credential: 'OPENAI_API_KEY',
     credential_keys: ['OPENAI_API_KEY'],
     base_url: 'https://api.openai.com/v1',
-    gateway: 'openshell'
+    gateway: 'openshell',
+    builtin: true,
+    registered: true
+  },
+  {
+    name: 'anthropic',
+    type: 'anthropic',
+    profile: 'agentbox-anthropic',
+    credential: 'ANTHROPIC_API_KEY',
+    credential_keys: ['ANTHROPIC_API_KEY'],
+    base_url: 'https://api.anthropic.com/v1',
+    gateway: 'openshell',
+    builtin: true,
+    registered: true
   },
   {
     name: 'unused-gateway',
