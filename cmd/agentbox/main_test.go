@@ -234,3 +234,83 @@ func TestSettingsSetAndShow(t *testing.T) {
 		t.Fatalf("unexpected settings: %+v", settings)
 	}
 }
+
+type skillsRunner struct{}
+
+func (*skillsRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	switch {
+	case name == "openshell" && len(args) > 0 && args[0] == "gateway":
+		return []byte(`{"name":"openshell","type":"podman"}`), nil
+	case name == "openshell" && len(args) > 0 && args[0] == "provider":
+		return []byte(`{}`), nil
+	case name == "podman":
+		return []byte(`[]`), nil
+	case name == "git":
+		dir, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		return []byte(filepath.Clean(filepath.Join(dir, "..", ".."))), nil
+	}
+	return []byte(`{}`), nil
+}
+
+func (*skillsRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error {
+	return nil
+}
+
+func TestSkillsCommandsAndAgentStartFlag(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	policy, err := store.CreatePolicyConfiguration("unit-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProfile(app.Profile{
+		Version: 1, Name: "codex", Agent: "codex", Image: "localhost/openshell-codex:1.2.3-r3",
+		Mode: "standard", Provider: "unit-provider", Policy: policy.Path, Approval: "prompted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	skillDir := filepath.Join(codexHome, "skills", "orca-cli")
+	if err := os.MkdirAll(skillDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\ndescription: Orca command line\n---\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &app.App{Store: store, Runner: &skillsRunner{}}
+
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skill", "create", "--agent", "codex", "--skills", "orca-cli", "unit-skills"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "unit-skills codex") {
+		t.Fatalf("create output = %q", output)
+	}
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skill", "available", "--agent", "codex"})
+	})
+	if err != nil || !strings.Contains(output, "orca-cli") || !strings.Contains(output, "Orca command line") {
+		t.Fatalf("available output = %q, %v", output, err)
+	}
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"agent", "start", "--profile", "codex", "--gateway", "openshell", "--skills", "unit-skills", "--dry-run", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var run app.Run
+	if err := json.Unmarshal([]byte(output), &run); err != nil {
+		t.Fatalf("start output is not JSON: %s (%v)", output, err)
+	}
+	if run.Skills != "unit-skills" {
+		t.Fatalf("run.Skills = %q", run.Skills)
+	}
+	if err := dispatch(context.Background(), a, []string{"skill", "delete", "unit-skills"}); err != nil {
+		t.Fatal(err)
+	}
+}

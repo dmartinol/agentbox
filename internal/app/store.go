@@ -122,6 +122,8 @@ type Run struct {
 	PendingPolicy    string    `json:"pending_policy,omitempty"`
 	MCP              string    `json:"mcp,omitempty"`
 	MCPWarnings      []string  `json:"mcp_warnings,omitempty"`
+	Skills           string    `json:"skills,omitempty"`
+	SkillsWarnings   []string  `json:"skills_warnings,omitempty"`
 }
 
 type WorktreeSettings struct {
@@ -165,7 +167,7 @@ func DefaultStore() (Store, error) {
 }
 
 func (s Store) Ensure() error {
-	for _, dir := range []string{s.Base, s.ProfilesDir(), s.ProjectsDir(), s.RunsDir(), s.WorktreesDir(), s.PolicyDir(), s.MCPsDir()} {
+	for _, dir := range []string{s.Base, s.ProfilesDir(), s.ProjectsDir(), s.RunsDir(), s.WorktreesDir(), s.PolicyDir(), s.MCPsDir(), s.SkillsDir()} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return err
 		}

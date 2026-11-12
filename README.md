@@ -438,6 +438,49 @@ Behavior:
 In the GUI, manage entries under **Setup → MCP Tools** and select one in the
 new-agent dialog.
 
+### Skills and plugin bundles
+
+A skills entry is a named selection of host skills and whole plugin skill
+bundles for one agent. AgentBox stores only names; skill folders stay in the
+agent's own host directories until run start.
+
+```sh
+# List standalone skills and plugin bundles available to an agent.
+./agentbox skill available --agent codex
+
+# Select standalone skills and whole plugin bundles.
+./agentbox skill create --agent codex --skills orca-cli,orchestration \
+  --plugins browser@openai-bundled work-codex
+
+./agentbox skill list
+./agentbox skill show work-codex
+./agentbox skill delete work-codex
+
+# Deliver the selection into the sandbox at user scope.
+./agentbox agent start --project dev --profile codex-gateway \
+  --gateway openshell --skills work-codex
+```
+
+Behavior:
+
+- Selected `SKILL.md` folders are copied into the agent's user skills
+  directory inside the run: `~/.claude/skills`, `~/.codex/skills`, or
+  `~/.config/opencode/skills` as seen from the sandbox.
+- A plugin is included or excluded as a whole. Only its bundled skills are
+  copied; plugin scripts, apps, hooks, commands, and plugin-declared MCP
+  servers are not delivered.
+- Missing skills or plugins at start produce a warning (in CLI output,
+  `--dry-run`, JSON, and the GUI); the run still starts with what remains.
+- Duplicate delivered skill names are first-wins and produce a warning.
+- Symlinked skill directories are resolved to their target contents, and
+  executable bits are preserved.
+- Project-committed skills ride along in the clone unchanged.
+- An entry whose agent differs from the profile's agent fails start with a
+  clear error.
+
+In the GUI, manage entries under **Setup → Skills** and select one in the
+new-agent dialog.
+
 Open the GUI:
 
 ```sh
@@ -459,7 +502,7 @@ The GUI is a compact, Orca-inspired React single-page application built with Vit
 The two primary surfaces are:
 
 - **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, compact status badges, inline lifecycle actions, and selected-agent metadata. The **Workspace** button on a project (or **Attach** on an agent) opens a workspace with one tab per agent plus optional shell tabs; only the visible tab holds a terminal. Logs, diffs, and effective policies open in a shared bottom drawer.
-- **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, policies, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. A blank profile policy automatically creates and references the default policy. Image build output and stop controls are also routed to the bottom drawer.
+- **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, policies, MCP tools, skills, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. A blank profile policy automatically creates and references the default policy. Image build output and stop controls are also routed to the bottom drawer.
 
 The interface defaults to light mode and includes a header theme switcher; the selected theme is remembered locally.
 
@@ -505,6 +548,8 @@ AgentBox stores all default state under `~/.agentbox`:
   profiles/
   runs/
   policies/
+  mcps/
+  skills/
   worktrees/
 ```
 

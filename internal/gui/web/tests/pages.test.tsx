@@ -5,7 +5,8 @@ import { App } from '../src/App';
 import { ProvidersPanel } from '../src/pages/setup/ProvidersPanel';
 import { ProfilesPanel } from '../src/pages/setup/ProfilesPanel';
 import { McpPanel } from '../src/pages/setup/McpPanel';
-import { mcps, overview, providers, runs } from './fixtures';
+import { SkillsPanel } from '../src/pages/setup/SkillsPanel';
+import { mcps, overview, providers, runs, skillEntries } from './fixtures';
 
 const xtermHooks = vi.hoisted(() => ({
   resize: undefined as undefined | ((size: { cols: number; rows: number }) => void)
@@ -62,6 +63,7 @@ function defaultRoutes(): Record<string, unknown> {
   return {
     'GET /api/overview': overview,
     'GET /api/mcps': mcps,
+    'GET /api/skills': skillEntries,
     'GET /api/doctor': overview.doctor,
     'GET /api/runs': runs,
     'GET /api/profiles': overview.profiles,
@@ -124,6 +126,7 @@ describe('fleet shell', () => {
         return jsonResponse({ ...overview, profiles: profileCreated ? [newProfile] : [] });
       }
       if (url === '/api/mcps' && method === 'GET') return jsonResponse(mcps);
+      if (url === '/api/skills' && method === 'GET') return jsonResponse(skillEntries);
       if (url === '/api/doctor' && method === 'GET') return jsonResponse(overview.doctor);
       if (url === '/api/profiles' && method === 'GET') {
         return jsonResponse(profileCreated ? [newProfile] : []);
@@ -159,6 +162,7 @@ describe('fleet shell', () => {
       const method = init?.method ?? 'GET';
       if (url === '/api/overview' && method === 'GET') return jsonResponse(overview);
       if (url === '/api/mcps' && method === 'GET') return jsonResponse(mcps);
+      if (url === '/api/skills' && method === 'GET') return jsonResponse(skillEntries);
       if (url === '/api/doctor' && method === 'GET') return jsonResponse(overview.doctor);
       if (url === '/api/runs' && method === 'POST') {
         return jsonResponse({ error: 'profile "codex-enmaas" references missing policy file ~/.agentbox/policies/codex-enmaas.yaml; edit the profile or restore the policy' }, 400);
@@ -329,7 +333,7 @@ describe('setup sheet', () => {
     render(<App />);
     await user.click((await screen.findAllByRole('button', { name: /setup/i }))[0]);
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    for (const label of ['Providers', 'Profiles', 'Projects', 'Images', 'Gateways', 'Policies', 'MCP Tools', 'Advanced']) {
+    for (const label of ['Providers', 'Profiles', 'Projects', 'Images', 'Gateways', 'Policies', 'MCP Tools', 'Skills', 'Advanced']) {
       expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
     }
     expect(screen.getByRole('tab', { name: 'Providers', selected: true })).toHaveClass(
@@ -447,6 +451,7 @@ describe('image builds', () => {
       const method = init?.method ?? 'GET';
       if (url === '/api/gateways' && method === 'GET') return jsonResponse(overview.gateways);
       if (url === '/api/mcps' && method === 'GET') return jsonResponse(mcps);
+      if (url === '/api/skills' && method === 'GET') return jsonResponse(skillEntries);
       if (url === '/api/providers?gateway=openshell' && method === 'GET') return jsonResponse(providers);
       if (url === '/api/images' && method === 'GET') return jsonResponse(overview.images);
       if (url === '/api/registry' && method === 'GET') return jsonResponse({ reference: 'quay.io/team/openshell' });
@@ -561,6 +566,7 @@ describe('fleet actions', () => {
     expect(within(dialog).getByLabelText(/^Model/)).toHaveValue('model-x');
     expect(within(dialog).getByLabelText(/^Approval/)).toHaveValue('unattended');
     expect(within(dialog).getByLabelText(/^MCP tools/)).toHaveValue('codex-work');
+    expect(within(dialog).getByLabelText(/^Skills/)).toHaveValue('codex-skills');
   });
 
   it('opens a fresh form after copying', async () => {
@@ -651,6 +657,7 @@ describe('mcp tools', () => {
   it('lists entries and detected local MCP files', async () => {
     mockRoutes({
       'GET /api/mcps': mcps,
+    'GET /api/skills': skillEntries,
       'GET /api/mcps/local': [{ project: 'demo', root: '/repo', files: ['.mcp.json'] }]
     });
     render(<McpPanel />);
@@ -688,6 +695,7 @@ describe('mcp tools', () => {
   it('deletes an entry', async () => {
     mockRoutes({
       'GET /api/mcps': mcps,
+    'GET /api/skills': skillEntries,
       'GET /api/mcps/local': [],
       'POST /api/mcps/codex-work/delete': { deleted: true }
     });
@@ -708,6 +716,7 @@ describe('mcp start selection', () => {
       const method = init?.method ?? 'GET';
       if (url === '/api/overview' && method === 'GET') return jsonResponse(overview);
       if (url === '/api/mcps' && method === 'GET') return jsonResponse(mcps);
+      if (url === '/api/skills' && method === 'GET') return jsonResponse(skillEntries);
       if (url === '/api/doctor' && method === 'GET') return jsonResponse(overview.doctor);
       if (url === '/api/runs' && method === 'POST') {
         startBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -726,5 +735,96 @@ describe('mcp start selection', () => {
     expect(await screen.findByText('MCP tools warnings')).toBeInTheDocument();
     expect(await screen.findByText(/starting without it/)).toBeInTheDocument();
     expect(startBody?.mcp).toBe('codex-work');
+  });
+});
+
+
+describe('skills', () => {
+  it('lists entries and explains plugin delivery limits', async () => {
+    mockRoutes({
+      'GET /api/skills': skillEntries
+    });
+    render(<SkillsPanel />);
+    expect(await screen.findByText('codex-skills')).toBeInTheDocument();
+    expect(screen.getByText('orca-cli')).toBeInTheDocument();
+    expect(screen.getByText('browser@openai-bundled')).toBeInTheDocument();
+    expect(screen.getByText('How skills work')).toBeInTheDocument();
+    expect(screen.getByText(/plugin scripts, apps, hooks, commands, and MCP servers are not delivered/i)).toBeInTheDocument();
+  });
+
+  it('creates an entry from discovered skills and plugin bundles', async () => {
+    let created: Record<string, unknown> | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      const method = init?.method ?? 'GET';
+      if (url === '/api/skills' && method === 'GET') return jsonResponse(created ? [created] : []);
+      if (url === '/api/skills/available?agent=claude' && method === 'GET') {
+        return jsonResponse({
+          agent: 'claude',
+          skills: [{ name: 'orca-cli', description: 'Orca command line' }],
+          plugins: [{ id: 'browser@openai-bundled', plugin: 'browser', marketplace: 'openai-bundled', skills: 8 }]
+        });
+      }
+      if (url === '/api/skills' && method === 'POST') {
+        created = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse(created);
+      }
+      throw new Error(`unmocked request ${method} ${url}`);
+    }));
+    const user = userEvent.setup();
+    render(<SkillsPanel />);
+    await user.click(await screen.findByRole('button', { name: 'Create skills entry' }));
+    await user.type(await screen.findByLabelText(/^Name/), 'claude-work');
+    expect(await screen.findByText('Orca command line')).toBeInTheDocument();
+    expect(screen.getByText('8 bundled skills')).toBeInTheDocument();
+    await user.click(screen.getByLabelText('orca-cli'));
+    await user.click(screen.getByLabelText('browser@openai-bundled'));
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    expect(await screen.findByText('Skills entry created')).toBeInTheDocument();
+    expect(created).toEqual({ version: 1, name: 'claude-work', agent: 'claude', skills: ['orca-cli'], plugins: ['browser@openai-bundled'] });
+    expect(await screen.findByText('claude-work')).toBeInTheDocument();
+  });
+
+  it('deletes an entry', async () => {
+    mockRoutes({
+      'GET /api/skills': skillEntries,
+      'POST /api/skills/codex-skills/delete': { deleted: true }
+    });
+    const user = userEvent.setup();
+    render(<SkillsPanel />);
+    const row = (await screen.findByText('codex-skills')).closest('tr');
+    if (!row) throw new Error('entry row missing');
+    await user.click(within(row).getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText('Skills entry codex-skills deleted')).toBeInTheDocument();
+  });
+});
+
+describe('skills start selection', () => {
+  it('offers only profile-compatible entries and surfaces drift warnings', async () => {
+    let startBody: Record<string, unknown> | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      const method = init?.method ?? 'GET';
+      if (url === '/api/overview' && method === 'GET') return jsonResponse(overview);
+      if (url === '/api/mcps' && method === 'GET') return jsonResponse(mcps);
+      if (url === '/api/skills' && method === 'GET') return jsonResponse(skillEntries);
+      if (url === '/api/doctor' && method === 'GET') return jsonResponse(overview.doctor);
+      if (url === '/api/runs' && method === 'POST') {
+        startBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse({ ...runs[0], skills: 'codex-skills', skills_warnings: ['skill "gone" from entry "codex-skills" is not available for codex on this host; starting without it'] });
+      }
+      throw new Error(`unmocked request ${method} ${url}`);
+    }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'New agent' }));
+    const select = await screen.findByLabelText(/^Skills/);
+    expect(within(select).queryByRole('option', { name: /claude-skills/ })).toBeNull();
+    expect(within(select).getByRole('option', { name: /codex-skills/ })).toBeInTheDocument();
+    await user.selectOptions(select, 'codex-skills');
+    await user.click(screen.getByRole('button', { name: 'Start' }));
+    expect(await screen.findByText('Skills warnings')).toBeInTheDocument();
+    expect(await screen.findByText(/starting without it/)).toBeInTheDocument();
+    expect(startBody?.skills).toBe('codex-skills');
   });
 });

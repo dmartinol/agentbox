@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal } from 'lucide-react';
 import { api } from '../api';
-import type { MCPTools, Overview, Profile, Run, StartRunRequest } from '../types';
+import type { MCPTools, Overview, Profile, Run, SkillsEntry, StartRunRequest } from '../types';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '../components/ui/card';
@@ -44,20 +44,23 @@ export function FleetView({
   const [startOpen, setStartOpen] = useState(false);
   const [startError, setStartError] = useState('');
   const [startSubmitting, setStartSubmitting] = useState(false);
-  const [startForm, setStartForm] = useState<StartRunRequest>({ project: '', profile: '', gateway: '', name: '', prompt: '', mcp: '' });
+  const [startForm, setStartForm] = useState<StartRunRequest>({ project: '', profile: '', gateway: '', name: '', prompt: '', mcp: '', skills: '' });
   const [useOverrides, setUseOverrides] = useState(false);
   const [overrides, setOverrides] = useState({ image: '', model: '', approval: 'prompted' });
   const [mcpEntries, setMcpEntries] = useState<MCPTools[]>([]);
+  const [skillsEntries, setSkillsEntries] = useState<SkillsEntry[]>([]);
   const [startWarnings, setStartWarnings] = useState<string[]>([]);
+  const [skillWarnings, setSkillWarnings] = useState<string[]>([]);
   const [pending, setPending] = useState<Record<string, AgentAction>>({});
   const [deleteTarget, setDeleteTarget] = useState<Run>();
   const [copySource, setCopySource] = useState<Run>();
 
   const load = async () => {
     try {
-      const [data, mcps] = await Promise.all([api.overview(), api.mcps()]);
+      const [data, mcps, skills] = await Promise.all([api.overview(), api.mcps(), api.skills()]);
       setOverview(data);
       setMcpEntries(mcps ?? []);
+      setSkillsEntries(skills ?? []);
       setSelected((current) => current ? data.runs.find((agent) => agent.id === current.id) : undefined);
       setError(null);
     } catch (err) {
@@ -181,6 +184,7 @@ export function FleetView({
   const openStart = async () => {
     setStartError('');
     setStartWarnings([]);
+    setSkillWarnings([]);
     setCopySource(undefined);
     setStartForm((form) => ({
       ...form,
@@ -189,7 +193,8 @@ export function FleetView({
       gateway: form.gateway || overview?.gateways[0]?.name || 'openshell',
       name: '',
       prompt: '',
-      mcp: ''
+      mcp: '',
+      skills: ''
     }));
     setUseOverrides(false);
     setOverrides({ image: '', model: '', approval: 'prompted' });
@@ -208,9 +213,11 @@ export function FleetView({
       gateway: run.gateway || overview?.gateways[0]?.name || 'openshell',
       name: '',
       prompt: '',
-      mcp: run.mcp || ''
+      mcp: run.mcp || '',
+      skills: run.skills || ''
     });
     setStartWarnings([]);
+    setSkillWarnings([]);
     setUseOverrides(true);
     setOverrides({ image: run.image, model: run.model, approval: run.approval || 'prompted' });
     setStartOpen(true);
@@ -231,11 +238,13 @@ export function FleetView({
         ...(useOverrides ? overrides : {}),
         name: startForm.name?.trim() || undefined,
         prompt: startForm.prompt?.trim() || undefined,
-        mcp: startForm.mcp?.trim() || undefined
+        mcp: startForm.mcp?.trim() || undefined,
+        skills: startForm.skills?.trim() || undefined
       });
       closeStart();
       setSelected(created);
       setStartWarnings(created.mcp_warnings ?? []);
+      setSkillWarnings(created.skills_warnings ?? []);
       setNotice(`Agent ${created.name || created.id} started`);
       await load();
     } catch (err) {
@@ -480,6 +489,13 @@ export function FleetView({
           </ul>
         </Alert>
       ) : null}
+      {skillWarnings.length > 0 ? (
+        <Alert variant="warning" title="Skills warnings" className="m-3">
+          <ul className="list-disc space-y-1 pl-4">
+            {skillWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+          </ul>
+        </Alert>
+      ) : null}
 
       <Modal
         open={startOpen}
@@ -512,7 +528,8 @@ export function FleetView({
               setStartForm((form) => ({
                 ...form,
                 profile,
-                mcp: mcpEntries.find((entry) => entry.name === form.mcp)?.agent === agent ? form.mcp : ''
+                mcp: mcpEntries.find((entry) => entry.name === form.mcp)?.agent === agent ? form.mcp : '',
+                skills: skillsEntries.find((entry) => entry.name === form.skills)?.agent === agent ? form.skills : ''
               }));
             }}>
               {(overview?.profiles ?? []).map((profile) => <option key={profile.name} value={profile.name}>{profile.name}</option>)}
@@ -531,6 +548,14 @@ export function FleetView({
               <option value="">None</option>
               {mcpEntries.filter((entry) => !selectedProfile || entry.agent === selectedProfile.agent).map((entry) => (
                 <option key={entry.name} value={entry.name}>{entry.name} ({entry.servers.length} server{entry.servers.length === 1 ? '' : 's'})</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Skills" htmlFor="new-agent-skills" helper="Optional; host skills and whole plugin skill bundles delivered into the run.">
+            <Select id="new-agent-skills" value={startForm.skills ?? ''} onChange={(event) => setStartForm({ ...startForm, skills: event.target.value })}>
+              <option value="">None</option>
+              {skillsEntries.filter((entry) => !selectedProfile || entry.agent === selectedProfile.agent).map((entry) => (
+                <option key={entry.name} value={entry.name}>{entry.name} ({entry.skills.length + entry.plugins.length} selection{entry.skills.length + entry.plugins.length === 1 ? '' : 's'})</option>
               ))}
             </Select>
           </Field>

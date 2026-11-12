@@ -2,8 +2,10 @@ import type {
   Check,
   Gateway,
   ImageArtifact,
+  AvailableSkills,
   LocalMCPFiles,
   MCPTools,
+  SkillsEntry,
   Overview,
   PolicyConfiguration,
   Profile,
@@ -85,6 +87,11 @@ export const api = {
   deleteMCP: (name: string) => post<{ deleted: true }>(`/api/mcps/${encodeURIComponent(name)}/delete`),
   mcpServers: (agent: string) => request<string[]>(`/api/mcps/servers?agent=${encodeURIComponent(agent)}`),
   localMCPs: () => request<LocalMCPFiles[]>('/api/mcps/local'),
+
+  skills: () => request<SkillsEntry[]>('/api/skills'),
+  createSkills: (entry: SkillsEntry) => post<SkillsEntry>('/api/skills', entry),
+  deleteSkills: (name: string) => post<{ deleted: true }>(`/api/skills/${encodeURIComponent(name)}/delete`),
+  availableSkills: (agent: string) => request<AvailableSkills>(`/api/skills/available?agent=${encodeURIComponent(agent)}`),
 
   settings: () => request<Settings>('/api/settings'),
   saveSettings: (settings: Settings) => post<Settings>('/api/settings', settings),
