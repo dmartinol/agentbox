@@ -34,7 +34,7 @@ func TestPrepareAgentGeneratesIsolatedConfigForEachAgentMode(t *testing.T) {
 				app := App{Store: store}
 				run := Run{ID: "run-unit123"}
 				profile := testProfile(agent, mode, "prompted")
-				dir, err := app.PrepareAgent(context.Background(), run, profile, "print 'hello'", nil)
+				dir, err := app.PrepareAgent(context.Background(), run, profile, "print 'hello'", nil, nil)
 				if err != nil {
 					t.Fatal(err)
 				}

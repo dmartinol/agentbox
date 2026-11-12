@@ -1231,3 +1231,86 @@ func TestMCPEndpointsManageEntriesAndDiscovery(t *testing.T) {
 		t.Fatalf("list after delete: status=%d entries=%+v", response.StatusCode, entries)
 	}
 }
+
+func TestSkillsEndpointsManageEntriesAndDiscovery(t *testing.T) {
+	server := newTestServer(t)
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	skillDir := filepath.Join(codexHome, "skills", "orca-cli")
+	if err := os.MkdirAll(skillDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\ndescription: Orca command line\n---\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var apiError struct {
+		Error string `json:"error"`
+	}
+	response := requestJSON(t, http.MethodGet, server.URL+"/api/skills/available?agent=", nil, &apiError)
+	if response.StatusCode != http.StatusInternalServerError || apiError.Error == "" {
+		t.Fatalf("missing agent parameter: status=%d error=%q", response.StatusCode, apiError.Error)
+	}
+
+	var available app.AvailableSkills
+	response = requestJSON(t, http.MethodGet, server.URL+"/api/skills/available?agent=codex", nil, &available)
+	if response.StatusCode != http.StatusOK || len(available.Skills) != 1 || available.Skills[0].Name != "orca-cli" || available.Skills[0].Description != "Orca command line" {
+		t.Fatalf("discovery: status=%d available=%+v", response.StatusCode, available)
+	}
+
+	var entry app.Skills
+	response = requestJSON(t, http.MethodPost, server.URL+"/api/skills", map[string]any{"name": "unit-skills", "agent": "codex", "skills": []string{"orca-cli"}, "plugins": []string{"browser@openai-bundled"}}, &entry)
+	if response.StatusCode != http.StatusCreated || entry.Name != "unit-skills" || len(entry.Skills) != 1 || len(entry.Plugins) != 1 {
+		t.Fatalf("create: status=%d entry=%+v", response.StatusCode, entry)
+	}
+
+	response = requestJSON(t, http.MethodPost, server.URL+"/api/skills", map[string]any{"name": "bad", "agent": "codex"}, &apiError)
+	if response.StatusCode != http.StatusInternalServerError || apiError.Error == "" {
+		t.Fatalf("invalid create: status=%d error=%q", response.StatusCode, apiError.Error)
+	}
+
+	var entries []app.Skills
+	response = requestJSON(t, http.MethodGet, server.URL+"/api/skills", nil, &entries)
+	if response.StatusCode != http.StatusOK || len(entries) != 1 || entries[0].Name != "unit-skills" {
+		t.Fatalf("list: status=%d entries=%+v", response.StatusCode, entries)
+	}
+
+	var deleted struct {
+		Deleted bool `json:"deleted"`
+	}
+	response = requestJSON(t, http.MethodPost, server.URL+"/api/skills/unit-skills/delete", nil, &deleted)
+	if response.StatusCode != http.StatusOK || !deleted.Deleted {
+		t.Fatalf("delete: status=%d body=%+v", response.StatusCode, deleted)
+	}
+	response = requestJSON(t, http.MethodGet, server.URL+"/api/skills", nil, &entries)
+	if response.StatusCode != http.StatusOK || len(entries) != 0 {
+		t.Fatalf("list after delete: status=%d entries=%+v", response.StatusCode, entries)
+	}
+}
+
+func TestSkillsEndpointsEmitArraysForMissingSelections(t *testing.T) {
+	server := newTestServer(t)
+	var created app.Skills
+	response := requestJSON(t, http.MethodPost, server.URL+"/api/skills", map[string]any{
+		"name": "plugin-only", "agent": "codex", "plugins": []string{"browser@openai-bundled"},
+	}, &created)
+	if response.StatusCode != http.StatusCreated || created.Skills == nil || created.Plugins == nil {
+		t.Fatalf("plugin-only create: status=%d entry=%+v", response.StatusCode, created)
+	}
+
+	var entries []app.Skills
+	response = requestJSON(t, http.MethodGet, server.URL+"/api/skills", nil, &entries)
+	if response.StatusCode != http.StatusOK || len(entries) != 1 {
+		t.Fatalf("list: status=%d entries=%+v", response.StatusCode, entries)
+	}
+	if entries[0].Skills == nil || entries[0].Plugins == nil {
+		t.Fatalf("list emitted nil selection: %+v", entries[0])
+	}
+
+	response = requestJSON(t, http.MethodPost, server.URL+"/api/skills", map[string]any{
+		"name": "skill-only", "agent": "codex", "skills": []string{"orca-cli"},
+	}, &created)
+	if response.StatusCode != http.StatusCreated || created.Skills == nil || created.Plugins == nil {
+		t.Fatalf("skill-only create: status=%d entry=%+v", response.StatusCode, created)
+	}
+}

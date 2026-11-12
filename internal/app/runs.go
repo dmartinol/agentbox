@@ -39,6 +39,7 @@ type StartOptions struct {
 	Approval string
 	Prompt   string
 	MCP      string
+	Skills   string
 	Dry      bool
 }
 
@@ -86,6 +87,14 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 			return Run{}, err
 		}
 		selection = &resolved
+	}
+	var skillSelection *SkillsSelection
+	if opt.Skills != "" {
+		resolved, err := a.ResolveSkillsSelection(opt.Skills, p.Agent)
+		if err != nil {
+			return Run{}, err
+		}
+		skillSelection = &resolved
 	}
 	if opt.Source == "" {
 		opt.Source = "."
@@ -163,6 +172,10 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 		preview.MCP = selection.Entry.Name
 		preview.MCPWarnings = selection.Warnings()
 	}
+	if skillSelection != nil {
+		preview.Skills = skillSelection.Entry.Name
+		preview.SkillsWarnings = skillSelection.Warnings()
+	}
 	if opt.Dry {
 		return preview, nil
 	}
@@ -197,6 +210,10 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 		r.MCP = selection.Entry.Name
 		r.MCPWarnings = selection.Warnings()
 	}
+	if skillSelection != nil {
+		r.Skills = skillSelection.Entry.Name
+		r.SkillsWarnings = skillSelection.Warnings()
+	}
 	if err := atomicWrite(r.Policy, policy); err != nil {
 		return r, err
 	}
@@ -207,7 +224,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if err != nil {
 		return r, err
 	}
-	config, err := a.PrepareAgent(ctx, r, p, opt.Prompt, selection)
+	config, err := a.PrepareAgent(ctx, r, p, opt.Prompt, selection, skillSelection)
 	if err != nil {
 		return r, err
 	}

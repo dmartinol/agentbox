@@ -1,8 +1,13 @@
-import type { MCPTools, Overview, Run } from '../src/types';
+import type { MCPTools, Overview, Run, SkillsEntry } from '../src/types';
 
 export const mcps: MCPTools[] = [
   { version: 1, name: 'codex-work', agent: 'codex', servers: ['github', 'sentry'] },
   { version: 1, name: 'claude-work', agent: 'claude', servers: ['notion'] }
+];
+
+export const skillEntries: SkillsEntry[] = [
+  { version: 1, name: 'codex-skills', agent: 'codex', skills: ['orca-cli'], plugins: ['browser@openai-bundled'] },
+  { version: 1, name: 'claude-skills', agent: 'claude', skills: ['find-skills'], plugins: [] }
 ];
 
 export const runs: Run[] = [
@@ -27,7 +32,8 @@ export const runs: Run[] = [
     status: 'running',
     synced: true,
     policy: '/policies/run-active.yaml',
-    mcp: 'codex-work'
+    mcp: 'codex-work',
+    skills: 'codex-skills'
   },
   {
     id: 'run-idle',

@@ -34,6 +34,8 @@ export interface Run {
   policy: string;
   mcp?: string;
   mcp_warnings?: string[];
+  skills?: string;
+  skills_warnings?: string[];
 }
 
 export interface Project {
@@ -103,6 +105,32 @@ export interface MCPTools {
   name: string;
   agent: string;
   servers: string[];
+}
+
+export interface SkillsEntry {
+  version: number;
+  name: string;
+  agent: string;
+  skills: string[];
+  plugins: string[];
+}
+
+export interface SkillInfo {
+  name: string;
+  description?: string;
+}
+
+export interface PluginInfo {
+  id: string;
+  plugin: string;
+  marketplace: string;
+  skills: number;
+}
+
+export interface AvailableSkills {
+  agent: string;
+  skills: SkillInfo[];
+  plugins: PluginInfo[];
 }
 
 export interface LocalMCPFiles {
@@ -182,4 +210,5 @@ export interface StartRunRequest {
   approval?: string;
   prompt?: string;
   mcp?: string;
+  skills?: string;
 }

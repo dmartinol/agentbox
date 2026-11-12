@@ -27,6 +27,8 @@ nav_sections:
     id: runtime-configuration-location
   - title: MCP tools layer
     id: mcp-tools-layer
+  - title: Skills layer
+    id: skills-layer
   - title: Credential resolution
     id: credential-resolution
   - title: Attach and idle

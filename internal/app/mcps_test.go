@@ -278,7 +278,7 @@ func TestPrepareAgentDeliversMCPPerAgent(t *testing.T) {
 				app := App{Store: store}
 				run := Run{ID: "run-unit123"}
 				profile := testProfile(agent, mode, "prompted")
-				dir, err := app.PrepareAgent(context.Background(), run, profile, "", mcpTestSelection(t, agent))
+				dir, err := app.PrepareAgent(context.Background(), run, profile, "", mcpTestSelection(t, agent), nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -354,7 +354,7 @@ func TestPrepareAgentClaudeLocalApprovalWithoutSelection(t *testing.T) {
 	app := App{Store: store}
 	run := Run{ID: "run-unit123"}
 	profile := testProfile("claude", "standard", "prompted")
-	dir, err := app.PrepareAgent(context.Background(), run, profile, "", nil)
+	dir, err := app.PrepareAgent(context.Background(), run, profile, "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +376,7 @@ func TestPrepareAgentOpenCodeStandardWithoutSelectionKeepsNoConfig(t *testing.T)
 	app := App{Store: store}
 	run := Run{ID: "run-unit123"}
 	profile := testProfile("opencode", "standard", "prompted")
-	dir, err := app.PrepareAgent(context.Background(), run, profile, "", nil)
+	dir, err := app.PrepareAgent(context.Background(), run, profile, "", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

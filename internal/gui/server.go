@@ -96,6 +96,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/mcps/servers", s.mcpServers)
 	mux.HandleFunc("GET /api/mcps/local", s.localMCPs)
 
+	mux.HandleFunc("GET /api/skills", s.listSkills)
+	mux.HandleFunc("POST /api/skills", s.createSkills)
+	mux.HandleFunc("POST /api/skills/{name}/delete", s.deleteSkills)
+	mux.HandleFunc("GET /api/skills/available", s.availableSkills)
+
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("POST /api/settings", s.saveSettings)
 	mux.HandleFunc("GET /api/doctor", s.doctor)
@@ -329,6 +334,7 @@ type startRunRequest struct {
 	Approval string `json:"approval"`
 	Prompt   string `json:"prompt"`
 	MCP      string `json:"mcp"`
+	Skills   string `json:"skills"`
 }
 
 func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
@@ -347,6 +353,7 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 		Approval: request.Approval,
 		Prompt:   request.Prompt,
 		MCP:      request.MCP,
+		Skills:   request.Skills,
 	})
 	if err != nil {
 		writeError(w, err)
@@ -1315,6 +1322,63 @@ func (s *Server) mcpServers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, names)
+}
+
+func (s *Server) listSkills(w http.ResponseWriter, r *http.Request) {
+	entries, err := s.app.Store.ListSkills()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+type skillsRequest struct {
+	Name    string   `json:"name"`
+	Agent   string   `json:"agent"`
+	Skills  []string `json:"skills"`
+	Plugins []string `json:"plugins"`
+}
+
+func (s *Server) createSkills(w http.ResponseWriter, r *http.Request) {
+	var request skillsRequest
+	if !decode(w, r, &request) {
+		return
+	}
+	entry := app.Skills{Version: 1, Name: request.Name, Agent: request.Agent, Skills: request.Skills, Plugins: request.Plugins}
+	if entry.Skills == nil {
+		entry.Skills = []string{}
+	}
+	if entry.Plugins == nil {
+		entry.Plugins = []string{}
+	}
+	if err := s.app.Store.SaveSkills(entry); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, entry)
+}
+
+func (s *Server) deleteSkills(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.Store.DeleteSkills(r.PathValue("name")); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
+func (s *Server) availableSkills(w http.ResponseWriter, r *http.Request) {
+	agent := strings.TrimSpace(r.URL.Query().Get("agent"))
+	if agent == "" {
+		writeError(w, fmt.Errorf("agent query parameter is required"))
+		return
+	}
+	available, err := s.app.DiscoverSkills(agent)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, available)
 }
 
 type localMCPFiles struct {

@@ -8,6 +8,7 @@ import { ImagesPanel } from './setup/ImagesPanel';
 import { GatewaysPanel } from './setup/GatewaysPanel';
 import { PoliciesPanel } from './setup/PoliciesPanel';
 import { McpPanel } from './setup/McpPanel';
+import { SkillsPanel } from './setup/SkillsPanel';
 import { AdvancedPanel } from './setup/AdvancedPanel';
 import type { LogDrawerState } from '../components/LogDrawer';
 
@@ -25,7 +26,7 @@ export function SetupSheet({
   onResourcesChanged?: () => void;
 }) {
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title="Setup" description="Projects, profiles, providers, images, gateways, policies, MCP tools, and diagnostics" width="58rem">
+    <Sheet open={open} onOpenChange={onOpenChange} title="Setup" description="Projects, profiles, providers, images, gateways, policies, MCP tools, skills, and diagnostics" width="58rem">
       <Tabs.Root defaultValue="providers" className="flex h-full min-h-0 flex-col">
         <TabList>
           <TabTrigger value="providers">Providers</TabTrigger>
@@ -35,6 +36,7 @@ export function SetupSheet({
           <TabTrigger value="gateways">Gateways</TabTrigger>
           <TabTrigger value="policies">Policies</TabTrigger>
           <TabTrigger value="mcps">MCP Tools</TabTrigger>
+          <TabTrigger value="skills">Skills</TabTrigger>
           <TabTrigger value="advanced">Advanced</TabTrigger>
         </TabList>
         <TabContent value="providers"><ProvidersPanel /></TabContent>
@@ -44,6 +46,7 @@ export function SetupSheet({
         <TabContent value="gateways"><GatewaysPanel /></TabContent>
         <TabContent value="policies"><PoliciesPanel /></TabContent>
         <TabContent value="mcps"><McpPanel /></TabContent>
+        <TabContent value="skills"><SkillsPanel /></TabContent>
         <TabContent value="advanced"><AdvancedPanel /></TabContent>
       </Tabs.Root>
     </Sheet>

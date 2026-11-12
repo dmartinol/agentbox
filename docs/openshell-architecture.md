@@ -201,6 +201,9 @@ Agent-specific files include:
 /workspace/state/home/.codex/gateway.config.toml
 /workspace/state/config/opencode/opencode.json
 /workspace/state/home/.claude/settings.json
+/workspace/state/home/.codex/skills/<name>/
+/workspace/state/home/.claude/skills/<name>/
+/workspace/state/config/opencode/skills/<name>/
 /workspace/state/agent.sh
 /workspace/state/session.sh
 /workspace/state/bootstrap.sh
@@ -262,6 +265,40 @@ Network rules are binary-scoped: for a stdio MCP server the rule must name
 the server process binary (for example the `node` path inside the image),
 not the agent binary. Use the existing policy host-rule editing to allow
 MCP endpoints; AgentBox never edits policies automatically.
+
+## Skills layer
+
+A skills entry (`$AGENTBOX_HOME/skills/<name>.yaml`) selects standalone host
+skills and whole plugin skill bundles for one agent. AgentBox stores only
+names; skill contents remain in the agent's own host directories:
+
+| Agent | Standalone skill root | Plugin bundles |
+| --- | --- | --- |
+| claude | `$CLAUDE_CONFIG_DIR/skills` (default `~/.claude/skills`) | `plugins/marketplaces/*/*` and `plugins/cache/*/*/*` |
+| codex | `$CODEX_HOME/skills` (default `~/.codex/skills`), excluding hidden dirs | `$CODEX_HOME/plugins/cache/<marketplace>/<plugin>/<version>/skills` |
+| opencode | `$XDG_CONFIG_HOME/opencode/skills` (default `~/.config/opencode/skills`) | none |
+
+At run start, when `--skills <name>` (or the GUI selection) is present,
+AgentBox:
+
+1. loads the entry and fails before sandbox creation if its agent differs
+   from the profile's agent;
+2. discovers the host skills and plugin bundles for that agent;
+3. resolves standalone skills first, then plugin skills in entry order;
+4. records missing or duplicate entries as warnings on the run
+   (`skills_warnings`) and continues.
+
+Delivery uses the generated state archive at user scope:
+
+- claude: `home/.claude/skills/<name>/`;
+- codex: `home/.codex/skills/<name>/`;
+- opencode: `config/opencode/skills/<name>/`.
+
+Skill directories are copied recursively. Symlinked skill directories are
+resolved to their target contents and executable bits are preserved. Plugins
+contribute only their `skills/` folders: plugin scripts, apps, hooks,
+commands, and plugin-declared MCP servers are not delivered. Project-committed
+skills ride along in the clone unchanged.
 
 ## Credential resolution
 
@@ -357,6 +394,7 @@ Default AgentBox state is stored under:
   runs/
   policies/
   mcps/
+  skills/
   worktrees/
 ```
 

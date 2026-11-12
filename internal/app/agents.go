@@ -59,7 +59,7 @@ touch /workspace/finished
 exit "$status"
 `
 
-func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string, mcp *MCPSelection) (string, error) {
+func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string, mcp *MCPSelection, skills *SkillsSelection) (string, error) {
 	dir := filepath.Join(a.Store.RunsDir(), r.ID+"-config")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
@@ -132,6 +132,9 @@ func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string,
 		if err := writeJSONFile(filepath.Join(claude, "settings.json"), settings); err != nil {
 			return "", err
 		}
+	}
+	if err := deliverSkills(dir, skills); err != nil {
+		return "", err
 	}
 	script, err := agentScript(p, prompt)
 	if err != nil {

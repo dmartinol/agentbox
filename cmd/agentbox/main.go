@@ -87,6 +87,8 @@ func dispatch(ctx context.Context, a *app.App, args []string) error {
 		return policyCmd(ctx, a, args[1:])
 	case "mcp":
 		return mcpCmd(ctx, a, args[1:])
+	case "skill":
+		return skillsCmd(ctx, a, args[1:])
 	case "agent":
 		return agentCmd(ctx, a, args[1:])
 	case "gui":
@@ -117,6 +119,7 @@ func usage() {
 	fmt.Println("  provider setup")
 	fmt.Println("  policy show|edit")
 	fmt.Println("  mcp list|show|create|delete|servers")
+	fmt.Println("  skill list|show|create|delete|available")
 	fmt.Println("  agent start|list|show|attach|logs|stop|sync|diff|delete")
 	fmt.Println("  gui [--address host:port]")
 }
@@ -788,6 +791,114 @@ func mcpCmd(ctx context.Context, a *app.App, args []string) error {
 	return fmt.Errorf("unknown mcp command %q", args[0])
 }
 
+func skillsCmd(ctx context.Context, a *app.App, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("skill list|show|create|delete|available required")
+	}
+	switch args[0] {
+	case "list":
+		f := flags("skill list")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		entries, err := a.Store.ListSkills()
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(entries)
+		}
+		for _, entry := range entries {
+			fmt.Printf("%-20s %-10s skills=%s plugins=%s\n", entry.Name, entry.Agent, strings.Join(entry.Skills, ","), strings.Join(entry.Plugins, ","))
+		}
+		return nil
+	case "show":
+		f := flags("skill show")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		entry, err := a.Store.LoadSkills(f.Args()[0])
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(entry)
+		}
+		fmt.Printf("%s %s skills=%s plugins=%s\n", entry.Name, entry.Agent, strings.Join(entry.Skills, ","), strings.Join(entry.Plugins, ","))
+		return nil
+	case "create":
+		f := flags("skill create")
+		agent := f.String("agent", "", "agent the entry selects skills for (claude, codex, opencode)")
+		skills := f.String("skills", "", "comma-separated standalone skill names")
+		plugins := f.String("plugins", "", "comma-separated plugin@marketplace bundles")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		entry := app.Skills{Version: 1, Name: f.Args()[0], Agent: strings.TrimSpace(*agent), Skills: splitList(*skills), Plugins: splitList(*plugins)}
+		if err := a.Store.SaveSkills(entry); err != nil {
+			return err
+		}
+		fmt.Printf("%s %s skills=%s plugins=%s\n", entry.Name, entry.Agent, strings.Join(entry.Skills, ","), strings.Join(entry.Plugins, ","))
+		return nil
+	case "delete":
+		f := flags("skill delete")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		return a.Store.DeleteSkills(f.Args()[0])
+	case "available":
+		f := flags("skill available")
+		agent := f.String("agent", "", "agent to list available skills for (claude, codex, opencode)")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if strings.TrimSpace(*agent) == "" {
+			return fmt.Errorf("--agent is required")
+		}
+		available, err := a.DiscoverSkills(strings.TrimSpace(*agent))
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(available)
+		}
+		for _, skill := range available.Skills {
+			if skill.Description == "" {
+				fmt.Println(skill.Name)
+				continue
+			}
+			fmt.Printf("%s\t%s\n", skill.Name, skill.Description)
+		}
+		for _, plugin := range available.Plugins {
+			fmt.Printf("%s\t%d bundled skills\n", plugin.ID, plugin.Skills)
+		}
+		return nil
+	}
+	return fmt.Errorf("unknown skill command %q", args[0])
+}
+
+func splitList(value string) []string {
+	var out []string
+	for _, part := range strings.Split(value, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
 func agentCmd(ctx context.Context, a *app.App, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("agent start|list|show|attach|logs|stop|sync|diff|delete required")
@@ -806,12 +917,13 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		approval := f.String("approval", "", "approval override")
 		prompt := f.String("prompt", "", "task prompt; empty opens interactive agent")
 		mcp := f.String("mcp", "", "MCP tools entry name (see `agentbox mcp`)")
+		skills := f.String("skills", "", "skills entry name (see `agentbox skill`)")
 		dry := f.Bool("dry-run", false, "preview")
 		jsonOut := f.Bool("json", false, "JSON output")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
-		r, err := a.Start(ctx, app.StartOptions{Profile: *profile, Project: *project, Name: *name, Source: *source, Gateway: *gateway, Image: *image, Mode: *mode, Model: *model, Approval: *approval, Prompt: *prompt, MCP: *mcp, Dry: *dry})
+		r, err := a.Start(ctx, app.StartOptions{Profile: *profile, Project: *project, Name: *name, Source: *source, Gateway: *gateway, Image: *image, Mode: *mode, Model: *model, Approval: *approval, Prompt: *prompt, MCP: *mcp, Skills: *skills, Dry: *dry})
 		if err != nil {
 			return err
 		}
@@ -820,6 +932,9 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		}
 		fmt.Printf("%s %s %s\n", r.ID, r.Agent, r.Worktree)
 		for _, warning := range r.MCPWarnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+		}
+		for _, warning := range r.SkillsWarnings {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
 		}
 		return nil
