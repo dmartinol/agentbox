@@ -19,8 +19,21 @@ func (a *App) sandboxArgs(r Run, parts ...string) []string {
 	return args
 }
 
+// sandboxLocale is the UTF-8 locale requested for sandbox commands. The
+// AgentBox images ship no locale, so processes default to POSIX. tmux
+// replaces anything it cannot encode with "_" when its client runs under a
+// non-UTF-8 locale, which turned every typographic apostrophe in agent output
+// into "_" in the console.
+const sandboxLocale = "C.UTF-8"
+
+func sandboxLocaleArgs() []string {
+	return []string{"--env", "LC_ALL=" + sandboxLocale, "--env", "LANG=" + sandboxLocale}
+}
+
 func (a *App) sandboxExec(ctx context.Context, r Run, command ...string) ([]byte, error) {
-	args := []string{"sandbox", "exec", "-n", r.Sandbox, "--no-login-shell", "--"}
+	args := []string{"sandbox", "exec", "-n", r.Sandbox, "--no-login-shell"}
+	args = append(args, sandboxLocaleArgs()...)
+	args = append(args, "--")
 	args = append(args, command...)
 	if r.Gateway != "" {
 		args = append([]string{"--gateway", r.Gateway}, args...)

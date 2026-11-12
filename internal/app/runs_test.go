@@ -194,10 +194,38 @@ func TestStartReportsMissingProfileAndPolicy(t *testing.T) {
 }
 
 func TestBootstrapKillsAgentSessionWhenAgentExits(t *testing.T) {
-	for _, want := range []string{"/workspace/state/session.sh", "touch /workspace/finished", "tmux kill-session -t agent", "exec sleep infinity"} {
+	for _, want := range []string{"/workspace/state/session.sh", "touch /workspace/finished", "tmux kill-session -t agent", "exec sleep infinity", "export LANG=C.UTF-8", "export LC_ALL=C.UTF-8"} {
 		if !strings.Contains(bootstrapScript, want) {
 			t.Fatalf("bootstrap script missing %q:\n%s", want, bootstrapScript)
 		}
+	}
+}
+
+func TestAttachArgsRequestUTF8Locale(t *testing.T) {
+	args := attachArgs(Run{Sandbox: "run-test"}, agentSessionName)
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"--tty", "--env LC_ALL=C.UTF-8", "--env LANG=C.UTF-8", "-- tmux attach -t agent"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("attach args missing %q: %v", want, args)
+		}
+	}
+	if strings.Index(joined, "--env LC_ALL") > strings.Index(joined, "-- tmux") {
+		t.Fatalf("locale env must precede the command separator: %v", args)
+	}
+}
+
+func TestSandboxExecRequestsUTF8Locale(t *testing.T) {
+	var recorded recordedCommand
+	app := App{Runner: &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		recorded = call
+		return nil, nil
+	}}}
+	if _, err := app.sandboxExec(context.Background(), Run{Sandbox: "run-test"}, "true"); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(recorded.args, " ")
+	if !strings.Contains(joined, "--env LC_ALL=C.UTF-8 --env LANG=C.UTF-8 -- true") {
+		t.Fatalf("sandbox exec args lack UTF-8 locale: %v", recorded.args)
 	}
 }
 

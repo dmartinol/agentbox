@@ -15,6 +15,8 @@ import (
 
 const bootstrapScript = `#!/bin/sh
 set -eu
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
 tmux new-session -d -s agent /bin/sh /workspace/state/session.sh
 tmux set-option -g remain-on-exit on
 tmux pipe-pane -t agent -o 'cat >> /workspace/state/agent.log'
@@ -383,7 +385,9 @@ const agentTerminalRows = 36
 var DefaultTerminalSize = TerminalSize{Columns: agentTerminalColumns, Rows: agentTerminalRows}
 
 func attachArgs(r Run, session string) []string {
-	args := []string{"sandbox", "exec", "-n", r.Sandbox, "--tty", "--", "tmux", "attach", "-t", session}
+	args := []string{"sandbox", "exec", "-n", r.Sandbox, "--tty"}
+	args = append(args, sandboxLocaleArgs()...)
+	args = append(args, "--", "tmux", "attach", "-t", session)
 	if r.Gateway != "" {
 		args = append([]string{"--gateway", r.Gateway}, args...)
 	}
