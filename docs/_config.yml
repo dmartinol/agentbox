@@ -6,6 +6,11 @@ theme: minima
 markdown: kramdown
 permalink: pretty
 
+collections:
+  cli:
+    output: true
+    permalink: /cli-reference/:path/
+
 header_pages:
   - getting-started.md
   - cli-reference.md

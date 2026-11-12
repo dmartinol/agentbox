@@ -1,134 +1,85 @@
 ---
-layout: page
+layout: cli
 title: CLI reference
 permalink: /cli-reference/
 ---
 
-The CLI entry point is `agentbox`. Run `agentbox --help` for the top-level command list and `agentbox version` to check the installed build. Flag details below reflect the current command parser; not every subcommand implements its own `--help` output yet.
+`agentbox` is the command-line interface for configuring and running
+OpenShell-backed coding agents. It manages projects, profiles, images,
+providers, gateway policies, and agent runs, while keeping each run’s checkout,
+state, logs, and configuration separate.
 
-Unless noted, flags appear before positional arguments. Commands marked `[--json]` support machine-readable output.
-
-## General
-
-```text
-agentbox version
-agentbox doctor [--json]
-agentbox gui [--address HOST:PORT]
-```
-
-- `version` prints the version and build metadata.
-- `doctor` checks local dependencies and the OpenShell gateway.
-- `gui` starts the local web application; the default address is `127.0.0.1:8080`.
-
-## Settings
+## Synopsis
 
 ```text
-agentbox settings show [--json]
-agentbox settings set [--worktree-root PATH] [--branch-prefix PREFIX]
+agentbox <command> [subcommand] [flags] [arguments]
 ```
 
-Settings control where isolated worktrees are created and how their branches are named.
+Run `agentbox` or `agentbox --help` for a compact command list. Run
+`agentbox version` (or `agentbox --version`) to print build information. Most
+flag-based subcommands also accept `--help`.
 
-## Projects
+## Command groups
 
-```text
-agentbox project create [--root PATH] [--no-worktree] NAME
-agentbox project edit NAME
-agentbox project show [--json] NAME
-agentbox project list [--json]
-```
+| Command | Purpose |
+| --- | --- |
+| [`version`, `doctor`, `gui`]({{ '/cli-reference/general/' | relative_url }}) | Build information, environment diagnosis, and the local web GUI. |
+| [`settings`]({{ '/cli-reference/settings/' | relative_url }}) | Worktree root and branch prefix defaults. |
+| [`project`]({{ '/cli-reference/project/' | relative_url }}) | Register and inspect Git projects. |
+| [`profile`]({{ '/cli-reference/profile/' | relative_url }}) | Reusable agent, image, provider, and policy configuration. |
+| [`image`]({{ '/cli-reference/image/' | relative_url }}) | Build, inspect, push, and pull AgentBox images, and configure a registry. |
+| [`gateway`]({{ '/cli-reference/gateway/' | relative_url }}) | List, inspect, connect, and start OpenShell gateways. |
+| [`provider`]({{ '/cli-reference/provider/' | relative_url }}) | Register an inference endpoint with OpenShell. |
+| [`policy`]({{ '/cli-reference/policy/' | relative_url }}) | Inspect or edit the sandbox policy for an existing run. |
+| [`mcp`]({{ '/cli-reference/mcp/' | relative_url }}) | Select global MCP servers by name for an agent's runs. |
+| [`agent`]({{ '/cli-reference/agent/' | relative_url }}) | Start, monitor, attach to, sync, and delete agent runs. |
 
-Projects default to worktree isolation. `--no-worktree` opts out and runs an agent directly in a clean checkout.
+## Conventions
 
-## Profiles
+- Flags use Go’s `flag` syntax: `--name value` or `--name=value`.
+- Flags must appear **before** positional arguments. For example,
+  `agentbox agent start --profile codex --project demo` works, but
+  `agentbox agent start demo --profile codex` treats `--profile` as a positional
+  argument.
+- Boolean flags accept `--flag` or `--flag=true`.
+- Commands marked `[--json]` write machine-readable JSON to standard output.
+- `--dry-run`, where available, prints or returns the planned operation without
+  changing local state or calling the mutating OpenShell or Podman command.
+  Commands may still validate inputs and the local environment.
+- Success exits with status `0`. Errors print `error: ...` to standard error and
+  exit with status `1`.
+- Names for projects, profiles, providers, gateways, settings prefixes, and run
+  names must be lower-case identifiers matching
+  `^[a-z][a-z0-9-]{0,62}$`, except where a command documents otherwise.
 
-```text
-agentbox profile create \
-  --agent AGENT --image IMAGE \
-  [--mode standard|gateway] [--model MODEL] [--provider NAME] \
-  [--policy PATH] [--approval prompted|unattended] \
-  [--base-url URL] [--api-key-env ENV_NAME] NAME
-agentbox profile edit NAME
-agentbox profile show [--json] NAME
-agentbox profile list [--json]
-```
+## State and environment
 
-Supported agent values are `codex`, `claude`, and `opencode`. Gateway-mode profiles require an exact model ID and an OpenShell provider. If `--policy` is omitted, AgentBox creates and references the profile's default policy. `--api-key-env` takes an environment-variable **name**, never a key value.
+AgentBox stores local state under `~/.agentbox` by default. Set
+`AGENTBOX_HOME` to use a different directory.
 
-## Images
+| Path | Contents |
+| --- | --- |
+| `settings.yaml` | Worktree root and branch prefix. |
+| `projects/<name>.yaml` | Registered projects. |
+| `profiles/<name>.yaml` | AgentBox profiles. |
+| `profiles/agentbox-*-provider.yaml` | OpenShell provider profiles generated by `provider setup`. |
+| `policies/<name>.yaml` | Default and per-run policies. |
+| `runs/<id>.json` | Agent run records. |
+| `worktrees/` | Default location for isolated Git worktrees. |
+| `registry.yaml` | Optional external image registry. |
 
-```text
-agentbox image versions [--json] AGENT
-agentbox image build [--version VERSION] [--dry-run] AGENT
-agentbox image list [--json]
-agentbox image push [--dry-run] LOCAL_IMAGE REMOTE_REFERENCE
-agentbox image pull [--dry-run] REMOTE_REFERENCE
-agentbox image registry show [--json]
-agentbox image registry set REGISTRY
-agentbox image registry clear
-agentbox image registry discover [--json]
-agentbox image registry push [--dry-run] LOCAL_IMAGE
-```
+| Variable | Purpose |
+| --- | --- |
+| `AGENTBOX_HOME` | Overrides the AgentBox state directory. |
+| `EDITOR` | Editor used by `project edit`, `profile edit`, and interactive `policy edit`. Defaults to `vi`. |
+| `OPENAI_API_KEY` | Credential for the built-in `openai` provider. |
+| `ANTHROPIC_API_KEY` | Credential for the built-in `anthropic` provider. |
 
-`AGENT` is `codex`, `claude`, or `opencode`. If `--version` is omitted, `image build` discovers the latest compatible release. Registry operations use Podman's existing registry login.
-
-## Gateways and providers
-
-```text
-agentbox gateway list
-agentbox gateway connect [--name NAME] [--dry-run] GATEWAY_URL
-agentbox gateway start [--dry-run]
-agentbox gateway info [--json] [NAME]
-
-agentbox provider setup \
-  [--type gateway-bearer|gateway-header|openai|anthropic] \
-  [--host HOST] [--credential ENV_NAME] [--gateway NAME] \
-  [--dry-run] [--update] NAME
-```
-
-Use `gateway-bearer` for OpenAI-compatible gateway APIs and `gateway-header` for Anthropic-compatible gateway APIs. The built-in `openai` and `anthropic` providers are for direct standard-mode profiles. The provider credential flag references an environment-variable name only.
-
-## Policies
-
-```text
-agentbox policy show [--json] RUN_ID
-agentbox policy edit [--allow-host HOST] [--binary PATH] [--dry-run] RUN_ID
-```
-
-Policies define sandbox access. These commands inspect or edit the policy associated with an agent run; review the effective policy before changing network or binary rules. Note that network rules are binary-scoped: a rule for a stdio MCP server must name the server process binary, not the agent binary.
-
-## MCP tools
-
-```text
-agentbox mcp list [--json]
-agentbox mcp show [--json] NAME
-agentbox mcp create --agent AGENT --servers NAME[,NAME...] NAME
-agentbox mcp delete NAME
-agentbox mcp servers --agent AGENT [--json]
-```
-
-An MCP tools entry selects global MCP servers **by name** for one agent. Definitions stay in the agent's own user-scope configuration on the host (`~/.claude.json`, `~/.codex/config.toml`, or `~/.config/opencode/opencode.json(c)`); AgentBox never stores them. `mcp servers` lists the names available for selection. Selected servers are delivered into a run at user scope; project-local MCP files always ride along and win name conflicts. Credentials must be environment-variable references — inline secret-like values fail run start.
-
-## Agents
-
-```text
-agentbox agent start \
-  [--project NAME | --source PATH] [--profile NAME] [--gateway NAME] \
-  [--name NAME] [--image IMAGE] [--mode MODE] [--model MODEL] \
-  [--approval MODE] [--prompt TEXT] [--mcp NAME] [--dry-run] [--json]
-agentbox agent list [--json]
-agentbox agent show [--json] ID
-agentbox agent attach ID
-agentbox agent logs ID
-agentbox agent stop ID
-agentbox agent sync ID
-agentbox agent diff ID
-agentbox agent delete [--discard] ID
-```
-
-`agent start` needs a registered project or source checkout and a profile (or explicit configuration overrides). `--dry-run` previews startup; `--json` prints structured start output. `--mcp` selects an MCP tools entry whose agent matches the run profile; missing server names produce warnings, not failures. `agent delete --discard` acknowledges discarding the agent's results.
+Credentials are always referenced by environment-variable name. AgentBox never
+accepts, stores, or prints a secret value. The process that starts AgentBox and
+the OpenShell gateway must both be able to see the referenced variables.
 
 ## Related guides
 
-- [Getting started](getting-started/)
-- [OpenShell architecture](architecture/)
+- [Getting started]({{ '/getting-started/' | relative_url }})
+- [OpenShell architecture]({{ '/architecture/' | relative_url }})
