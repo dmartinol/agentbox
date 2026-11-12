@@ -1,7 +1,18 @@
 ---
-layout: cli
+layout: docs
 title: CLI reference
 permalink: /cli-reference/
+nav_sections:
+  - title: Synopsis
+    id: synopsis
+  - title: Command groups
+    id: command-groups
+  - title: Conventions
+    id: conventions
+  - title: State and environment
+    id: state-and-environment
+  - title: Related guides
+    id: related-guides
 ---
 
 `agentbox` is the command-line interface for configuring and running

@@ -1,5 +1,5 @@
 ---
-layout: cli
+layout: docs
 title: Settings commands
 nav_title: Settings
 command: settings

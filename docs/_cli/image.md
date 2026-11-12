@@ -1,5 +1,5 @@
 ---
-layout: cli
+layout: docs
 title: Image commands
 nav_title: Images
 command: image

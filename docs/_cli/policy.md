@@ -1,5 +1,5 @@
 ---
-layout: cli
+layout: docs
 title: Policy commands
 nav_title: Policies
 command: policy

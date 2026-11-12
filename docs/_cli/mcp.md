@@ -1,5 +1,5 @@
 ---
-layout: cli
+layout: docs
 title: MCP commands
 nav_title: MCP
 command: mcp

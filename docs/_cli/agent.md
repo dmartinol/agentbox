@@ -1,5 +1,5 @@
 ---
-layout: cli
+layout: docs
 title: Agent commands
 nav_title: Agents
 command: agent

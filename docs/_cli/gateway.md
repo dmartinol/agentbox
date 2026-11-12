@@ -1,5 +1,5 @@
 ---
-layout: cli
+layout: docs
 title: Gateway commands
 nav_title: Gateways
 command: gateway

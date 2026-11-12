@@ -1,5 +1,5 @@
 ---
-layout: cli
+layout: docs
 title: General commands
 nav_title: General
 command: general
