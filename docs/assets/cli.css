@@ -1,0 +1,118 @@
+.cli-main {
+  padding: 2rem 0 3rem;
+}
+
+.cli-shell {
+  display: grid;
+  grid-template-columns: 14rem minmax(0, 1fr);
+  gap: 2.5rem;
+  align-items: start;
+  max-width: 74rem;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.cli-nav {
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  padding-right: 1rem;
+  border-right: 1px solid #e8e8e8;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.cli-nav-heading {
+  margin: 0 0 0.6rem;
+  color: #828282;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cli-nav ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cli-nav-root > .cli-nav-group {
+  margin-bottom: 0.65rem;
+}
+
+.cli-nav-group > a {
+  color: #2a2a2a;
+  font-weight: 600;
+}
+
+.cli-nav-group.is-current > a {
+  color: #1f6feb;
+}
+
+.cli-nav-sub {
+  margin: 0.2rem 0 0 0.6rem !important;
+}
+
+.cli-nav-sub a {
+  display: block;
+  padding: 0.05rem 0;
+  color: #5a5a5a;
+  font-weight: 400;
+}
+
+.cli-nav-sub a:hover,
+.cli-nav-group > a:hover {
+  color: #1f6feb;
+  text-decoration: none;
+}
+
+.cli-body {
+  min-width: 0;
+}
+
+.cli-body pre {
+  overflow-x: auto;
+}
+
+.cli-body table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.cli-body th,
+.cli-body td {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #e8e8e8;
+  text-align: left;
+  vertical-align: top;
+}
+
+.cli-body th {
+  background: #f6f8fa;
+  white-space: nowrap;
+}
+
+.cli-body td code,
+.cli-body th code {
+  white-space: nowrap;
+}
+
+@media screen and (max-width: 800px) {
+  .cli-shell {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .cli-nav {
+    position: static;
+    max-height: none;
+    padding: 0 0 1rem;
+    border-right: 0;
+    border-bottom: 1px solid #e8e8e8;
+  }
+}
