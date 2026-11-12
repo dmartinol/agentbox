@@ -14,7 +14,7 @@ AgentBox is a deliberately small local CLI and web GUI for configuring and runni
 It helps you prepare an agent image and model profile, register a Git project, start an isolated agent, and inspect its status and changes. It is a local utility—not a hosted agent service or a permanent fleet-management platform.
 
 <p align="center">
-  <img src="{{ '/screenshots/flow.gif' | relative_url }}" alt="AgentBox tour: configure a profile, start a sandboxed agent, and monitor Fleet" width="100%">
+  <img src="{{ '/screenshots/flow.gif' | relative_url }}" alt="AgentBox tour: configure profiles, register projects, start an OpenShell-backed agent, monitor Fleet, and switch between agents and shell sessions in a project workspace" width="100%">
 </p>
 
 ## Start here

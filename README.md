@@ -16,7 +16,7 @@ This repository is an autonomous OpenShell spike. It is not a supported product 
 The animated tour uses sample data and shows a typical profile-to-agent workflow.
 
 <p align="center">
-  <img src="docs/screenshots/flow.gif" alt="Animated AgentBox tour: configure a model profile, start an OpenShell-backed agent, and monitor it in Fleet" width="100%">
+  <img src="docs/screenshots/flow.gif" alt="Animated AgentBox tour: configure profiles, register projects, start an OpenShell-backed agent, monitor Fleet, and switch between agents and shell sessions in a project workspace" width="100%">
 </p>
 
 ## Documentation
