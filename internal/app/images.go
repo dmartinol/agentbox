@@ -104,7 +104,7 @@ func (a *App) ImageBuildWithOutput(ctx context.Context, agent, version string, d
 		return rec, err
 	}
 	defer os.RemoveAll(dir)
-	dockerfile := fmt.Sprintf("FROM docker.io/library/node@%s\nRUN apt-get update && apt-get install -y --no-install-recommends git tmux ca-certificates && rm -rf /var/lib/apt/lists/*\nRUN npm install -g '%s@%s' && npm cache clean --force\nRUN %s --version\nRUN groupadd sandbox && useradd -g sandbox -m -s /bin/sh sandbox && mkdir -p /workspace && chown sandbox:sandbox /workspace\nWORKDIR /workspace\nUSER sandbox\n", rec.BaseDigest, pkg, version, agentCommand(agent))
+	dockerfile := fmt.Sprintf("FROM docker.io/library/node@%s\nENV LANG=%s\nENV LC_ALL=%s\nRUN apt-get update && apt-get install -y --no-install-recommends git tmux ca-certificates && rm -rf /var/lib/apt/lists/*\nRUN npm install -g '%s@%s' && npm cache clean --force\nRUN %s --version\nRUN groupadd sandbox && useradd -g sandbox -m -s /bin/sh sandbox && mkdir -p /workspace && chown sandbox:sandbox /workspace\nWORKDIR /workspace\nUSER sandbox\n", rec.BaseDigest, sandboxLocale, sandboxLocale, pkg, version, agentCommand(agent))
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0600); err != nil {
 		return rec, err
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,6 +72,11 @@ func TestImageBuildUsesPinnedDigestAndRecipeTag(t *testing.T) {
 				}
 				if !strings.Contains(string(dockerfile), "FROM docker.io/library/node@sha256:base123") {
 					return errors.New("Dockerfile did not pin the resolved base digest")
+				}
+				for _, want := range []string{"ENV LANG=C.UTF-8", "ENV LC_ALL=C.UTF-8"} {
+					if !strings.Contains(string(dockerfile), want) {
+						return fmt.Errorf("Dockerfile does not set %s", want)
+					}
 				}
 			}
 			return nil

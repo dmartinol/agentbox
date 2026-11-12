@@ -308,6 +308,11 @@ tab is a view over one run.
 Attach transport:
 
 - CLI attach uses `openshell sandbox exec --tty -- tmux attach`.
+- Every attach and sandbox command requests `LC_ALL=C.UTF-8` and
+  `LANG=C.UTF-8`. The images set the same defaults. Without a UTF-8 locale
+  the tmux client runs under POSIX and renders every character it cannot
+  encode as `_`, which turned typographic apostrophes in agent output into
+  underscores in the console.
 - GUI attach uses xterm.js over a same-origin WebSocket and selects the
   session with `?session=agent|shell-N`.
 - The GUI server allocates a local PTY sized from the xterm viewport: the
