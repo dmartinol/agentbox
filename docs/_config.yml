@@ -11,11 +11,6 @@ collections:
     output: true
     permalink: /cli-reference/:path/
 
-header_pages:
-  - getting-started.md
-  - cli-reference.md
-  - architecture.md
-
 plugins:
   - jekyll-seo-tag
 

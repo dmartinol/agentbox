@@ -1,5 +1,5 @@
 ---
-layout: cli
+layout: docs
 title: Profile commands
 nav_title: Profiles
 command: profile

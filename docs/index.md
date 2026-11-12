@@ -1,7 +1,12 @@
 ---
-layout: page
+layout: docs
 title: AgentBox
 permalink: /
+nav_sections:
+  - title: Start here
+    id: start-here
+  - title: How AgentBox fits together
+    id: how-agentbox-fits-together
 ---
 
 AgentBox is a deliberately small local CLI and web GUI for configuring and running coding agents in isolated [OpenShell](https://openshell.org/) sandboxes.

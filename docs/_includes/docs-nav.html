@@ -1,0 +1,78 @@
+{% assign is_cli = false %}
+{% if page.url contains '/cli-reference' %}
+  {% assign is_cli = true %}
+{% endif %}
+<aside class="docs-sidebar" aria-label="Documentation navigation">
+  <details class="docs-nav" open>
+    <summary class="docs-nav-summary">Documentation navigation</summary>
+    <div class="docs-nav-content">
+      <p class="docs-nav-heading">Documentation</p>
+      <ul class="docs-nav-root">
+        <li class="docs-nav-group{% if page.url == '/' %} is-current{% endif %}">
+          <a href="{{ '/' | relative_url }}"{% if page.url == '/' %} aria-current="page"{% endif %}>Overview</a>
+          {% if page.url == '/' and page.nav_sections %}
+          <ul class="docs-nav-sub">
+            {% for section in page.nav_sections %}
+            <li><a href="{{ '/' | relative_url }}#{{ section.id }}">{{ section.title }}</a></li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </li>
+        <li class="docs-nav-group{% if page.url == '/getting-started/' %} is-current{% endif %}">
+          <a href="{{ '/getting-started/' | relative_url }}"{% if page.url == '/getting-started/' %} aria-current="page"{% endif %}>Getting started</a>
+          {% if page.url == '/getting-started/' and page.nav_sections %}
+          <ul class="docs-nav-sub">
+            {% for section in page.nav_sections %}
+            <li><a href="{{ '/getting-started/' | relative_url }}#{{ section.id }}">{{ section.title }}</a></li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </li>
+        <li class="docs-nav-group{% if is_cli %} is-current{% endif %}">
+          <a href="{{ '/cli-reference/' | relative_url }}"{% if page.url == '/cli-reference/' %} aria-current="page"{% endif %}>CLI reference</a>
+          {% if is_cli %}
+          <ul class="docs-nav-sub docs-nav-cli">
+            {% if page.url == '/cli-reference/' and page.nav_sections %}
+              {% for section in page.nav_sections %}
+              <li><a href="{{ '/cli-reference/' | relative_url }}#{{ section.id }}">{{ section.title }}</a></li>
+              {% endfor %}
+            {% endif %}
+            {% assign groups = site.cli | sort: "order" %}
+            {% for group in groups %}
+            <li class="docs-nav-group{% if page.url == group.url %} is-current{% endif %}">
+              <a href="{{ group.url | relative_url }}"{% if page.url == group.url %} aria-current="page"{% endif %}>{{ group.nav_title | default: group.title }}</a>
+              {% if page.url == group.url and group.subcommands %}
+              <ul class="docs-nav-sub">
+                {% for sub in group.subcommands %}
+                <li><a href="{{ group.url | relative_url }}#{{ group.command }}-{{ sub | replace: ' ', '-' }}">{{ sub }}</a></li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </li>
+        <li class="docs-nav-group{% if page.url == '/architecture/' %} is-current{% endif %}">
+          <a href="{{ '/architecture/' | relative_url }}"{% if page.url == '/architecture/' %} aria-current="page"{% endif %}>OpenShell architecture</a>
+          {% if page.url == '/architecture/' and page.nav_sections %}
+          <ul class="docs-nav-sub">
+            {% for section in page.nav_sections %}
+            <li>
+              <a href="{{ '/architecture/' | relative_url }}#{{ section.id }}">{{ section.title }}</a>
+              {% if section.children %}
+              <ul class="docs-nav-sub">
+                {% for child in section.children %}
+                <li><a href="{{ '/architecture/' | relative_url }}#{{ child.id }}">{{ child.title }}</a></li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </li>
+      </ul>
+    </div>
+  </details>
+</aside>

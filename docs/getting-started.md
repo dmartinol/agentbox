@@ -1,7 +1,20 @@
 ---
-layout: page
+layout: docs
 title: Getting started
 permalink: /getting-started/
+nav_sections:
+  - title: Requirements
+    id: requirements
+  - title: Install
+    id: install
+  - title: Register a project
+    id: register-a-project
+  - title: Prepare an image and profile
+    id: prepare-an-image-and-profile
+  - title: Start an agent
+    id: start-an-agent
+  - title: Open the web GUI
+    id: open-the-web-gui
 ---
 
 This quick start covers the local CLI workflow. The same projects, profiles, and agents are available in the web GUI.

@@ -1,5 +1,5 @@
 ---
-layout: cli
+layout: docs
 title: Provider commands
 nav_title: Providers
 command: provider

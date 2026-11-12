@@ -1,5 +1,5 @@
 ---
-layout: cli
+layout: docs
 title: Project commands
 nav_title: Projects
 command: project
