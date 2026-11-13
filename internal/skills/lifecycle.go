@@ -30,8 +30,9 @@ type Options struct {
 	// ProjectDir overrides the --local base directory. It is primarily a
 	// test hook; the CLI resolves the working directory instead.
 	ProjectDir string
-	// Dir overrides the destination root entirely. Both skills are written
-	// as plain copies beneath it: no links, no manifest, no lifecycle.
+	// Dir overrides the destination root entirely. Every shipped skill file
+	// is written as a plain copy beneath it: no links, no manifest, no
+	// lifecycle.
 	Dir string
 	// Force replaces modified copies and foreign destinations, moving the
 	// previous content into a timestamped backup first.
@@ -48,7 +49,11 @@ type Options struct {
 // strings: installed, updated, unchanged, linked, migrated, removed, and
 // skipped, with would- prefixed counterparts in dry runs.
 type Result struct {
-	Skill  string `json:"skill"`
+	Skill string `json:"skill"`
+	// File is the installed path of the acted-on file relative to the skill
+	// directory: SKILL.md, or a template such as issue.md. It is empty when
+	// the result describes a link rather than a file.
+	File   string `json:"file,omitempty"`
 	Target string `json:"target"`
 	Path   string `json:"path"`
 	Action string `json:"action"`
@@ -224,13 +229,14 @@ func runLifecycle(opts Options, mode lifecycleMode) ([]Result, error) {
 	var results []Result
 	var failures []error
 	for _, name := range names {
-		content, err := Embedded(name, opts.Version)
+		files, err := renderFiles(name, opts.Version)
 		if err != nil {
 			failures = append(failures, err)
 			continue
 		}
+		skillContent := files[0].content
 		canonicalDir := filepath.Join(l.root(), name)
-		written, ours, err := ensureCanonical(l, manifest, name, content, opts, mode, bk)
+		written, ours, err := ensureCanonical(l, manifest, name, files, opts, mode, bk)
 		results = append(results, written...)
 		if err != nil {
 			failures = append(failures, err)
@@ -244,14 +250,14 @@ func runLifecycle(opts Options, mode lifecycleMode) ([]Result, error) {
 			if !containsString(agents, harness) {
 				continue
 			}
-			result, _, err := ensureLink(l, manifest, harness, name, canonicalDir, content, opts, bk)
+			result, _, err := ensureLink(l, manifest, harness, name, canonicalDir, skillContent, opts, bk)
 			results = append(results, result)
 			if err != nil {
 				failures = append(failures, err)
 			}
 		}
 		if containsString(agents, "codex") {
-			result, reported, err := migrateLegacyCodex(l, name, content, opts, bk)
+			result, reported, err := migrateLegacyCodex(l, name, skillContent, opts, bk)
 			if reported {
 				results = append(results, result)
 			}
@@ -330,29 +336,41 @@ func agentsFromTarget(target string) ([]string, error) {
 	return nil, fmt.Errorf("target must be agents, codex, claude, opencode, or all")
 }
 
-// ensureCanonical writes the canonical copy of one skill and reports whether
-// the on-disk content is provably AgentBox's. Stale copies that match the
-// manifest are refreshed in place; anything else that differs is refused
-// unless Force is set, and forced replacements are backed up first.
-func ensureCanonical(l layout, manifest *Manifest, name string, content []byte, opts Options, mode lifecycleMode, bk *backupSet) ([]Result, bool, error) {
-	dir := filepath.Join(l.root(), name)
-	path := filepath.Join(dir, "SKILL.md")
-	result := func(action, detail string) Result {
-		return Result{Skill: name, Target: "agents", Path: path, Action: action, Detail: detail}
+// renderedFile is one embedded skill file with its version substituted.
+type renderedFile struct {
+	spec    SkillFile
+	content []byte
+}
+
+// renderFiles renders every file of one skill in inventory order.
+func renderFiles(name, version string) ([]renderedFile, error) {
+	files := Files(name)
+	out := make([]renderedFile, 0, len(files))
+	for _, file := range files {
+		content, err := EmbeddedFile(name, file.Name, version)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, renderedFile{spec: file, content: content})
 	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("skill %q has no embedded files", name)
+	}
+	return out, nil
+}
+
+// ensureCanonical writes or refreshes every managed file of one skill and
+// reports whether the canonical SKILL.md is provably AgentBox's. Per-file
+// results let install, update, and remove report templates independently of
+// SKILL.md. Stale files that match the manifest are refreshed in place;
+// anything else that differs is refused unless Force is set, and forced
+// replacements are backed up first.
+func ensureCanonical(l layout, manifest *Manifest, name string, files []renderedFile, opts Options, mode lifecycleMode, bk *backupSet) ([]Result, bool, error) {
+	dir := filepath.Join(l.root(), name)
+	skillPath := filepath.Join(dir, "SKILL.md")
 	record, hasRecord := manifest.Skills[name]
-	recordLinks := record.Links
-	newRecord := func() {
-		links := recordLinks
-		if links == nil {
-			links = []string{}
-		}
-		manifest.Skills[name] = ManifestSkill{
-			Version: effectiveVersion(opts.Version),
-			SHA256:  hashHex(content),
-			Path:    path,
-			Links:   links,
-		}
+	result := func(action, detail string) Result {
+		return Result{Skill: name, File: "SKILL.md", Target: "agents", Path: skillPath, Action: action, Detail: detail}
 	}
 
 	// The canonical skill directory must be a real directory AgentBox owns.
@@ -380,62 +398,135 @@ func ensureCanonical(l layout, manifest *Manifest, name string, content []byte, 
 		return []Result{r}, false, err
 	}
 
+	// Update never creates a missing skill; install does. Report the missing
+	// SKILL.md once rather than a row per template.
+	if mode == modeUpdate {
+		if _, err := os.Stat(skillPath); errors.Is(err, fs.ErrNotExist) {
+			return []Result{result("skipped", "not installed; run `agentbox skills install`")}, false, nil
+		}
+	}
+
+	next := ManifestSkill{Version: record.Version, Path: skillPath, Links: nonNil(record.Links)}
+	skillOwned := false
+	recordsFile := false
+	var results []Result
+	var failures []error
+	for i, file := range files {
+		// A template is only added when SKILL.md itself is provably ours, so
+		// install never litters a directory it refused to manage.
+		allowCreate := i == 0 || skillOwned
+		res, owned, err := ensureCanonicalFile(dir, name, file.spec, file.content, record, hasRecord, allowCreate, opts, bk)
+		results = append(results, res)
+		if err != nil {
+			failures = append(failures, err)
+		}
+		if i == 0 {
+			skillOwned = owned
+		}
+		if owned {
+			next.setFile(ManifestEntry{Name: file.spec.Name, SHA256: hashHex(file.content), Path: res.Path})
+			recordsFile = true
+			continue
+		}
+		if existing, ok := record.File(file.spec.Name); ok {
+			next.setFile(existing)
+			recordsFile = true
+		}
+	}
+	// Files recorded by an older install that this binary no longer ships stay
+	// managed so remove can still clean them up.
+	shipped := make(map[string]bool, len(files))
+	for _, file := range files {
+		shipped[file.spec.Name] = true
+	}
+	for _, file := range record.Files {
+		if !shipped[file.Name] {
+			next.setFile(file)
+			recordsFile = true
+		}
+	}
+	if skillOwned {
+		next.Version = effectiveVersion(opts.Version)
+	}
+	if hasRecord || recordsFile {
+		manifest.Skills[name] = next
+	}
+	return results, skillOwned, errors.Join(failures...)
+}
+
+// ensureCanonicalFile writes one file of a skill. owned reports whether the
+// on-disk file now matches the embedded content.
+func ensureCanonicalFile(dir, skill string, spec SkillFile, content []byte, record ManifestSkill, hasRecord, allowCreate bool, opts Options, bk *backupSet) (Result, bool, error) {
+	path := filepath.Join(dir, filepath.FromSlash(spec.Name))
+	res := Result{Skill: skill, File: spec.Name, Target: "agents", Path: path}
+	tracked, trackedFile := ManifestEntry{}, false
+	if hasRecord {
+		tracked, trackedFile = record.File(spec.Name)
+	}
 	existing, err := os.ReadFile(path)
 	switch {
 	case err == nil && bytes.Equal(existing, content):
-		newRecord()
-		return []Result{result("unchanged", "")}, true, nil
+		res.Action = "unchanged"
+		return res, true, nil
 	case err == nil:
-		if hasRecord && hashHex(existing) == record.SHA256 {
+		if trackedFile && hashHex(existing) == tracked.SHA256 {
 			// Byte-identical to what AgentBox installed before: stale.
 			if opts.DryRun {
-				return []Result{result("would-update", "refresh from version "+record.Version)}, true, nil
+				res.Action, res.Detail = "would-update", "refresh from version "+record.Version
+				return res, true, nil
 			}
 			if err := writeFile(path, content); err != nil {
-				r := result("skipped", err.Error())
-				return []Result{r}, false, err
+				res.Action, res.Detail = "skipped", err.Error()
+				return res, false, err
 			}
-			newRecord()
-			return []Result{result("updated", "refreshed from version "+record.Version)}, true, nil
+			res.Action, res.Detail = "updated", "refreshed from version "+record.Version
+			return res, true, nil
 		}
 		// Modified by hand or installed by an older release without a
 		// manifest: preserve it unless --force is set.
 		if !opts.Force {
-			r := result("skipped", "existing file differs from the embedded skill; use --force to overwrite")
+			res.Action = "skipped"
+			res.Detail = "existing file differs from the embedded skill; use --force to overwrite"
 			if opts.DryRun {
-				return []Result{r}, false, nil
+				return res, false, nil
 			}
-			return []Result{r}, false, fmt.Errorf("refusing to overwrite %s; use --force", path)
+			return res, false, fmt.Errorf("refusing to overwrite %s; use --force", path)
 		}
 		if opts.DryRun {
-			return []Result{result("would-update", "replace the modified copy (backed up first)")}, true, nil
+			res.Action, res.Detail = "would-update", "replace the modified copy (backed up first)"
+			return res, true, nil
 		}
-		if err := bk.move(path, filepath.Join("canonical", name, "SKILL.md")); err != nil {
-			r := result("skipped", err.Error())
-			return []Result{r}, false, err
+		if err := bk.move(path, filepath.Join("canonical", skill, filepath.FromSlash(spec.Name))); err != nil {
+			res.Action, res.Detail = "skipped", err.Error()
+			return res, false, err
 		}
 		if err := writeFile(path, content); err != nil {
-			r := result("skipped", err.Error())
-			return []Result{r}, false, err
+			res.Action, res.Detail = "skipped", err.Error()
+			return res, false, err
 		}
-		newRecord()
-		return []Result{result("updated", "replaced the modified copy (backed up)")}, true, nil
+		res.Action, res.Detail = "updated", "replaced the modified copy (backed up)"
+		return res, true, nil
 	case errors.Is(err, fs.ErrNotExist):
-		if mode == modeUpdate {
-			return []Result{result("skipped", "not installed; run `agentbox skills install`")}, false, nil
+		if !allowCreate {
+			res.Action, res.Detail = "skipped", "SKILL.md differs; use --force to install this file"
+			if spec.Name != "SKILL.md" {
+				res.Detail = "SKILL.md is not managed; use --force to install this file"
+			}
+			return res, false, nil
 		}
 		if opts.DryRun {
-			return []Result{result("would-install", "")}, true, nil
+			res.Action = "would-install"
+			return res, true, nil
 		}
 		if err := writeFile(path, content); err != nil {
-			r := result("skipped", err.Error())
-			return []Result{r}, false, err
+			res.Action, res.Detail = "skipped", err.Error()
+			return res, false, err
 		}
-		newRecord()
-		return []Result{result("installed", "")}, true, nil
+		res.Action = "installed"
+		return res, true, nil
 	default:
-		r := result("skipped", err.Error())
-		return []Result{r}, false, err
+		res.Action, res.Detail = "skipped", err.Error()
+		return res, false, err
 	}
 }
 
@@ -674,8 +765,8 @@ func Remove(opts Options) ([]Result, error) {
 					dropManifestLink(manifest, name, link)
 				}
 			}
-			res, removed, err := removeCanonical(l, manifest, name, opts, bk)
-			results = append(results, res)
+			removedResults, removed, err := removeCanonical(l, manifest, name, opts, bk)
+			results = append(results, removedResults...)
 			if err != nil {
 				failures = append(failures, err)
 			}
@@ -735,13 +826,41 @@ func resolveRemoveFilter(opts Options) ([]string, bool, error) {
 	return nil, true, nil
 }
 
-// removeCanonical deletes the canonical copy of one skill when it still
-// matches what AgentBox recorded or rendered. Modified copies require Force
-// and are backed up first.
-func removeCanonical(l layout, manifest *Manifest, name string, opts Options, bk *backupSet) (Result, bool, error) {
-	path := filepath.Join(l.root(), name, "SKILL.md")
-	res := Result{Skill: name, Target: "agents", Path: path}
+// removeCanonical deletes every managed file of one skill when it still
+// matches what AgentBox recorded or rendered. Modified managed files require
+// Force and are backed up first. Files at shipped paths that AgentBox never
+// recorded are foreign and are always left alone. removed reports whether the
+// skill's SKILL.md is gone, which lets Remove drop the manifest record.
+func removeCanonical(l layout, manifest *Manifest, name string, opts Options, bk *backupSet) ([]Result, bool, error) {
+	dir := filepath.Join(l.root(), name)
 	record := manifest.Skills[name]
+	var results []Result
+	var failures []error
+	removed := true
+	for _, file := range recordFileNames(name, record) {
+		res, gone, err := removeCanonicalFile(dir, name, file, record, opts, bk)
+		results = append(results, res)
+		if err != nil {
+			failures = append(failures, err)
+		}
+		if !gone {
+			removed = false
+		}
+	}
+	// Drop the skill directory when it is now empty; foreign content in it
+	// keeps the directory and is left alone.
+	if removed && !opts.DryRun {
+		_ = os.Remove(dir)
+	}
+	return results, removed, errors.Join(failures...)
+}
+
+// removeCanonicalFile deletes one canonical file of a skill. gone reports
+// whether the path no longer holds a copy AgentBox must keep.
+func removeCanonicalFile(dir, skill, file string, record ManifestSkill, opts Options, bk *backupSet) (Result, bool, error) {
+	path := filepath.Join(dir, filepath.FromSlash(file))
+	res := Result{Skill: skill, File: file, Target: "agents", Path: path}
+	tracked, trackedFile := record.File(file)
 	body, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -751,35 +870,40 @@ func removeCanonical(l layout, manifest *Manifest, name string, opts Options, bk
 		res.Action, res.Detail = "skipped", err.Error()
 		return res, false, err
 	}
-	rendered, renderErr := Embedded(name, opts.Version)
-	ours := hashHex(body) == record.SHA256 || (renderErr == nil && bytes.Equal(body, rendered))
-	if !ours && !opts.Force {
-		res.Action, res.Detail = "skipped", "copy differs from the managed manifest; use --force to remove it"
+	rendered, renderErr := EmbeddedFile(skill, file, opts.Version)
+	ours := (trackedFile && hashHex(body) == tracked.SHA256) || (renderErr == nil && bytes.Equal(body, rendered))
+	if !ours {
+		if !trackedFile && file != "SKILL.md" {
+			// A user file at a shipped template path was never managed; keep it.
+			res.Action, res.Detail = "skipped", "differs from the managed copy; left alone"
+			return res, true, nil
+		}
+		if !opts.Force {
+			res.Action, res.Detail = "skipped", "copy differs from the managed manifest; use --force to remove it"
+			if opts.DryRun {
+				return res, false, nil
+			}
+			return res, false, fmt.Errorf("refusing to remove modified copy %s; use --force", path)
+		}
 		if opts.DryRun {
+			res.Action, res.Detail = "would-remove", "modified copy; backed up first"
 			return res, false, nil
 		}
-		return res, false, fmt.Errorf("refusing to remove modified copy %s; use --force", path)
-	}
-	if opts.DryRun {
-		res.Action = "would-remove"
-		if !ours {
-			res.Detail = "modified copy; backed up first"
-		}
-		return res, false, nil
-	}
-	if !ours {
-		if err := bk.move(path, filepath.Join("canonical", name, "SKILL.md")); err != nil {
+		if err := bk.move(path, filepath.Join("canonical", skill, filepath.FromSlash(file))); err != nil {
 			res.Action, res.Detail = "skipped", err.Error()
 			return res, false, err
 		}
-		res.Detail = "modified copy backed up before removal"
-	} else if err := os.Remove(path); err != nil {
+		res.Action, res.Detail = "removed", "modified copy backed up before removal"
+		return res, true, nil
+	}
+	if opts.DryRun {
+		res.Action = "would-remove"
+		return res, false, nil
+	}
+	if err := os.Remove(path); err != nil {
 		res.Action, res.Detail = "skipped", err.Error()
 		return res, false, err
 	}
-	// Drop the skill directory when it is now empty; foreign content in it
-	// keeps the directory and is left alone.
-	_ = os.Remove(filepath.Dir(path))
 	res.Action = "removed"
 	return res, true, nil
 }
@@ -821,8 +945,9 @@ func removeLink(l layout, name, link string, opts Options) (Result, bool, error)
 	return res, true, nil
 }
 
-// installDir writes plain copies of both skills under an explicit directory.
-// It creates no links and no manifest: the directory is the user's to manage.
+// installDir writes plain copies of every shipped skill file under an
+// explicit directory. Templates land beside SKILL.md. It creates no links and
+// no manifest: the directory is the user's to manage.
 func installDir(opts Options) ([]Result, error) {
 	if home := opts.Home; home != "" {
 		if err := refuseCodexDestination(opts.Dir, home); err != nil {
@@ -836,16 +961,18 @@ func installDir(opts Options) ([]Result, error) {
 	var results []Result
 	var failures []error
 	for _, name := range names {
-		content, err := Embedded(name, opts.Version)
+		files, err := renderFiles(name, opts.Version)
 		if err != nil {
 			failures = append(failures, err)
 			continue
 		}
-		path := filepath.Join(opts.Dir, name, "SKILL.md")
-		result, err := installDirOne(name, path, content, opts)
-		results = append(results, result)
-		if err != nil {
-			failures = append(failures, err)
+		for _, file := range files {
+			path := filepath.Join(opts.Dir, name, filepath.FromSlash(file.spec.Name))
+			result, err := installDirOne(name, file.spec.Name, path, file.content, opts)
+			results = append(results, result)
+			if err != nil {
+				failures = append(failures, err)
+			}
 		}
 	}
 	return results, errors.Join(failures...)
@@ -870,8 +997,8 @@ func refuseCodexDestination(dir, home string) error {
 	return fmt.Errorf("--dir %s is inside %s; Codex reads ~/.agents/skills directly, so a copy there would register the skill twice", dir, codexRoot)
 }
 
-func installDirOne(name, path string, content []byte, opts Options) (Result, error) {
-	result := Result{Skill: name, Target: "dir", Path: path}
+func installDirOne(name, file, path string, content []byte, opts Options) (Result, error) {
+	result := Result{Skill: name, File: file, Target: "dir", Path: path}
 	existing, err := os.ReadFile(path)
 	switch {
 	case err == nil && bytes.Equal(existing, content):

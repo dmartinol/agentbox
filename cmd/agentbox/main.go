@@ -994,6 +994,9 @@ func skillsCmd(args []string) error {
 				}
 				fmt.Printf("  %-9s %-12s %-8s %s\n", installation.Target, installation.State, version, installation.Path)
 			}
+			for _, file := range status.Files {
+				fmt.Printf("  %-9s %-12s %-8s %s\n", "file:"+file.Name, file.State, "-", file.Path)
+			}
 		}
 		return nil
 	case "show":
@@ -1041,7 +1044,11 @@ func printSkillsOutput(results []skills.Result, err error, jsonOut bool) error {
 		if result.Detail != "" {
 			detail = " (" + result.Detail + ")"
 		}
-		fmt.Printf("%-14s %-14s %s%s\n", result.Action, result.Skill, result.Path, detail)
+		label := result.Skill
+		if result.File != "" && result.File != "SKILL.md" {
+			label += "/" + result.File
+		}
+		fmt.Printf("%-14s %-20s %s%s\n", result.Action, label, result.Path, detail)
 	}
 	return err
 }

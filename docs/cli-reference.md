@@ -95,14 +95,18 @@ accepts, stores, or prints a secret value. The process that starts AgentBox and
 the OpenShell gateway must both be able to see the referenced variables.
 
 Usage skills installed with `agentbox skills` live outside the `~/.agentbox`
-tree: one canonical copy under `~/.agents/skills` (or `./.agents/skills`
-with `--local`), relative links for Claude and OpenCode, a
-`.agentbox-managed.json` manifest recording what AgentBox owns, and
-timestamped backups under `~/.agents/.agentbox-skill-backups`. Nothing is
-written to `~/.codex/skills`, because Codex reads `~/.agents/skills`
-directly and would list every skill twice. See the
+tree: one canonical copy of each skill under `~/.agents/skills` (or
+`./.agents/skills` with `--local`), including templates such as the
+orchestrator's `issue.md`, `pr.md`, `verdict.md`, and `state.md` beside
+`SKILL.md`, relative links for Claude and OpenCode, a
+`.agentbox-managed.json` manifest recording the path and hash of every file
+AgentBox owns, and timestamped backups under
+`~/.agents/.agentbox-skill-backups`. Nothing is written to `~/.codex/skills`,
+because Codex reads `~/.agents/skills` directly and would list every skill
+twice. See the
 [skills command page]({{ '/cli-reference/skills/' | relative_url }}) for the
-layout, the `npx skills` relationship, and the update and remove lifecycle.
+layout, per-file template states, the `npx skills` relationship, and the
+update and remove lifecycle.
 
 ## Related guides
 

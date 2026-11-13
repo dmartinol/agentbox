@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 // ManifestFile is the bookkeeping file AgentBox writes into a canonical
@@ -13,8 +14,9 @@ import (
 // update and remove never touch anything else.
 const ManifestFile = ".agentbox-managed.json"
 
-// manifestVersion is the schema version of Manifest.
-const manifestVersion = 1
+// manifestVersion is the schema version of Manifest. Version 2 records one
+// entry per managed file; version 1 recorded only the canonical SKILL.md.
+const manifestVersion = 2
 
 // Manifest is the parsed managed-skills manifest of one canonical root.
 type Manifest struct {
@@ -22,10 +24,28 @@ type Manifest struct {
 	Skills  map[string]ManifestSkill `json:"skills"`
 }
 
-// ManifestSkill records one managed skill: the version and sha256 of the
-// rendered file AgentBox wrote, its canonical path, and the symlinks created
-// for harnesses that do not read the canonical root.
+// ManifestSkill records one managed skill: the binary version that wrote it,
+// the canonical SKILL.md path, the symlinks created for harnesses that do not
+// read the canonical root, and one entry per managed file.
 type ManifestSkill struct {
+	Version string          `json:"version"`
+	Path    string          `json:"path"`
+	Links   []string        `json:"links"`
+	Files   []ManifestEntry `json:"files"`
+}
+
+// ManifestEntry records one file AgentBox wrote for a skill: its installed
+// name relative to the skill directory, the sha256 of the rendered content,
+// and its absolute path.
+type ManifestEntry struct {
+	Name   string `json:"name"`
+	SHA256 string `json:"sha256"`
+	Path   string `json:"path"`
+}
+
+// legacyManifestSkill is the version 1 record shape: one canonical SKILL.md
+// with no template files.
+type legacyManifestSkill struct {
 	Version string   `json:"version"`
 	SHA256  string   `json:"sha256"`
 	Path    string   `json:"path"`
@@ -40,33 +60,85 @@ func manifestExists(root string) bool {
 }
 
 // loadManifest reads the manifest of a canonical root. A missing, unreadable,
-// or future-version manifest yields an empty one: install then treats
-// existing copies as unmanaged and refuses to replace them without --force,
-// so no user content is ever lost to a corrupt manifest.
+// corrupt, or future-version manifest yields an empty one: install then
+// treats existing copies as unmanaged and refuses to replace them without
+// --force, so no user content is ever lost to a corrupt manifest. A version 1
+// manifest is migrated in memory to the per-file shape: its recorded
+// SKILL.md hash becomes the file entry, so an existing install is recognised
+// as managed and gains the newly shipped templates on update.
 func loadManifest(root string) *Manifest {
 	m := &Manifest{Version: manifestVersion, Skills: map[string]ManifestSkill{}}
 	body, err := os.ReadFile(manifestPath(root))
 	if err != nil {
 		return m
 	}
-	var parsed Manifest
-	if err := json.Unmarshal(body, &parsed); err != nil || parsed.Version != manifestVersion {
+	var probe struct {
+		Version int `json:"version"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil {
 		return m
 	}
-	if parsed.Skills == nil {
-		parsed.Skills = map[string]ManifestSkill{}
+	switch probe.Version {
+	case 1:
+		var legacy struct {
+			Version int                            `json:"version"`
+			Skills  map[string]legacyManifestSkill `json:"skills"`
+		}
+		if err := json.Unmarshal(body, &legacy); err != nil {
+			return m
+		}
+		for name, record := range legacy.Skills {
+			path := record.Path
+			if path == "" {
+				path = filepath.Join(root, name, "SKILL.md")
+			}
+			m.Skills[name] = ManifestSkill{
+				Version: record.Version,
+				Path:    path,
+				Links:   nonNil(record.Links),
+				Files: []ManifestEntry{{
+					Name:   "SKILL.md",
+					SHA256: record.SHA256,
+					Path:   path,
+				}},
+			}
+		}
+		return m
+	case manifestVersion:
+		var parsed Manifest
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return m
+		}
+		if parsed.Skills == nil {
+			parsed.Skills = map[string]ManifestSkill{}
+		}
+		for name, record := range parsed.Skills {
+			record.Links = nonNil(record.Links)
+			if record.Path == "" {
+				record.Path = filepath.Join(root, name, "SKILL.md")
+			}
+			for i, file := range record.Files {
+				if file.Path == "" {
+					file.Path = filepath.Join(root, name, filepath.FromSlash(file.Name))
+					record.Files[i] = file
+				}
+			}
+			parsed.Skills[name] = record
+		}
+		return &parsed
 	}
-	return &parsed
+	return m
 }
 
 // saveManifest atomically writes the manifest of a canonical root.
 func saveManifest(root string, m *Manifest) error {
 	m.Version = manifestVersion
 	for name, record := range m.Skills {
-		if record.Links == nil {
-			record.Links = []string{}
-			m.Skills[name] = record
+		record.Links = nonNil(record.Links)
+		if record.Files == nil {
+			record.Files = []ManifestEntry{}
 		}
+		m.Skills[name] = record
 	}
 	body, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -88,6 +160,55 @@ func saveManifest(root string, m *Manifest) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), manifestPath(root))
+}
+
+// File returns the record of one managed file of the skill.
+func (s ManifestSkill) File(name string) (ManifestEntry, bool) {
+	for _, file := range s.Files {
+		if file.Name == name {
+			return file, true
+		}
+	}
+	return ManifestEntry{}, false
+}
+
+// setFile records file in the skill, replacing an entry with the same name.
+func (s *ManifestSkill) setFile(file ManifestEntry) {
+	for i, existing := range s.Files {
+		if existing.Name == file.Name {
+			s.Files[i] = file
+			return
+		}
+	}
+	s.Files = append(s.Files, file)
+}
+
+// recordFileNames returns the file names recorded for a skill, in a stable
+// order: the shipped inventory order first, then any recorded file that is no
+// longer shipped, sorted by name.
+func recordFileNames(skill string, record ManifestSkill) []string {
+	out := fileNames(skill)
+	seen := make(map[string]bool, len(out))
+	for _, name := range out {
+		seen[name] = true
+	}
+	var extra []string
+	for _, file := range record.Files {
+		if file.Name == "" || seen[file.Name] {
+			continue
+		}
+		seen[file.Name] = true
+		extra = append(extra, file.Name)
+	}
+	sort.Strings(extra)
+	return append(out, extra...)
+}
+
+func nonNil(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
 }
 
 // addManifestLink records that link points at the managed copy of name.

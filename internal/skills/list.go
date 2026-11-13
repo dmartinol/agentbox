@@ -42,6 +42,18 @@ type Status struct {
 	Name          string         `json:"name"`
 	Version       string         `json:"version"`
 	Installations []Installation `json:"installations"`
+	// Files reports the state of every shipped template beside SKILL.md.
+	// Skills without templates omit it.
+	Files []FileStatus `json:"files,omitempty"`
+}
+
+// FileStatus is the state of one shipped template installed beside SKILL.md.
+// State is current, stale, modified, missing, or unreadable.
+type FileStatus struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	State  string `json:"state"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // List reports every embedded skill and the copies found on disk. States are
@@ -84,6 +96,11 @@ func List(opts ListOptions) ([]Status, error) {
 			status.Installations = append(status.Installations, linkInstallation(l, harness, name, canonical.Version))
 		}
 		status.Installations = append(status.Installations, codexInstallation(l, name))
+		templates, err := templateStatuses(l, name, record, managed, opts.Version)
+		if err != nil {
+			return nil, err
+		}
+		status.Files = templates
 		out = append(out, status)
 	}
 	return out, nil
@@ -107,13 +124,14 @@ func canonicalInstallation(l layout, name string, content []byte, record Manifes
 	}
 	inst.Present = true
 	inst.Version = InstalledVersion(body)
+	recorded, tracked := record.File("SKILL.md")
 	switch {
 	case bytes.Equal(body, content):
 		inst.State = "current"
 	case frontMatterBroken(body):
 		inst.State = "invalid"
 		inst.Detail = "front matter does not parse; run `agentbox skills install --force`"
-	case managed && hashHex(body) == record.SHA256:
+	case managed && tracked && hashHex(body) == recorded.SHA256:
 		inst.State = "stale"
 		inst.Detail = "run `agentbox skills update`"
 	default:
@@ -121,6 +139,44 @@ func canonicalInstallation(l layout, name string, content []byte, record Manifes
 		inst.Detail = "differs from the managed copy; run `agentbox skills update --force`"
 	}
 	return inst
+}
+
+// templateStatuses derives the state of every shipped template from the
+// sha256 of its installed copy, mirroring the canonical SKILL.md states.
+func templateStatuses(l layout, name string, record ManifestSkill, managed bool, version string) ([]FileStatus, error) {
+	var out []FileStatus
+	for _, spec := range Files(name) {
+		if spec.Name == "SKILL.md" {
+			continue
+		}
+		content, err := EmbeddedFile(name, spec.Name, version)
+		if err != nil {
+			return nil, err
+		}
+		path := filepath.Join(l.root(), name, filepath.FromSlash(spec.Name))
+		status := FileStatus{Name: spec.Name, Path: path, State: "missing"}
+		body, err := os.ReadFile(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			out = append(out, status)
+			continue
+		}
+		if err != nil {
+			status.State, status.Detail = "unreadable", err.Error()
+			out = append(out, status)
+			continue
+		}
+		recorded, tracked := record.File(spec.Name)
+		switch {
+		case bytes.Equal(body, content):
+			status.State = "current"
+		case managed && tracked && hashHex(body) == recorded.SHA256:
+			status.State, status.Detail = "stale", "run `agentbox skills update`"
+		default:
+			status.State, status.Detail = "modified", "differs from the managed copy; run `agentbox skills update --force`"
+		}
+		out = append(out, status)
+	}
+	return out, nil
 }
 
 // linkInstallation reports whether a harness link points at the canonical

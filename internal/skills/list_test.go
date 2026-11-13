@@ -182,3 +182,78 @@ func TestListReadsLocalRoot(t *testing.T) {
 		t.Fatalf("local opencode path = %s, want %s", opencode.Path, want)
 	}
 }
+
+// templateStatusesFor finds the template rows of one skill.
+func templateStatusesFor(t *testing.T, statuses []Status, skill string) []FileStatus {
+	t.Helper()
+	for _, status := range statuses {
+		if status.Name == skill {
+			return status.Files
+		}
+	}
+	t.Fatalf("no status for %s", skill)
+	return nil
+}
+
+// fileStateOf finds one template row of one skill.
+func fileStateOf(t *testing.T, statuses []Status, skill, file string) FileStatus {
+	t.Helper()
+	for _, status := range templateStatusesFor(t, statuses, skill) {
+		if status.Name == file {
+			return status
+		}
+	}
+	t.Fatalf("no %s template status for %s", file, skill)
+	return FileStatus{}
+}
+
+// TestListReportsTemplateStates covers current, stale, modified, and missing
+// for shipped templates while the SKILL.md rows keep their existing shape.
+func TestListReportsTemplateStates(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := List(ListOptions{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fileStateOf(t, statuses, "agentbox-orchestrator", "issue.md").State; got != "current" {
+		t.Fatalf("fresh template state = %q", got)
+	}
+	if stateOf(t, statuses, "agentbox-orchestrator", "agents").State != "current" {
+		t.Fatal("SKILL.md row changed shape")
+	}
+
+	statuses, err = List(ListOptions{Version: "2.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fileStateOf(t, statuses, "agentbox-orchestrator", "issue.md").State; got != "stale" {
+		t.Fatalf("stale template state = %q", got)
+	}
+
+	path := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator", "verdict.md")
+	if err := os.WriteFile(path, []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(home, ".agents", "skills", "agentbox-orchestrator", "pr.md")); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err = List(ListOptions{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fileStateOf(t, statuses, "agentbox-orchestrator", "verdict.md").State; got != "modified" {
+		t.Fatalf("modified template state = %q", got)
+	}
+	if got := fileStateOf(t, statuses, "agentbox-orchestrator", "pr.md").State; got != "missing" {
+		t.Fatalf("missing template state = %q", got)
+	}
+	// Skills without templates keep the previous JSON shape.
+	for _, status := range statuses {
+		if status.Name == "agentbox-cli" && len(status.Files) != 0 {
+			t.Fatalf("agentbox-cli gained template rows: %+v", status.Files)
+		}
+	}
+}
