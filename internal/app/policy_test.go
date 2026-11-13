@@ -39,8 +39,25 @@ func TestAddNetworkRuleProducesValidRuleAndRejectsBadInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	rule, ok := policy.Network["host-api-example-test"]
-	if !ok || rule.Endpoints[0].Host != "api.example.test" || rule.Binaries[0].Path != "/usr/local/bin/codex" {
+	wantBinaries := []string{"/usr/local/bin/codex", "/usr/local/bin/node", "/usr/bin/git", "/usr/lib/git-core/**"}
+	if !ok || rule.Endpoints[0].Host != "api.example.test" || len(rule.Binaries) != len(wantBinaries) {
 		t.Fatalf("unexpected generated rule: %+v", rule)
+	}
+	for i, want := range wantBinaries {
+		if rule.Binaries[i].Path != want {
+			t.Fatalf("binary %d = %q; want %q", i, rule.Binaries[i].Path, want)
+		}
+	}
+	override, err := addNetworkRule(DefaultPolicy(), "codex", "api.example.test", "/usr/bin/curl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParsePolicy(override)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binaries := parsed.Network["host-api-example-test"].Binaries; len(binaries) != 1 || binaries[0].Path != "/usr/bin/curl" {
+		t.Fatalf("explicit binary override = %+v", binaries)
 	}
 	if _, err := addNetworkRule(DefaultPolicy(), "codex", "bad host", "relative/curl"); err == nil {
 		t.Fatal("invalid rule input was accepted")

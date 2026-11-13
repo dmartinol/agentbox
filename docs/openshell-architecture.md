@@ -137,6 +137,9 @@ Gateway mode routes model traffic through an OpenShell-registered provider.
   `/v1`.
 - The provider host is normalized for OpenShell network policy and is not
   necessarily the same string as the profile base URL.
+- Codex runs without its background daemon and without its nested sandbox, so
+  shell network calls follow the run policy instead of Codex's default
+  network-disabled sandbox.
 
 ## Policy layer
 
@@ -157,6 +160,12 @@ At run start, AgentBox:
 This is why a run can fail before the agent starts if the effective policy does
 not allow the expected endpoint or lacks the required Landlock/network
 configuration.
+
+Network rules are binary-scoped. A host rule added by AgentBox therefore
+allows the agent launcher together with `/usr/local/bin/node`, `/usr/bin/git`,
+and `/usr/lib/git-core/**`. The supported agents are Node applications, so
+listing only the launcher path would miss the process that opens the socket;
+git reaches HTTPS through a separate helper binary.
 
 ## Run startup sequence
 
