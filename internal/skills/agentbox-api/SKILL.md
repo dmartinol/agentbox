@@ -1,6 +1,6 @@
 ---
 name: agentbox-api
-description: Drive the local AgentBox HTTP API on 127.0.0.1:8080 with curl to manage projects, profiles, providers, images, gateways, policies, MCPs, skills, and agent runs, and map API results to the Fleet and Setup surfaces in the GUI. Use when a user wants programmatic control or needs to know where a setting lives in the web UI.
+description: "Drive the local AgentBox HTTP API on 127.0.0.1:8080 with curl to manage projects, profiles, providers, images, gateways, policies, MCPs, skills, and agent runs, and map API results to the Fleet and Setup surfaces in the GUI. Use when a user wants programmatic control or needs to know where a setting lives in the web UI."
 version: "{{VERSION}}"
 ---
 

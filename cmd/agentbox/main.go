@@ -124,7 +124,7 @@ func usage() {
 	fmt.Println("  policy show|edit")
 	fmt.Println("  mcp list|show|create|delete|servers")
 	fmt.Println("  skill list|show|create|delete|available")
-	fmt.Println("  skills install|list|show")
+	fmt.Println("  skills install|update|remove|list|show")
 	fmt.Println("  agent start|list|show|attach|logs|stop|sync|diff|delete")
 	fmt.Println("  gui [--address host:port]")
 }
@@ -911,34 +911,70 @@ func splitList(value string) []string {
 
 func skillsCmd(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("skills install|list|show required")
+		return fmt.Errorf("skills install|update|remove|list|show required")
 	}
 	switch args[0] {
 	case "install":
 		f := flags("skills install")
-		target := f.String("target", "", "install target: agents, codex, claude, opencode, or all (default all)")
-		dir := f.String("dir", "", "override the target root directory")
-		force := f.Bool("force", false, "overwrite files that differ from the embedded skill")
-		dry := f.Bool("dry-run", false, "report the planned writes without changing files")
-		if err := f.Parse(args[1:]); err != nil {
-			return err
-		}
-		results, err := skills.Install(skills.Options{Target: *target, Dir: *dir, Force: *force, DryRun: *dry, Version: binaryVersion()})
-		for _, result := range results {
-			detail := ""
-			if result.Detail != "" {
-				detail = " (" + result.Detail + ")"
-			}
-			fmt.Printf("%-14s %-14s %s%s\n", result.Action, result.Skill, result.Path, detail)
-		}
-		return err
-	case "list":
-		f := flags("skills list")
+		agent := f.String("agent", "", "comma-separated harnesses to install for (claude, codex, opencode; default: detected harnesses)")
+		target := f.String("target", "", "deprecated alias for --agent: agents, codex, claude, opencode, or all")
+		all := f.Bool("all", false, "install for every harness regardless of detection")
+		local := f.Bool("local", false, "install into ./.agents/skills for the current project")
+		dir := f.String("dir", "", "write plain copies under this directory (no links or manifest)")
+		force := f.Bool("force", false, "replace modified copies and foreign destinations, backing up first")
+		dry := f.Bool("dry-run", false, "report the planned changes without touching the filesystem")
 		jsonOut := f.Bool("json", false, "JSON output")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
-		statuses, err := skills.List(skills.ListOptions{Version: binaryVersion()})
+		if *target != "" {
+			fmt.Fprintln(os.Stderr, "warning: --target is deprecated; use --agent")
+		}
+		results, err := skills.Install(skills.Options{
+			Agents: splitList(*agent), Target: strings.TrimSpace(*target), All: *all,
+			Local: *local, Dir: *dir, Force: *force, DryRun: *dry, Version: binaryVersion(),
+		})
+		return printSkillsOutput(results, err, *jsonOut)
+	case "update":
+		f := flags("skills update")
+		agent := f.String("agent", "", "comma-separated harnesses to relink for (claude, codex, opencode; default: detected harnesses)")
+		all := f.Bool("all", false, "relink for every harness regardless of detection")
+		local := f.Bool("local", false, "update the project-scoped ./.agents/skills root")
+		force := f.Bool("force", false, "replace modified copies, backing up first")
+		dry := f.Bool("dry-run", false, "report the planned changes without touching the filesystem")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		results, err := skills.Update(skills.Options{
+			Agents: splitList(*agent), All: *all, Local: *local,
+			Force: *force, DryRun: *dry, Version: binaryVersion(),
+		})
+		return printSkillsOutput(results, err, *jsonOut)
+	case "remove":
+		f := flags("skills remove")
+		agent := f.String("agent", "", "remove only the links of these harnesses (claude, codex, opencode); default removes everything recorded")
+		all := f.Bool("all", false, "remove every recorded copy and link")
+		local := f.Bool("local", false, "remove from the project-scoped ./.agents/skills root")
+		force := f.Bool("force", false, "remove modified copies, backing up first")
+		dry := f.Bool("dry-run", false, "report the planned removals without touching the filesystem")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		results, err := skills.Remove(skills.Options{
+			Agents: splitList(*agent), All: *all, Local: *local,
+			Force: *force, DryRun: *dry, Version: binaryVersion(),
+		})
+		return printSkillsOutput(results, err, *jsonOut)
+	case "list":
+		f := flags("skills list")
+		local := f.Bool("local", false, "read the project-scoped ./.agents/skills root")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		statuses, err := skills.List(skills.ListOptions{Version: binaryVersion(), Local: *local})
 		if err != nil {
 			return err
 		}
@@ -956,22 +992,58 @@ func skillsCmd(args []string) error {
 				if version == "" {
 					version = "-"
 				}
-				fmt.Printf("  %-7s %-10s %-10s %s\n", installation.Target, installation.State, version, installation.Path)
+				fmt.Printf("  %-9s %-12s %-8s %s\n", installation.Target, installation.State, version, installation.Path)
 			}
 		}
 		return nil
 	case "show":
-		if err := need(args[1:], 1); err != nil {
+		f := flags("skills show")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
-		content, err := skills.Embedded(args[1], binaryVersion())
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		content, err := skills.Embedded(f.Args()[0], binaryVersion())
 		if err != nil {
 			return err
+		}
+		if *jsonOut {
+			fm, err := skills.ParseFrontMatter(content)
+			if err != nil {
+				return err
+			}
+			return app.PrintJSON(struct {
+				Name        string `json:"name"`
+				Version     string `json:"version"`
+				Description string `json:"description"`
+				Content     string `json:"content"`
+			}{Name: fm.Name, Version: fm.Version, Description: fm.Description, Content: string(content)})
 		}
 		_, err = os.Stdout.Write(content)
 		return err
 	}
 	return fmt.Errorf("unknown skills command %q", args[0])
+}
+
+// printSkillsOutput renders lifecycle results as text or JSON and returns the
+// collected error after the report, so a refusal still shows every action.
+func printSkillsOutput(results []skills.Result, err error, jsonOut bool) error {
+	if jsonOut {
+		if printErr := app.PrintJSON(results); printErr != nil {
+			return printErr
+		}
+		return err
+	}
+	for _, result := range results {
+		detail := ""
+		if result.Detail != "" {
+			detail = " (" + result.Detail + ")"
+		}
+		fmt.Printf("%-14s %-14s %s%s\n", result.Action, result.Skill, result.Path, detail)
+	}
+	return err
 }
 
 func agentCmd(ctx context.Context, a *app.App, args []string) error {

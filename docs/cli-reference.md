@@ -35,7 +35,7 @@ flag-based subcommands also accept `--help`.
 | Command | Purpose |
 | --- | --- |
 | [`version`, `doctor`, `gui`]({{ '/cli-reference/general/' | relative_url }}) | Build information, environment diagnosis, and the local web GUI. |
-| [`skills`]({{ '/cli-reference/skills/' | relative_url }}) | Install the embedded, version-matched AgentBox usage skills for host agents. |
+| [`skills`]({{ '/cli-reference/skills/' | relative_url }}) | Install, update, and remove the embedded, version-matched AgentBox usage skills for host agents. |
 | [`settings`]({{ '/cli-reference/settings/' | relative_url }}) | Worktree root and branch prefix defaults. |
 | [`project`]({{ '/cli-reference/project/' | relative_url }}) | Register and inspect Git projects. |
 | [`profile`]({{ '/cli-reference/profile/' | relative_url }}) | Reusable agent, image, provider, and policy configuration. |
@@ -93,6 +93,16 @@ AgentBox stores local state under `~/.agentbox` by default. Set
 Credentials are always referenced by environment-variable name. AgentBox never
 accepts, stores, or prints a secret value. The process that starts AgentBox and
 the OpenShell gateway must both be able to see the referenced variables.
+
+Usage skills installed with `agentbox skills` live outside the `~/.agentbox`
+tree: one canonical copy under `~/.agents/skills` (or `./.agents/skills`
+with `--local`), relative links for Claude and OpenCode, a
+`.agentbox-managed.json` manifest recording what AgentBox owns, and
+timestamped backups under `~/.agents/.agentbox-skill-backups`. Nothing is
+written to `~/.codex/skills`, because Codex reads `~/.agents/skills`
+directly and would list every skill twice. See the
+[skills command page]({{ '/cli-reference/skills/' | relative_url }}) for the
+layout, the `npx skills` relationship, and the update and remove lifecycle.
 
 ## Related guides
 

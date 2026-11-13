@@ -88,8 +88,10 @@ func TestVersionOutputIsParseable(t *testing.T) {
 func TestSkillsInstallListAndShow(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	if err := os.Mkdir(filepath.Join(home, ".agents"), 0755); err != nil {
-		t.Fatal(err)
+	for _, dir := range []string{".claude", ".codex", filepath.Join(".config", "opencode")} {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
 	if err := dispatch(context.Background(), a, []string{"skills", "install"}); err != nil {
@@ -102,6 +104,17 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `version: "`+binaryVersion()+`"`) {
 		t.Fatalf("installed skill is not version matched: %s", body[:200])
+	}
+	// A bare install links exactly Claude and OpenCode and never writes into
+	// ~/.codex/skills.
+	if target, err := os.Readlink(filepath.Join(home, ".claude", "skills", "agentbox-cli")); err != nil || target != "../../.agents/skills/agentbox-cli" {
+		t.Fatalf("claude link = %q (%v)", target, err)
+	}
+	if target, err := os.Readlink(filepath.Join(home, ".config", "opencode", "skills", "agentbox-cli")); err != nil || target != "../../../.agents/skills/agentbox-cli" {
+		t.Fatalf("opencode link = %q (%v)", target, err)
+	}
+	if entries, err := os.ReadDir(filepath.Join(home, ".codex", "skills")); err == nil && len(entries) > 0 {
+		t.Fatalf("install wrote into ~/.codex/skills: %v", entries)
 	}
 
 	output, err := captureStdout(t, func() error {
@@ -130,6 +143,20 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 	if !strings.Contains(output, "curl -fsS") {
 		t.Fatalf("shown skill lacks API examples: %s", output[:200])
 	}
+
+	// The orchestrator skill is packaged, installed, and shown like the others.
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "agentbox-orchestrator", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "show", "agentbox-orchestrator"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "orchestrator-state") || !strings.Contains(output, "agentbox agent start") {
+		t.Fatalf("shown orchestrator skill lacks the flow content: %s", output[:200])
+	}
 }
 
 func TestSkillsInstallRefusesDifferingFileWithoutForce(t *testing.T) {
@@ -154,6 +181,127 @@ func TestSkillsInstallRefusesDifferingFileWithoutForce(t *testing.T) {
 	}
 }
 
+func TestSkillsLifecycleJSONAndFlags(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, dir := range []string{".claude", ".codex", filepath.Join(".config", "opencode")} {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "install", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var results []skills.Result
+	if err := json.Unmarshal([]byte(output), &results); err != nil || len(results) == 0 {
+		t.Fatalf("install output is not a results JSON array: %s (%v)", output, err)
+	}
+	for _, result := range results {
+		if result.Skill == "" || result.Target == "" || result.Path == "" || result.Action == "" {
+			t.Fatalf("install result is missing a stable field: %+v", result)
+		}
+	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "update", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(output), &results); err != nil || len(results) == 0 {
+		t.Fatalf("update output is not a results JSON array: %s (%v)", output, err)
+	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "show", "--json", "agentbox-api"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shown struct {
+		Name        string `json:"name"`
+		Version     string `json:"version"`
+		Description string `json:"description"`
+		Content     string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(output), &shown); err != nil {
+		t.Fatalf("show output is not JSON: %s (%v)", output, err)
+	}
+	if shown.Name != "agentbox-api" || shown.Version != binaryVersion() || shown.Description == "" || !strings.Contains(shown.Content, "curl -fsS") {
+		t.Fatalf("show payload = %+v", shown)
+	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "remove", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(output), &results); err != nil || len(results) == 0 {
+		t.Fatalf("remove output is not a results JSON array: %s (%v)", output, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "agentbox-cli", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatal("remove left a canonical copy behind")
+	}
+
+	// The deprecated --target alias still selects destinations.
+	if err := dispatch(context.Background(), a, []string{"skills", "install", "--target", "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".claude", "skills", "agentbox-cli")); err != nil {
+		t.Fatal("--target claude did not create the claude link")
+	}
+	if err := dispatch(context.Background(), a, []string{"skills", "update", "--target", "claude"}); err == nil {
+		t.Fatal("update accepted the deprecated --target flag")
+	}
+}
+
+func TestSkillsLocalInstall(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	if err := dispatch(context.Background(), a, []string{"skills", "install", "--local", "--all"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(project, ".agents", "skills", "agentbox-cli", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	if target, err := os.Readlink(filepath.Join(project, ".claude", "skills", "agentbox-cli")); err != nil || target != "../../.agents/skills/agentbox-cli" {
+		t.Fatalf("local claude link = %q (%v)", target, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agents")); !os.IsNotExist(err) {
+		t.Fatal("--local wrote into the user home directory")
+	}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "list", "--local", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var statuses []skills.Status
+	if err := json.Unmarshal([]byte(output), &statuses); err != nil {
+		t.Fatalf("local list output is not JSON: %s (%v)", output, err)
+	}
+	for _, installation := range statuses[0].Installations {
+		if installation.Target == "agents" && installation.State != "current" {
+			t.Fatalf("local installation = %+v", installation)
+		}
+	}
+	if err := dispatch(context.Background(), a, []string{"skills", "remove", "--local"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(project, ".agents", "skills", "agentbox-cli")); !os.IsNotExist(err) {
+		t.Fatal("local remove left a copy behind")
+	}
+}
+
 func TestUsageListsSkillsCommand(t *testing.T) {
 	output, err := captureStdout(t, func() error {
 		usage()
@@ -162,7 +310,7 @@ func TestUsageListsSkillsCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output, "skills install|list|show") {
+	if !strings.Contains(output, "skills install|update|remove|list|show") {
 		t.Fatalf("usage is missing the skills command: %s", output)
 	}
 }

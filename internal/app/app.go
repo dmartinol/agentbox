@@ -58,30 +58,60 @@ func (a *App) skillChecks() []Check {
 	if a.Version == "" {
 		return nil
 	}
+	var problems []string
+	for _, name := range skills.Names() {
+		content, err := skills.Embedded(name, a.Version)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("embedded skill %q: %v; upgrade AgentBox", name, err))
+			continue
+		}
+		if _, err := skills.ParseFrontMatter(content); err != nil {
+			problems = append(problems, fmt.Sprintf("embedded skill %q has invalid front matter (%v); upgrade AgentBox", name, err))
+		}
+	}
 	statuses, err := skills.List(skills.ListOptions{Version: a.Version})
 	if err != nil {
 		return []Check{{Name: "skills", Detail: err.Error()}}
 	}
 	installed := 0
-	var stale []string
+	var stale, modified, invalid, broken, legacy []string
 	for _, status := range statuses {
 		for _, installation := range status.Installations {
-			if !installation.Present {
-				continue
+			switch installation.State {
+			case "current":
+				if installation.Target == "agents" {
+					installed++
+				}
+			case "stale":
+				stale = append(stale, installation.Path)
+			case "modified":
+				modified = append(modified, installation.Path)
+			case "invalid":
+				invalid = append(invalid, installation.Path)
+			case "broken-link":
+				broken = append(broken, installation.Path)
+			case "legacy":
+				legacy = append(legacy, installation.Path)
 			}
-			installed++
-			if installation.State == "current" {
-				continue
-			}
-			version := installation.Version
-			if version == "" {
-				version = "unknown"
-			}
-			stale = append(stale, fmt.Sprintf("%s (%s %s, want %s)", installation.Path, status.Name, version, status.Version))
 		}
 	}
+	if len(invalid) > 0 {
+		problems = append(problems, fmt.Sprintf("invalid front matter: %s; run `agentbox skills install --force`", strings.Join(invalid, ", ")))
+	}
 	if len(stale) > 0 {
-		return []Check{{Name: "skills", Detail: "stale: " + strings.Join(stale, ", ") + "; run `agentbox skills install --force`"}}
+		problems = append(problems, fmt.Sprintf("stale: %s; run `agentbox skills update`", strings.Join(stale, ", ")))
+	}
+	if len(modified) > 0 {
+		problems = append(problems, fmt.Sprintf("modified: %s; run `agentbox skills update --force` (the previous copy is backed up)", strings.Join(modified, ", ")))
+	}
+	if len(broken) > 0 {
+		problems = append(problems, fmt.Sprintf("broken links: %s; run `agentbox skills install`", strings.Join(broken, ", ")))
+	}
+	if len(legacy) > 0 {
+		problems = append(problems, fmt.Sprintf("legacy Codex copies: %s; run `agentbox skills update`", strings.Join(legacy, ", ")))
+	}
+	if len(problems) > 0 {
+		return []Check{{Name: "skills", Detail: strings.Join(problems, "; ")}}
 	}
 	if installed == 0 {
 		return []Check{{Name: "skills", OK: true, Detail: "no installed usage skills"}}

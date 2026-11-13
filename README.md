@@ -154,11 +154,30 @@ the binary and version-matched, so a coding agent working alongside AgentBox can
 discover the CLI and HTTP API without reading this repository:
 
 ```sh
-./agentbox skills install                 # every harness found on this machine
-./agentbox skills install --target codex  # ~/.codex/skills
-./agentbox skills install --target all    # agents, Codex, Claude, OpenCode
+./agentbox skills install                 # canonical copy + links for detected harnesses
+./agentbox skills install --agent claude,opencode
+./agentbox skills install --local         # ./.agents/skills for this project
 ./agentbox skills list
+./agentbox skills update                  # refresh after upgrading AgentBox
+./agentbox skills remove
 ```
+
+Three skills ship: `agentbox-cli` (run lifecycle), `agentbox-api` (local HTTP
+API), and `agentbox-orchestrator` (the issue-to-PR orchestrator flow: triage,
+plan, one-writer implementation, verification, pull request, independent
+review, gated merge, and close, with a GitHub tracker adapter).
+
+One canonical copy is written to `~/.agents/skills` (or `./.agents/skills`
+with `--local`) and Claude and OpenCode receive relative symlinks into it.
+Nothing is ever written to `~/.codex/skills`: Codex reads `~/.agents/skills`
+directly and would otherwise list every skill twice. The skills land in the
+shared `.agents/skills` layout, so they appear in `npx skills list` as
+`untracked`; update them with `agentbox skills update` (not
+`npx skills update`) and remove them with `agentbox skills remove` or
+`npx skills remove`. AgentBox records what it owns in
+`~/.agents/skills/.agentbox-managed.json`, and every forced replacement or
+removal first moves the previous copy to
+`~/.agents/.agentbox-skill-backups/<timestamp>/`.
 
 Discover the latest supported Codex version:
 
