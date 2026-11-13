@@ -227,6 +227,151 @@ func TestDoctorRecommendsInstallForUnreadableTemplateWithoutCanonicalSkill(t *te
 	}
 }
 
+// blockCanonicalSkillPath replaces the canonical skill directory with a
+// regular file, or a symlink to one, the way a stray file can block the
+// shared .agents/skills layout. It returns the SKILL.md path the doctor
+// reports as unreadable.
+func blockCanonicalSkillPath(t *testing.T, home, skill string, symlink bool) string {
+	t.Helper()
+	dir := filepath.Join(home, ".agents", "skills", skill)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	blocker := filepath.Join(home, skill+"-blocker")
+	if err := os.WriteFile(blocker, []byte("not a skill directory\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if symlink {
+		if err := os.Symlink(blocker, dir); err != nil {
+			t.Fatal(err)
+		}
+	} else if err := os.WriteFile(dir, []byte("not a skill directory\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, "SKILL.md")
+}
+
+func canonicalInstallationOf(t *testing.T, statuses []skills.Status, skill string) skills.Installation {
+	t.Helper()
+	for _, status := range statuses {
+		if status.Name != skill {
+			continue
+		}
+		for _, installation := range status.Installations {
+			if installation.Target == "agents" {
+				return installation
+			}
+		}
+	}
+	t.Fatalf("no canonical installation for %s", skill)
+	return skills.Installation{}
+}
+
+// TestDoctorReportsUnreadableCanonicalSkillPath covers a regular file and a
+// symlink to one at ~/.agents/skills/agentbox-orchestrator. Update --force
+// backs up the blocker and then skips the skill because SKILL.md is gone, so
+// the doctor must recommend install --force, which repairs the path.
+func TestDoctorReportsUnreadableCanonicalSkillPath(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		symlink bool
+	}{
+		{name: "regular file"},
+		{name: "symlink to file", symlink: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			if _, err := skills.Install(skills.Options{All: true, Version: "0.2.0", Home: home}); err != nil {
+				t.Fatal(err)
+			}
+			path := blockCanonicalSkillPath(t, home, "agentbox-orchestrator", tc.symlink)
+
+			statuses, err := skills.List(skills.ListOptions{Version: "0.2.0", Home: home})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if inst := canonicalInstallationOf(t, statuses, "agentbox-orchestrator"); !inst.Present || inst.State != "unreadable" {
+				t.Fatalf("canonical installation = %+v", inst)
+			}
+
+			found := doctorSkillCheck(t, installedApp(t, "0.2.0"))
+			if found.OK || !strings.Contains(found.Detail, "unreadable: "+path) {
+				t.Fatalf("unreadable canonical check = %+v", found)
+			}
+			if !strings.Contains(found.Detail, "agentbox skills install --force") {
+				t.Fatalf("unreadable canonical check lacks the install command: %s", found.Detail)
+			}
+			if strings.Contains(found.Detail, "skills update") {
+				t.Fatalf("unreadable canonical check recommends update: %s", found.Detail)
+			}
+
+			if _, err := skills.Install(skills.Options{All: true, Version: "0.2.0", Home: home, Force: true}); err != nil {
+				t.Fatalf("recommended repair failed: %v", err)
+			}
+			if info, err := os.Stat(filepath.Dir(path)); err != nil || !info.IsDir() {
+				t.Fatalf("canonical path was not repaired: %v", err)
+			}
+			if body, err := os.ReadFile(path); err != nil || len(body) == 0 {
+				t.Fatalf("SKILL.md was not restored: %v", err)
+			}
+			if repaired := doctorSkillCheck(t, installedApp(t, "0.2.0")); !repaired.OK {
+				t.Fatalf("skills check still failing after repair: %+v", repaired)
+			}
+		})
+	}
+}
+
+// TestDoctorReportsUnreadableCanonicalInstallsForEverySkill covers skills
+// without templates, whose unreadable canonical state was previously omitted
+// from doctor output entirely.
+func TestDoctorReportsUnreadableCanonicalInstallsForEverySkill(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if _, err := skills.Install(skills.Options{All: true, Version: "0.2.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]string{
+		"agentbox-cli":          blockCanonicalSkillPath(t, home, "agentbox-cli", false),
+		"agentbox-api":          blockCanonicalSkillPath(t, home, "agentbox-api", true),
+		"agentbox-orchestrator": blockCanonicalSkillPath(t, home, "agentbox-orchestrator", false),
+	}
+	found := doctorSkillCheck(t, installedApp(t, "0.2.0"))
+	if found.OK {
+		t.Fatalf("unreadable canonical check = %+v", found)
+	}
+	const prefix = "unreadable: "
+	const suffix = "; run `agentbox skills install --force` (the previous path is backed up)"
+	start := strings.Index(found.Detail, prefix)
+	if start < 0 {
+		t.Fatalf("doctor reported no unreadable canonical path: %s", found.Detail)
+	}
+	group, _, ok := strings.Cut(found.Detail[start+len(prefix):], suffix)
+	if !ok {
+		t.Fatalf("unreadable canonical group lacks the install advice: %s", found.Detail)
+	}
+	for skill, path := range paths {
+		if !strings.Contains(group, path) {
+			t.Fatalf("doctor omitted %s at %s: %s", skill, path, found.Detail)
+		}
+	}
+	if !strings.Contains(found.Detail, "agentbox skills install --force") {
+		t.Fatalf("unreadable canonical check lacks the install command: %s", found.Detail)
+	}
+
+	if _, err := skills.Install(skills.Options{All: true, Version: "0.2.0", Home: home, Force: true}); err != nil {
+		t.Fatalf("recommended repair failed: %v", err)
+	}
+	for skill, path := range paths {
+		if body, err := os.ReadFile(path); err != nil || len(body) == 0 {
+			t.Fatalf("%s was not repaired: %v", skill, err)
+		}
+	}
+	if repaired := doctorSkillCheck(t, installedApp(t, "0.2.0")); !repaired.OK {
+		t.Fatalf("skills check still failing after repair: %+v", repaired)
+	}
+}
+
 func TestDoctorReportsInvalidFrontMatter(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

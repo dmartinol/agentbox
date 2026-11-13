@@ -78,14 +78,19 @@ func (a *App) skillChecks() []Check {
 		stale, staleWithoutSkill           []string
 		modified, modifiedWithoutSkill     []string
 		missing                            []string
+		unreadableCanonical                []string
 		unreadable, unreadableWithoutSkill []string
 		invalid, broken, legacy            []string
 	)
 	for _, status := range statuses {
-		canonicalPresent := false
+		// Only a readable canonical SKILL.md lets update repair templates.
+		// When the canonical skill path is itself unreadable, update moves
+		// the blocker into the backup and then skips the skill because no
+		// SKILL.md remains; install --force recreates the whole path.
+		canonicalUsable := false
 		for _, installation := range status.Installations {
-			if installation.Target == "agents" && installation.Present {
-				canonicalPresent = true
+			if installation.Target == "agents" && installation.Present && installation.State != "unreadable" {
+				canonicalUsable = true
 			}
 			switch installation.State {
 			case "current":
@@ -96,6 +101,10 @@ func (a *App) skillChecks() []Check {
 				stale = append(stale, installation.Path)
 			case "modified":
 				modified = append(modified, installation.Path)
+			case "unreadable":
+				if installation.Target == "agents" {
+					unreadableCanonical = append(unreadableCanonical, installation.Path)
+				}
 			case "invalid":
 				invalid = append(invalid, installation.Path)
 			case "broken-link":
@@ -107,13 +116,13 @@ func (a *App) skillChecks() []Check {
 		for _, file := range status.Files {
 			switch file.State {
 			case "stale":
-				if canonicalPresent {
+				if canonicalUsable {
 					stale = append(stale, file.Path)
 				} else {
 					staleWithoutSkill = append(staleWithoutSkill, file.Path)
 				}
 			case "modified":
-				if canonicalPresent {
+				if canonicalUsable {
 					modified = append(modified, file.Path)
 				} else {
 					modifiedWithoutSkill = append(modifiedWithoutSkill, file.Path)
@@ -121,11 +130,11 @@ func (a *App) skillChecks() []Check {
 			case "missing":
 				// Without a canonical copy, list reports every template as
 				// missing; only call that a problem when the skill is installed.
-				if canonicalPresent {
+				if canonicalUsable {
 					missing = append(missing, file.Path)
 				}
 			case "unreadable":
-				if canonicalPresent {
+				if canonicalUsable {
 					unreadable = append(unreadable, file.Path)
 				} else {
 					unreadableWithoutSkill = append(unreadableWithoutSkill, file.Path)
@@ -149,6 +158,7 @@ func (a *App) skillChecks() []Check {
 	appendFix("modified", modified, "agentbox skills update --force", " (the previous copy is backed up)")
 	appendFix("modified", modifiedWithoutSkill, "agentbox skills install --force", " (the previous copy is backed up)")
 	appendFix("missing files", missing, "agentbox skills update", "")
+	appendFix("unreadable", unreadableCanonical, "agentbox skills install --force", " (the previous path is backed up)")
 	appendFix("unreadable files", unreadable, "agentbox skills update --force", " (the previous copy is backed up)")
 	appendFix("unreadable files", unreadableWithoutSkill, "agentbox skills install --force", " (the previous copy is backed up)")
 	if len(broken) > 0 {

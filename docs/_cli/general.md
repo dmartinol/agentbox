@@ -48,12 +48,14 @@ The checks cover the platform (the spike targets `darwin/arm64`), the `git`,
 `podman`, `openshell`, and `npm` executables, the Podman connection, the
 OpenShell gateway status, and the installed usage skills. The skills check
 compares every installed usage skill and its templates with the running binary
-and reports stale, modified, invalid, missing-template, unreadable-template,
-broken-link, and legacy states. Each problem names the exact
-`agentbox skills update` or `agentbox skills install` command that repairs it;
-forced replacements are backed up first. A failed check is reported without
-stopping the remaining checks; use the output to decide what to install or
-start.
+and reports stale, modified, invalid, unreadable-canonical, missing-template,
+unreadable-template, broken-link, and legacy states. Each problem names the
+exact `agentbox skills update` or `agentbox skills install` command that repairs
+it; forced replacements are backed up first. A regular file or symlink at a
+canonical skill path is reported as unreadable and repaired with `agentbox
+skills install --force`; `update --force` backs the blocker up but then skips
+the skill. A failed check is reported without stopping the remaining checks;
+use the output to decide what to install or start.
 
 **Examples**
 
