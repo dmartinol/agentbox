@@ -388,11 +388,14 @@ func (a *App) PolicyEdit(ctx context.Context, runID, allowHost, binary string, d
 }
 
 func addNetworkRule(old []byte, agent, host, binary string) ([]byte, error) {
-	if binary == "" {
-		binary = "/usr/local/bin/" + agentCommand(agent)
+	paths := agentEgressBinaries(agent)
+	if binary != "" {
+		paths = []string{binary}
 	}
-	if !strings.HasPrefix(binary, "/") {
-		return nil, fmt.Errorf("binary must be an absolute path")
+	for _, path := range paths {
+		if !strings.HasPrefix(path, "/") {
+			return nil, fmt.Errorf("binary must be an absolute path")
+		}
 	}
 	name := "host-" + strings.NewReplacer(".", "-", ":", "-").Replace(host)
 	if !safeName.MatchString(name) {
@@ -406,9 +409,26 @@ func addNetworkRule(old []byte, agent, host, binary string) ([]byte, error) {
 	if !ok {
 		net = map[string]any{}
 	}
-	net[name] = map[string]any{"name": name, "endpoints": []map[string]any{{"host": host, "port": 443, "protocol": "tcp"}}, "binaries": []map[string]any{{"path": binary}}}
+	binaries := make([]map[string]any, 0, len(paths))
+	for _, path := range paths {
+		binaries = append(binaries, map[string]any{"path": path})
+	}
+	net[name] = map[string]any{"name": name, "endpoints": []map[string]any{{"host": host, "port": 443, "protocol": "tcp"}}, "binaries": binaries}
 	root["network_policies"] = net
 	return yaml.Marshal(root)
+}
+
+// agentEgressBinaries lists the executables that actually open sockets for a
+// run. The supported agents are Node applications, so matching only the
+// launcher path misses the node process, and git uses a separate HTTPS helper.
+// A host rule must include all of them to take effect.
+func agentEgressBinaries(agent string) []string {
+	return []string{
+		"/usr/local/bin/" + agentCommand(agent),
+		"/usr/local/bin/node",
+		"/usr/bin/git",
+		"/usr/lib/git-core/**",
+	}
 }
 
 func PolicyForAgent(policy []byte, agent string) ([]byte, error) {

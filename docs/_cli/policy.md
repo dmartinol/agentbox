@@ -39,9 +39,14 @@ agentbox policy edit [--allow-host HOST] [--binary PATH] [--dry-run] RUN_ID
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--allow-host` | — | Add an HTTPS host rule. |
-| `--binary` | — | Agent binary path the rules apply to. |
+| `--binary` | — | Override the default binary set with one binary path. |
 | `--dry-run` | `false` | Print the planned edit without running it. |
 
 Review the effective policy before changing network or binary rules. Network
 rules are binary-scoped: a rule for a stdio MCP server must name the server
 process binary, not the agent binary.
+
+Without `--binary`, a host rule allows the agent launcher plus the binaries
+that actually open the socket: `/usr/local/bin/node`, `/usr/bin/git`, and
+`/usr/lib/git-core/**`. The supported agents are Node applications, so a rule
+that lists only the launcher path does not cover the connecting process.

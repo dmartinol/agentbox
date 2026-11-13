@@ -158,6 +158,10 @@ func agentScript(p Profile, prompt string) (string, error) {
 		// The AgentBox image intentionally omits `ps`; run Codex without its
 		// background app-server daemon in the ephemeral OpenShell sandbox.
 		args = append(args, "--no-daemon")
+		// AgentBox already applies the OpenShell sandbox. Disable Codex's
+		// nested sandbox in every profile mode so its network calls follow the
+		// run policy instead of Codex's default network-disabled sandbox.
+		args = append(args, "--sandbox", "danger-full-access")
 	}
 	if p.Mode == "gateway" {
 		switch p.Agent {
@@ -170,11 +174,6 @@ func agentScript(p Profile, prompt string) (string, error) {
 			args = append(args, "--standalone")
 		}
 	} else {
-		if p.Agent == "codex" {
-			// AgentBox already applies the OpenShell sandbox. Disable Codex's
-			// nested sandbox so its network calls can use the provider policy.
-			args = append(args, "--sandbox", "danger-full-access")
-		}
 		if p.Model != "" {
 			args = append(args, "--model", p.Model)
 		}

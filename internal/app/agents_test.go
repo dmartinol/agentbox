@@ -132,6 +132,18 @@ func TestCodexStandardScriptUsesOpenAIProviderKey(t *testing.T) {
 	}
 }
 
+func TestCodexGatewayScriptDisablesNestedSandbox(t *testing.T) {
+	script, err := agentScript(testProfile("codex", "gateway", "prompted"), "do work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"--no-daemon", "--sandbox", "danger-full-access", "--profile", "gateway"} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("Codex gateway script lacks %q:\n%s", want, script)
+		}
+	}
+}
+
 func TestAgentScriptUsesUTF8Locale(t *testing.T) {
 	script, err := agentScript(testProfile("codex", "standard", "prompted"), "")
 	if err != nil {
