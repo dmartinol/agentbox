@@ -161,9 +161,11 @@ files are skipped unless `--force` replaces them after a backup; unreadable
 files inside a real skill directory are repaired the same way. A blocker at the
 canonical skill path itself cannot be repaired by `update --force`: it moves
 the blocker into the backup and then skips the skill because `SKILL.md` is
-gone, so use `agentbox skills install --force`. Dangling links are repaired
-without `--force`, and the legacy `~/.codex/skills` migration runs on `update`
-as well.
+gone, so use `agentbox skills install --force`. With `--force`, a symlink at
+the canonical skill path is moved into the backup as the link entry itself;
+its target is never changed. Dangling harness links are repaired without
+`--force`, and the legacy `~/.codex/skills` migration runs on `update` as
+well.
 
 ## remove
 {: #skills-remove }
@@ -220,7 +222,7 @@ line, so a hand-edited copy that keeps the version line still reports as
 | `agents` | `modified` | Differs from both the manifest and the embedded skill. |
 | `agents` | `invalid` | Front matter does not parse as strict YAML. |
 | `agents` | `missing` | No canonical copy. |
-| `agents` | `unreadable` | The path exists but cannot be read, for example because of permissions or because it is not a file. Repair it with `agentbox skills install --force`. |
+| `agents` | `unreadable` | The path exists but cannot be read, for example because of permissions, because it is not a file, or because the skill directory entry is a symlink, dangling or pointing elsewhere. Repair it with `agentbox skills install --force`; the link or blocker entry itself is backed up and a symlink target is left untouched. |
 | `claude`, `opencode` | `current` | Link points at the canonical copy and a skill file is reachable through it. |
 | `claude`, `opencode` | `broken-link` | Symlink resolves nowhere or has no skill behind it. |
 | `claude`, `opencode` | `foreign` | A real directory, file, or foreign symlink occupies the link path. |
@@ -297,10 +299,11 @@ templates, and `show` prints the single-skill object.
 invalid front matter, unreadable canonical paths, missing and unreadable
 template files, broken links, and legacy Codex copies each come with the exact
 command that fixes them. An unreadable canonical path is a path that exists but
-cannot be read as a skill directory, such as a regular file or a symlink to one
-at `~/.agents/skills/<name>`; the doctor recommends `agentbox skills install
---force`, which backs up the blocker and recreates the skill directory. When a
-template problem is reported without a usable canonical `SKILL.md`, the advice
-uses `agentbox skills install`, or `agentbox skills install --force` for
-modified and unreadable templates, because `update` skips a missing or
-unreadable skill.
+cannot be read as a skill directory, such as a regular file, a dangling
+symlink, or a symlink to another directory at `~/.agents/skills/<name>`; the
+doctor recommends `agentbox skills install --force`, which backs up the link or
+blocker entry itself, recreates the skill directory, and leaves the symlink
+target untouched. When a template problem is reported without a usable
+canonical `SKILL.md`, the advice uses `agentbox skills install`, or `agentbox
+skills install --force` for modified and unreadable templates, because
+`update` skips a missing or unreadable skill.

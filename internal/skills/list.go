@@ -106,14 +106,35 @@ func List(opts ListOptions) ([]Status, error) {
 	return out, nil
 }
 
-// canonicalInstallation derives the state of the canonical copy from the
-// sha256 of its content: current when it matches the rendered skill, invalid
-// when its front matter does not parse, stale when it is byte-identical to
-// what the manifest recorded but older than the running binary, and modified
-// in every other case.
+// canonicalInstallation derives the state of the canonical copy. A symlink at
+// the skill directory is unreadable, whether it dangles or resolves to foreign
+// content. Otherwise the state comes from the sha256 of SKILL.md: current when
+// it matches the rendered skill, invalid when its front matter does not parse,
+// stale when it is byte-identical to what the manifest recorded but older than
+// the running binary, and modified in every other case.
 func canonicalInstallation(l layout, name string, content []byte, record ManifestSkill, managed bool) Installation {
 	path := filepath.Join(l.root(), name, "SKILL.md")
 	inst := Installation{Target: "agents", Path: path, State: "missing"}
+	// Inspect the skill directory without following a symlink: a link at
+	// ~/.agents/skills/<name> serves a directory AgentBox cannot vouch for,
+	// whether it dangles or resolves to foreign content. install --force moves
+	// the link entry itself aside and recreates a real directory.
+	dirInfo, err := os.Lstat(filepath.Dir(path))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return inst
+	case err != nil:
+		inst.Present, inst.State, inst.Detail = true, "unreadable", err.Error()
+		return inst
+	case dirInfo.Mode()&os.ModeSymlink != 0:
+		inst.Present, inst.State = true, "unreadable"
+		inst.Detail = "canonical skill directory is a symlink; run `agentbox skills install --force`"
+		return inst
+	case !dirInfo.IsDir():
+		inst.Present, inst.State = true, "unreadable"
+		inst.Detail = "canonical skill path is not a directory; run `agentbox skills install --force`"
+		return inst
+	}
 	body, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

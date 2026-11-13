@@ -3,6 +3,7 @@ package skills
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -94,6 +95,52 @@ func TestListReportsBrokenLink(t *testing.T) {
 	inst := stateOf(t, statuses, "agentbox-cli", "claude")
 	if inst.State != "broken-link" || !inst.Present {
 		t.Fatalf("broken link state = %+v", inst)
+	}
+}
+
+// TestListReportsSymlinkedCanonicalSkillDirectory covers a symlink where the
+// canonical skill directory belongs. A dangling link and a link to a foreign
+// directory with different content are both blocked, not missing or
+// modified, so the doctor recommends install --force.
+func TestListReportsSymlinkedCanonicalSkillDirectory(t *testing.T) {
+	for _, kind := range []string{"dangling", "foreign directory"} {
+		t.Run(kind, func(t *testing.T) {
+			home := prepareHome(t)
+			if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(home, ".agents", "skills", "agentbox-cli")
+			if err := os.RemoveAll(dir); err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(home, "agentbox-cli-target")
+			if kind == "foreign directory" {
+				if err := os.MkdirAll(target, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("foreign copy\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.Symlink(target, dir); err != nil {
+				t.Fatal(err)
+			}
+
+			statuses, err := List(ListOptions{Version: "1.0.0", Home: home})
+			if err != nil {
+				t.Fatal(err)
+			}
+			inst := stateOf(t, statuses, "agentbox-cli", "agents")
+			if !inst.Present || inst.State != "unreadable" {
+				t.Fatalf("symlinked canonical directory state = %+v", inst)
+			}
+			if !strings.Contains(inst.Detail, "install --force") {
+				t.Fatalf("symlinked canonical directory lacks repair advice: %+v", inst)
+			}
+			if info, err := os.Lstat(dir); err != nil || info.Mode()&os.ModeSymlink == 0 {
+				t.Fatalf("list changed the symlinked canonical path: %v %v", info, err)
+			}
+		})
 	}
 }
 

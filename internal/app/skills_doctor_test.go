@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -314,6 +315,105 @@ func TestDoctorReportsUnreadableCanonicalSkillPath(t *testing.T) {
 			}
 			if body, err := os.ReadFile(path); err != nil || len(body) == 0 {
 				t.Fatalf("SKILL.md was not restored: %v", err)
+			}
+			if repaired := doctorSkillCheck(t, installedApp(t, "0.2.0")); !repaired.OK {
+				t.Fatalf("skills check still failing after repair: %+v", repaired)
+			}
+		})
+	}
+}
+
+// TestDoctorReportsSymlinkedCanonicalSkillDirectoryAndForceRepairs covers a
+// dangling link and a link to a foreign directory where the canonical skill
+// directory belongs. Both are unreadable rather than missing or modified, so
+// the doctor recommends install --force. The repair moves the link entry
+// itself into the backup and leaves the link target untouched.
+func TestDoctorReportsSymlinkedCanonicalSkillDirectoryAndForceRepairs(t *testing.T) {
+	const skill = "agentbox-orchestrator"
+	for _, kind := range []string{"dangling", "foreign directory"} {
+		t.Run(kind, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			if _, err := skills.Install(skills.Options{All: true, Version: "0.2.0", Home: home}); err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(home, ".agents", "skills", skill)
+			if err := os.RemoveAll(dir); err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(home, skill+"-target")
+			foreign := kind == "foreign directory"
+			if foreign {
+				if err := os.MkdirAll(target, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("foreign copy\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(target, "foreign-marker"), []byte("keep\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.Symlink(target, dir); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "SKILL.md")
+
+			statuses, err := skills.List(skills.ListOptions{Version: "0.2.0", Home: home})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if inst := canonicalInstallationOf(t, statuses, skill); !inst.Present || inst.State != "unreadable" {
+				t.Fatalf("canonical installation = %+v", inst)
+			}
+
+			found := doctorSkillCheck(t, installedApp(t, "0.2.0"))
+			if found.OK || !strings.Contains(found.Detail, "unreadable: "+path) {
+				t.Fatalf("symlinked canonical check = %+v", found)
+			}
+			if !strings.Contains(found.Detail, "agentbox skills install --force") {
+				t.Fatalf("symlinked canonical check lacks the install command: %s", found.Detail)
+			}
+			if strings.Contains(found.Detail, "skills update") {
+				t.Fatalf("symlinked canonical check recommends update: %s", found.Detail)
+			}
+
+			if _, err := skills.Install(skills.Options{All: true, Version: "0.2.0", Home: home, Force: true}); err != nil {
+				t.Fatalf("recommended repair failed: %v", err)
+			}
+			info, err := os.Lstat(dir)
+			if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+				t.Fatalf("canonical path is not a real directory after repair: %v %v", info, err)
+			}
+			want, err := skills.Embedded(skill, "0.2.0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if body, err := os.ReadFile(path); err != nil || !bytes.Equal(body, want) {
+				t.Fatalf("SKILL.md was not restored to the embedded copy: %v", err)
+			}
+
+			matches, err := filepath.Glob(filepath.Join(home, ".agents", ".agentbox-skill-backups", "*", "canonical", skill))
+			if err != nil || len(matches) != 1 {
+				t.Fatalf("expected one backed-up symlink entry, got %v (%v)", matches, err)
+			}
+			backup, err := os.Lstat(matches[0])
+			if err != nil || backup.Mode()&os.ModeSymlink == 0 {
+				t.Fatalf("backup did not preserve the symlink entry: %v %v", backup, err)
+			}
+			if got, err := os.Readlink(matches[0]); err != nil || got != target {
+				t.Fatalf("backed-up symlink target = %q (%v), want %q", got, err, target)
+			}
+
+			if foreign {
+				if body, err := os.ReadFile(filepath.Join(target, "SKILL.md")); err != nil || string(body) != "foreign copy\n" {
+					t.Fatalf("repair changed the symlink target: %q (%v)", body, err)
+				}
+				if body, err := os.ReadFile(filepath.Join(target, "foreign-marker")); err != nil || string(body) != "keep\n" {
+					t.Fatalf("repair removed target content: %q (%v)", body, err)
+				}
+			} else if _, err := os.Lstat(target); err == nil {
+				t.Fatalf("dangling link target %s unexpectedly exists", target)
 			}
 			if repaired := doctorSkillCheck(t, installedApp(t, "0.2.0")); !repaired.OK {
 				t.Fatalf("skills check still failing after repair: %+v", repaired)

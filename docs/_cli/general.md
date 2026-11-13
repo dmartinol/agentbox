@@ -51,9 +51,11 @@ compares every installed usage skill and its templates with the running binary
 and reports stale, modified, invalid, unreadable-canonical, missing-template,
 unreadable-template, broken-link, and legacy states. Each problem names the
 exact `agentbox skills update` or `agentbox skills install` command that repairs
-it; forced replacements are backed up first. A regular file or symlink at a
-canonical skill path is reported as unreadable and repaired with `agentbox
-skills install --force`; `update --force` backs the blocker up but then skips
+it; forced replacements are backed up first. A regular file, a dangling
+symlink, or a symlink to another directory at a canonical skill path is
+reported as unreadable and repaired with `agentbox skills install --force`.
+The repair moves the link or blocker entry itself into the backup and leaves a
+symlink target untouched; `update --force` backs the blocker up but then skips
 the skill. A failed check is reported without stopping the remaining checks;
 use the output to decide what to install or start.
 
