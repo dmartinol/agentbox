@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
-import type { ImageArtifact, Profile, Provider } from '../../types';
+import type { ImageArtifact, PolicyConfiguration, Profile, Provider } from '../../types';
 import { Alert } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
 import { EmptyState } from '../../components/ui/empty';
@@ -56,10 +56,25 @@ function usesProviderDefaults(profile: Profile, provider: Provider | undefined) 
     profile.base_url === defaults.base_url && profile.api_key_env === defaults.api_key_env);
 }
 
+function isDefaultProfilePolicy(policyPath: string, profileName: string) {
+  const basename = policyPath.split(/[\\/]/).pop();
+  return basename === `${profileName}.yaml`;
+}
+
+function policyBasename(policyPath: string) {
+  return policyPath.split(/[\\/]/).pop() || policyPath;
+}
+
 export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [images, setImages] = useState<ImageArtifact[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [policies, setPolicies] = useState<PolicyConfiguration[]>([]);
+  const [policiesLoading, setPoliciesLoading] = useState(false);
+  const [policiesReady, setPoliciesReady] = useState(false);
+  const [policyError, setPolicyError] = useState<Error | null>(null);
+  const [currentDefaultPolicyPath, setCurrentDefaultPolicyPath] = useState('');
+  const policyRequestId = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [notice, setNotice] = useState('');
@@ -87,6 +102,24 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
 
   useEffect(() => { void load(); }, []);
 
+  const loadPolicies = async () => {
+    const requestId = ++policyRequestId.current;
+    setPoliciesLoading(true);
+    setPoliciesReady(false);
+    setPolicyError(null);
+    try {
+      const nextPolicies = await api.policies();
+      if (requestId !== policyRequestId.current) return;
+      setPolicies(nextPolicies ?? []);
+      setPoliciesReady(true);
+    } catch (err) {
+      if (requestId !== policyRequestId.current) return;
+      setPolicyError(err as Error);
+    } finally {
+      if (requestId === policyRequestId.current) setPoliciesLoading(false);
+    }
+  };
+
   const providerOptions = useMemo(() => {
     const values = new Set(providers.map((provider) => provider.name).filter(Boolean));
     if (form.provider) values.add(form.provider);
@@ -104,6 +137,12 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
     .filter((image) => image.agent === form.agent)
     .sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true })), [images, form.agent]);
 
+  const reusablePolicies = useMemo(() => policies
+    .filter((policy) => policy.path !== currentDefaultPolicyPath)
+    .sort((left, right) => left.name.localeCompare(right.name)), [policies, currentDefaultPolicyPath]);
+  const selectedPolicyExists = reusablePolicies.some((policy) => policy.path === form.policy);
+  const missingPolicy = policiesReady && !policyError && Boolean(form.policy) && !selectedPolicyExists;
+
   const openCreate = () => {
     const provider = providers[0];
     setForm({
@@ -113,21 +152,26 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
       mode: providerMode(provider) ?? 'gateway',
       ...providerValues(provider)
     });
+    setCurrentDefaultPolicyPath('');
     setUseProviderSettings(true);
     setFormError('');
     setModels([]);
     setModelError('');
     setOpen(true);
+    void loadPolicies();
   };
 
   const openEdit = (profile: Profile) => {
     const provider = providers.find((item) => item.name === profile.provider);
-    setForm(profile);
+    const isDefaultPolicy = isDefaultProfilePolicy(profile.policy, profile.name);
+    setCurrentDefaultPolicyPath(isDefaultPolicy ? profile.policy : '');
+    setForm({ ...profile, policy: isDefaultPolicy ? '' : profile.policy });
     setUseProviderSettings(usesProviderDefaults(profile, provider));
     setFormError('');
     setModels([]);
     setModelError('');
     setOpen(true);
+    void loadPolicies();
   };
 
   const selectProvider = (name: string) => {
@@ -225,9 +269,17 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
         onOpenChange={setOpen}
         title={profiles.some((profile) => profile.name === form.name) ? `Edit ${form.name}` : 'Create profile'}
         description="Profiles reference an OpenShell provider and define agent defaults."
-        footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={() => void save()}>Save</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button disabled={missingPolicy} onClick={() => void save()}>Save</Button></>}
       >
         {formError ? <Alert variant="danger" title="Unable to save profile" className="mb-3">{formError}</Alert> : null}
+        {policyError ? (
+          <Alert variant="danger" title="Unable to load policies" className="mb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>{policyError.message}</span>
+              <Button size="xs" variant="outline" onClick={() => void loadPolicies()}>Retry</Button>
+            </div>
+          </Alert>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Name" htmlFor="profile-name" required><Input id="profile-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></Field>
           <Field label="Agent" htmlFor="profile-agent" required>
@@ -280,8 +332,40 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
           <Field label="API key env" htmlFor="profile-api-key-env" helper="Name only; value stays external.">
             <Input id="profile-api-key-env" disabled={useProviderSettings} value={form.api_key_env ?? ''} onChange={(event) => setForm({ ...form, api_key_env: event.target.value })} />
           </Field>
-          <Field label="Policy" htmlFor="profile-policy" helper="Leave blank to create and use the profile's default policy." className="sm:col-span-2">
-            <Input id="profile-policy" value={form.policy} onChange={(event) => setForm({ ...form, policy: event.target.value })} />
+          <Field
+            label="Policy"
+            htmlFor="profile-policy"
+            required
+            className="sm:col-span-2"
+            helper={(
+              <>
+                A policy is required. Choose the AgentBox default or a reusable policy.
+                {policiesLoading ? <span className="block" role="status">Loading policies…</span> : null}
+                {policiesReady && !policyError && reusablePolicies.length === 0 ? <span className="block">No reusable policies yet — create one under Setup → Policies.</span> : null}
+              </>
+            )}
+            error={missingPolicy ? `Policy ${form.policy} no longer exists; pick another policy.` : undefined}
+          >
+            <Select
+              id="profile-policy"
+              required
+              disabled={policiesLoading}
+              aria-invalid={missingPolicy}
+              value={form.policy}
+              onChange={(event) => setForm({ ...form, policy: event.target.value })}
+            >
+              <option value="">Default created by AgentBox (policies/{form.name || '<profile-name>'}.yaml)</option>
+              {form.policy && !selectedPolicyExists ? (
+                <option value={form.policy}>
+                  {policiesReady && !policyError ? `${policyBasename(form.policy)} (missing)` : `${policyBasename(form.policy)} (selected)`}
+                </option>
+              ) : null}
+              {reusablePolicies.map((policy) => {
+                const useCount = policy.used_by?.length ?? 0;
+                const usedBy = useCount ? ` — used by ${useCount} profile${useCount === 1 ? '' : 's'}` : '';
+                return <option key={policy.path} value={policy.path}>{policy.name}{usedBy}</option>;
+              })}
+            </Select>
           </Field>
           <Field label="Approval" htmlFor="profile-approval" required>
             <Select id="profile-approval" value={form.approval} onChange={(event) => setForm({ ...form, approval: event.target.value })}>
