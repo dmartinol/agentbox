@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/dmartinol/agentbox/internal/app"
+	"github.com/dmartinol/agentbox/internal/skills"
 )
 
 func captureStdout(t *testing.T, action func() error) (string, error) {
@@ -81,6 +82,88 @@ func TestVersionOutputIsParseable(t *testing.T) {
 	}
 	if output == "" {
 		t.Fatal("version output is empty")
+	}
+}
+
+func TestSkillsInstallListAndShow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.Mkdir(filepath.Join(home, ".agents"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	if err := dispatch(context.Background(), a, []string{"skills", "install"}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, ".agents", "skills", "agentbox-cli", "SKILL.md")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `version: "`+binaryVersion()+`"`) {
+		t.Fatalf("installed skill is not version matched: %s", body[:200])
+	}
+
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "list", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var statuses []skills.Status
+	if err := json.Unmarshal([]byte(output), &statuses); err != nil {
+		t.Fatalf("skills list output is not JSON: %s (%v)", output, err)
+	}
+	if len(statuses) != len(skills.Names()) {
+		t.Fatalf("statuses = %d", len(statuses))
+	}
+	if statuses[0].Installations[0].State != "current" {
+		t.Fatalf("installation = %+v", statuses[0].Installations[0])
+	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "show", "agentbox-api"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "curl -fsS") {
+		t.Fatalf("shown skill lacks API examples: %s", output[:200])
+	}
+}
+
+func TestSkillsInstallRefusesDifferingFileWithoutForce(t *testing.T) {
+	dir := t.TempDir()
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	if err := dispatch(context.Background(), a, []string{"skills", "install", "--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "agentbox-cli", "SKILL.md")
+	if err := os.WriteFile(path, []byte("edited locally\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := dispatch(context.Background(), a, []string{"skills", "install", "--dir", dir}); err == nil {
+		t.Fatal("install overwrote a differing file without --force")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "edited locally\n" {
+		t.Fatalf("refused install changed the file: %q", body)
+	}
+}
+
+func TestUsageListsSkillsCommand(t *testing.T) {
+	output, err := captureStdout(t, func() error {
+		usage()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "skills install|list|show") {
+		t.Fatalf("usage is missing the skills command: %s", output)
 	}
 }
 

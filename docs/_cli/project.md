@@ -3,7 +3,7 @@ layout: docs
 title: Project commands
 nav_title: Projects
 command: project
-order: 3
+order: 4
 subcommands:
   - create
   - edit

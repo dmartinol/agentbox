@@ -3,7 +3,7 @@ layout: docs
 title: Skill commands
 nav_title: Skills
 command: skill
-order: 10
+order: 11
 subcommands:
   - list
   - show

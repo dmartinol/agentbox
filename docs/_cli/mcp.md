@@ -3,7 +3,7 @@ layout: docs
 title: MCP commands
 nav_title: MCP
 command: mcp
-order: 9
+order: 10
 subcommands:
   - list
   - show

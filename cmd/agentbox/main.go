@@ -14,6 +14,7 @@ import (
 
 	"github.com/dmartinol/agentbox/internal/app"
 	"github.com/dmartinol/agentbox/internal/gui"
+	"github.com/dmartinol/agentbox/internal/skills"
 )
 
 var (
@@ -27,6 +28,7 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	a.Version = binaryVersion()
 	if err := dispatch(context.Background(), a, os.Args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return
@@ -88,7 +90,9 @@ func dispatch(ctx context.Context, a *app.App, args []string) error {
 	case "mcp":
 		return mcpCmd(ctx, a, args[1:])
 	case "skill":
-		return skillsCmd(ctx, a, args[1:])
+		return skillCmd(ctx, a, args[1:])
+	case "skills":
+		return skillsCmd(args[1:])
 	case "agent":
 		return agentCmd(ctx, a, args[1:])
 	case "gui":
@@ -120,11 +124,20 @@ func usage() {
 	fmt.Println("  policy show|edit")
 	fmt.Println("  mcp list|show|create|delete|servers")
 	fmt.Println("  skill list|show|create|delete|available")
+	fmt.Println("  skills install|list|show")
 	fmt.Println("  agent start|list|show|attach|logs|stop|sync|diff|delete")
 	fmt.Println("  gui [--address host:port]")
 }
 
 func versionString() string {
+	v := binaryVersion()
+	if commit != "" && commit != "none" {
+		return fmt.Sprintf("%s (commit %s, built %s)", v, commit, date)
+	}
+	return v
+}
+
+func binaryVersion() string {
 	v := version
 	if v == "dev" {
 		if info, ok := debug.ReadBuildInfo(); ok {
@@ -132,9 +145,6 @@ func versionString() string {
 				v = info.Main.Version
 			}
 		}
-	}
-	if commit != "" && commit != "none" {
-		return fmt.Sprintf("%s (commit %s, built %s)", v, commit, date)
 	}
 	return v
 }
@@ -791,7 +801,7 @@ func mcpCmd(ctx context.Context, a *app.App, args []string) error {
 	return fmt.Errorf("unknown mcp command %q", args[0])
 }
 
-func skillsCmd(ctx context.Context, a *app.App, args []string) error {
+func skillCmd(ctx context.Context, a *app.App, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("skill list|show|create|delete|available required")
 	}
@@ -897,6 +907,71 @@ func splitList(value string) []string {
 		}
 	}
 	return out
+}
+
+func skillsCmd(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("skills install|list|show required")
+	}
+	switch args[0] {
+	case "install":
+		f := flags("skills install")
+		target := f.String("target", "", "install target: agents, codex, claude, opencode, or all (default all)")
+		dir := f.String("dir", "", "override the target root directory")
+		force := f.Bool("force", false, "overwrite files that differ from the embedded skill")
+		dry := f.Bool("dry-run", false, "report the planned writes without changing files")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		results, err := skills.Install(skills.Options{Target: *target, Dir: *dir, Force: *force, DryRun: *dry, Version: binaryVersion()})
+		for _, result := range results {
+			detail := ""
+			if result.Detail != "" {
+				detail = " (" + result.Detail + ")"
+			}
+			fmt.Printf("%-14s %-14s %s%s\n", result.Action, result.Skill, result.Path, detail)
+		}
+		return err
+	case "list":
+		f := flags("skills list")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		statuses, err := skills.List(skills.ListOptions{Version: binaryVersion()})
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(statuses)
+		}
+		for _, status := range statuses {
+			fmt.Printf("%s %s\n", status.Name, status.Version)
+			if len(status.Installations) == 0 {
+				fmt.Println("  home directory unavailable; no installed copies checked")
+				continue
+			}
+			for _, installation := range status.Installations {
+				version := installation.Version
+				if version == "" {
+					version = "-"
+				}
+				fmt.Printf("  %-7s %-10s %-10s %s\n", installation.Target, installation.State, version, installation.Path)
+			}
+		}
+		return nil
+	case "show":
+		if err := need(args[1:], 1); err != nil {
+			return err
+		}
+		content, err := skills.Embedded(args[1], binaryVersion())
+		if err != nil {
+			return err
+		}
+		_, err = os.Stdout.Write(content)
+		return err
+	}
+	return fmt.Errorf("unknown skills command %q", args[0])
 }
 
 func agentCmd(ctx context.Context, a *app.App, args []string) error {

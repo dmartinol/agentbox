@@ -45,9 +45,13 @@ agentbox doctor [--json]
 | `--json` | `false` | Print the checks as a JSON array instead of a table. |
 
 The checks cover the platform (the spike targets `darwin/arm64`), the `git`,
-`podman`, `openshell`, and `npm` executables, the Podman connection, and the
-OpenShell gateway status. A failed check is reported without stopping the
-remaining checks; use the output to decide what to install or start.
+`podman`, `openshell`, and `npm` executables, the Podman connection, the
+OpenShell gateway status, and the installed usage skills. The skills check
+compares each installed copy of `agentbox-cli` and `agentbox-api` with the
+running binary and reports `stale` when they differ; rerun
+`agentbox skills install --force` to refresh them. A failed check is reported
+without stopping the remaining checks; use the output to decide what to install
+or start.
 
 **Examples**
 

@@ -8,11 +8,16 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/dmartinol/agentbox/internal/skills"
 )
 
 type App struct {
 	Store  Store
 	Runner CommandRunner
+	// Version is the running binary version, set by the CLI entry point.
+	// When empty, the doctor output omits the installed usage-skill check.
+	Version string
 }
 
 func New() (*App, error) {
@@ -45,7 +50,43 @@ func (a *App) Doctor(ctx context.Context) []Check {
 	} else {
 		out = append(out, Check{Name: "gateway", OK: true, Detail: strings.TrimSpace(string(b))})
 	}
+	out = append(out, a.skillChecks()...)
 	return out
+}
+
+func (a *App) skillChecks() []Check {
+	if a.Version == "" {
+		return nil
+	}
+	statuses, err := skills.List(skills.ListOptions{Version: a.Version})
+	if err != nil {
+		return []Check{{Name: "skills", Detail: err.Error()}}
+	}
+	installed := 0
+	var stale []string
+	for _, status := range statuses {
+		for _, installation := range status.Installations {
+			if !installation.Present {
+				continue
+			}
+			installed++
+			if installation.State == "current" {
+				continue
+			}
+			version := installation.Version
+			if version == "" {
+				version = "unknown"
+			}
+			stale = append(stale, fmt.Sprintf("%s (%s %s, want %s)", installation.Path, status.Name, version, status.Version))
+		}
+	}
+	if len(stale) > 0 {
+		return []Check{{Name: "skills", Detail: "stale: " + strings.Join(stale, ", ") + "; run `agentbox skills install --force`"}}
+	}
+	if installed == 0 {
+		return []Check{{Name: "skills", OK: true, Detail: "no installed usage skills"}}
+	}
+	return []Check{{Name: "skills", OK: true, Detail: fmt.Sprintf("%d installed, up to date", installed)}}
 }
 
 func PrintJSON(v any) error {

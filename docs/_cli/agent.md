@@ -3,7 +3,7 @@ layout: docs
 title: Agent commands
 nav_title: Agents
 command: agent
-order: 11
+order: 12
 subcommands:
   - start
   - list

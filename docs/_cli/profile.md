@@ -3,7 +3,7 @@ layout: docs
 title: Profile commands
 nav_title: Profiles
 command: profile
-order: 4
+order: 5
 subcommands:
   - create
   - edit
