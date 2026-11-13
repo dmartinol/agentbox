@@ -87,7 +87,7 @@ func TestImageBuildUsesPinnedDigestAndRecipeTag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.Tag != "localhost/openshell:codex-0.167.0-r3" || record.BaseDigest != "sha256:base123" || record.ImageID != "sha256:image-id" || record.Digest != "sha256:image-digest" {
+	if record.Tag != "localhost/openshell:codex-0.167.0-r4" || record.BaseDigest != "sha256:base123" || record.ImageID != "sha256:image-id" || record.Digest != "sha256:image-digest" {
 		t.Fatalf("unexpected build record: %+v", record)
 	}
 	if len(runner.streams) != 2 || !commandHasArg(runner.streams[1], record.Tag) {
@@ -99,7 +99,7 @@ func TestImageBuildPreviewAndRegistryReferences(t *testing.T) {
 	runner := &fakeRunner{}
 	app := App{Runner: runner}
 	record, err := app.ImageBuild(context.Background(), "claude", "2.1.319", true)
-	if err != nil || record.Tag != "localhost/openshell:claude-2.1.319-r3" {
+	if err != nil || record.Tag != "localhost/openshell:claude-2.1.319-r4" {
 		t.Fatalf("unexpected preview: %+v, %v", record, err)
 	}
 	if len(runner.outputs)+len(runner.streams) != 0 {
@@ -209,4 +209,85 @@ func filteredImages(t *testing.T, data []byte) []struct {
 		t.Fatal(err)
 	}
 	return images
+}
+
+func TestRecipeDockerfileInstallsPinnedToolset(t *testing.T) {
+	record := ImageRecord{Agent: "codex", Version: "1.2.3", BaseDigest: "sha256:base123"}
+	got := imageDockerfile(record, "@openai/codex")
+	if recipeRevision != "4" {
+		t.Fatalf("recipeRevision = %q; want 4", recipeRevision)
+	}
+	if !strings.Contains(got, "FROM docker.io/library/node@sha256:base123") {
+		t.Fatalf("base image is not pinned by digest:\n%s", got)
+	}
+	if !strings.Contains(got, strings.Join(recipePackages, " ")) {
+		t.Fatalf("Dockerfile lacks the fixed recipe toolset:\n%s", got)
+	}
+	for _, pkg := range []string{"curl", "jq", "ripgrep", "unzip", "less", "git-lfs", "procps"} {
+		if !strings.Contains(got, " "+pkg) {
+			t.Fatalf("Dockerfile lacks package %q:\n%s", pkg, got)
+		}
+	}
+	// The recipe is a local-work toolset, not a forge client: gh and
+	// openssh-client stay out so no sandbox gains forge reachability.
+	for _, forbidden := range []string{"openssh-client", "cli.github.com", " gh ", " gh\n", "github-cli"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("Dockerfile contains %q:\n%s", forbidden, got)
+		}
+	}
+}
+
+func TestImageRemoveAndPruneRespectProfileAndActiveRunHolders(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	profileImage := "localhost/openshell:codex-1.0.0-r4"
+	runImage := "localhost/openshell:claude-1.0.0-r4"
+	freeImage := "localhost/openshell:opencode-2.0.0-r4"
+	profile := testProfile("codex", "standard", "prompted")
+	profile.Image = profileImage
+	if err := store.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(Run{ID: "run-active", Name: "active-run", Image: runImage, Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`[
+		{"Id":"image-free","Names":["` + freeImage + `"],"Digest":"sha256:free","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"opencode","agentbox.version":"2.0.0","agentbox.recipe":"4"}},
+		{"Id":"image-profile","Names":["` + profileImage + `"],"Digest":"sha256:profile","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"1.0.0","agentbox.recipe":"4"}},
+		{"Id":"image-run","Names":["` + runImage + `"],"Digest":"sha256:run","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"claude","agentbox.version":"1.0.0","agentbox.recipe":"4"}}
+	]`)
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if call.name == "podman" && len(call.args) > 0 && call.args[0] == "images" {
+			return raw, nil
+		}
+		return nil, nil
+	}}
+	app := App{Store: store, Runner: runner}
+
+	if err := app.ImageRemove(context.Background(), profileImage); err == nil || !strings.Contains(err.Error(), "profile unit-profile") {
+		t.Fatalf("profile-held removal error = %v", err)
+	}
+	if err := app.ImageRemove(context.Background(), runImage); err == nil || !strings.Contains(err.Error(), "run active-run (running)") {
+		t.Fatalf("run-held removal error = %v", err)
+	}
+	usage, err := app.ImageUsage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(usage[freeImage]) != 0 || len(usage[profileImage]) != 1 || len(usage[runImage]) != 1 {
+		t.Fatalf("usage = %#v", usage)
+	}
+
+	removed, err := app.ImagePrune(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 || removed[0] != freeImage {
+		t.Fatalf("pruned = %#v; want only %s", removed, freeImage)
+	}
+	if err := app.ImageRemove(context.Background(), freeImage); err != nil {
+		t.Fatalf("unreferenced removal failed: %v", err)
+	}
 }

@@ -11,8 +11,23 @@ import (
 	"strings"
 )
 
-const recipeRevision = "3"
+const recipeRevision = "4"
 const baseImage = "docker.io/library/node:22-bookworm-slim"
+
+// recipePackages is the fixed toolset installed in every agent image. The
+// recipe revision, not package pinning, is the reproducibility boundary.
+var recipePackages = []string{
+	"git",
+	"tmux",
+	"ca-certificates",
+	"curl",
+	"jq",
+	"ripgrep",
+	"unzip",
+	"less",
+	"git-lfs",
+	"procps",
+}
 
 var exactVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:[-.][a-zA-Z0-9.-]+)?$`)
 
@@ -104,7 +119,7 @@ func (a *App) ImageBuildWithOutput(ctx context.Context, agent, version string, d
 		return rec, err
 	}
 	defer os.RemoveAll(dir)
-	dockerfile := fmt.Sprintf("FROM docker.io/library/node@%s\nENV LANG=%s\nENV LC_ALL=%s\nRUN apt-get update && apt-get install -y --no-install-recommends git tmux ca-certificates && rm -rf /var/lib/apt/lists/*\nRUN npm install -g '%s@%s' && npm cache clean --force\nRUN %s --version\nRUN groupadd sandbox && useradd -g sandbox -m -s /bin/sh sandbox && mkdir -p /workspace && chown sandbox:sandbox /workspace\nWORKDIR /workspace\nUSER sandbox\n", rec.BaseDigest, sandboxLocale, sandboxLocale, pkg, version, agentCommand(agent))
+	dockerfile := imageDockerfile(rec, pkg)
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0600); err != nil {
 		return rec, err
 	}
@@ -127,6 +142,19 @@ func (a *App) ImageBuildWithOutput(ctx context.Context, agent, version string, d
 		return rec, fmt.Errorf("built image ID unavailable")
 	}
 	return rec, nil
+}
+
+func imageDockerfile(rec ImageRecord, pkg string) string {
+	return fmt.Sprintf(`FROM docker.io/library/node@%s
+ENV LANG=%s
+ENV LC_ALL=%s
+RUN apt-get update && apt-get install -y --no-install-recommends %s && rm -rf /var/lib/apt/lists/*
+RUN npm install -g '%s@%s' && npm cache clean --force
+RUN %s --version
+RUN groupadd sandbox && useradd -g sandbox -m -s /bin/sh sandbox && mkdir -p /workspace && chown sandbox:sandbox /workspace
+WORKDIR /workspace
+USER sandbox
+`, rec.BaseDigest, sandboxLocale, sandboxLocale, strings.Join(recipePackages, " "), pkg, rec.Version, agentCommand(rec.Agent))
 }
 
 func agentCommand(agent string) string {

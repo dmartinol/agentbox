@@ -118,7 +118,7 @@ func usage() {
 	fmt.Println("  settings show|set")
 	fmt.Println("  project create|edit|show|list")
 	fmt.Println("  profile create|edit|show|list")
-	fmt.Println("  image versions|build|list|push|pull|registry")
+	fmt.Println("  image versions|build|list|push|pull|rm|prune|registry")
 	fmt.Println("  gateway list|connect|start|info")
 	fmt.Println("  provider setup")
 	fmt.Println("  policy show|edit")
@@ -451,6 +451,32 @@ func imageCmd(ctx context.Context, a *app.App, args []string) error {
 			return err
 		}
 		return a.ImagePull(ctx, f.Args()[0], *dry)
+	case "rm":
+		f := flags("image rm")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		return a.ImageRemove(ctx, f.Args()[0])
+	case "prune":
+		f := flags("image prune")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		removed, err := a.ImagePrune(ctx)
+		if err != nil {
+			return err
+		}
+		if len(removed) == 0 {
+			fmt.Println("No unused AgentBox images to remove.")
+			return nil
+		}
+		for _, reference := range removed {
+			fmt.Println(reference)
+		}
+		return nil
 	case "registry":
 		return imageRegistryCmd(ctx, a, args[1:])
 	default:
@@ -565,6 +591,8 @@ func imageUsage() {
 	fmt.Println("  image list [--json]")
 	fmt.Println("  image push [--dry-run] <local-image> <remote-reference>")
 	fmt.Println("  image pull [--dry-run] <remote-reference>")
+	fmt.Println("  image rm <local-image>")
+	fmt.Println("  image prune")
 	fmt.Println("  image registry show|set|clear|discover|push")
 	fmt.Println()
 	fmt.Println("Examples:")
@@ -578,7 +606,7 @@ func imageBuildUsage(f *flag.FlagSet) {
 	fmt.Fprintln(f.Output(), "Build a revisioned AgentBox image for one agent.")
 	fmt.Fprintln(f.Output(), "Usage: agentbox image build [--version EXACT] [--dry-run] <claude|codex|opencode>")
 	fmt.Fprintln(f.Output(), "If --version is omitted, the latest official release is proposed and used.")
-	fmt.Fprintln(f.Output(), "The base image is pinned to a digest and the build is tagged as localhost/openshell:<agent>-<version>-r3.")
+	fmt.Fprintln(f.Output(), "The base image is pinned to a digest and the build is tagged as localhost/openshell:<agent>-<version>-r4.")
 	fmt.Fprintln(f.Output())
 	fmt.Fprintln(f.Output(), "Flags:")
 	f.PrintDefaults()
