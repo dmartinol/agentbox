@@ -133,6 +133,29 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 	if statuses[0].Installations[0].State != "current" {
 		t.Fatalf("installation = %+v", statuses[0].Installations[0])
 	}
+	for _, status := range statuses {
+		if status.Name != "agentbox-orchestrator" {
+			continue
+		}
+		if len(status.Files) != 4 {
+			t.Fatalf("orchestrator template statuses = %+v", status.Files)
+		}
+		for _, file := range status.Files {
+			if file.State != "current" {
+				t.Fatalf("template %s state = %+v", file.Name, file)
+			}
+		}
+	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "list"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "file") || !strings.Contains(output, "issue.md") {
+		t.Fatalf("text list does not report templates: %s", output)
+	}
 
 	output, err = captureStdout(t, func() error {
 		return dispatch(context.Background(), a, []string{"skills", "show", "agentbox-api"})
@@ -145,8 +168,11 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 	}
 
 	// The orchestrator skill is packaged, installed, and shown like the others.
-	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "agentbox-orchestrator", "SKILL.md")); err != nil {
-		t.Fatal(err)
+	orchestratorDir := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator")
+	for _, file := range []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md"} {
+		if _, err := os.Stat(filepath.Join(orchestratorDir, file)); err != nil {
+			t.Fatalf("%s was not installed: %v", file, err)
+		}
 	}
 	output, err = captureStdout(t, func() error {
 		return dispatch(context.Background(), a, []string{"skills", "show", "agentbox-orchestrator"})
@@ -159,11 +185,60 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 	}
 }
 
-func TestSkillsInstallRefusesDifferingFileWithoutForce(t *testing.T) {
+func TestSkillsListRowsKeepTemplateColumnsAligned(t *testing.T) {
+	installation := formatSkillStatusRow("agents", "current", "0.2.0", "/tmp/skill/SKILL.md")
+	template := formatSkillStatusRow("file:verdict.md", "modified", "-", "/tmp/skill/verdict.md")
+	if !strings.HasPrefix(template, "  file:verdict.md ") {
+		t.Fatalf("template target was truncated: %q", template)
+	}
+	installationState := strings.Index(installation, "current")
+	templateState := strings.Index(template, "modified")
+	if installationState == 0 || templateState != installationState {
+		t.Fatalf("state columns differ: installation=%q template=%q", installation, template)
+	}
+	installationPath := strings.Index(installation, "/tmp/skill/SKILL.md")
+	templatePath := strings.Index(template, "/tmp/skill/verdict.md")
+	if installationPath == 0 || templatePath != installationPath {
+		t.Fatalf("path columns differ: installation=%q template=%q", installation, template)
+	}
+}
+
+// TestSkillsOutputAlignsLongTemplateLabels covers lifecycle output, where the
+// skill and template form one combined label. A long template label must not
+// shift the path column.
+func TestSkillsOutputAlignsLongTemplateLabels(t *testing.T) {
+	results := []skills.Result{
+		{Skill: "agentbox-orchestrator", File: "SKILL.md", Target: "agents", Path: "/tmp/skill/SKILL.md", Action: "unchanged"},
+		{Skill: "agentbox-orchestrator", File: "verdict.md", Target: "agents", Path: "/tmp/skill/verdict.md", Action: "updated"},
+	}
+	output, err := captureStdout(t, func() error { return printSkillsOutput(results, nil, false) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(output, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("output lines = %d: %q", len(lines), output)
+	}
+	if !strings.Contains(lines[1], "agentbox-orchestrator/verdict.md") {
+		t.Fatalf("template label missing: %q", lines[1])
+	}
+	installationPath := strings.Index(lines[0], "/tmp/skill/SKILL.md")
+	templatePath := strings.Index(lines[1], "/tmp/skill/verdict.md")
+	if installationPath == 0 || templatePath != installationPath {
+		t.Fatalf("path columns differ: installation=%q template=%q", lines[0], lines[1])
+	}
+}
+
+func TestSkillsInstallRefusesDifferingSkillFileWithoutForce(t *testing.T) {
 	dir := t.TempDir()
 	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
 	if err := dispatch(context.Background(), a, []string{"skills", "install", "--dir", dir}); err != nil {
 		t.Fatal(err)
+	}
+	for _, file := range []string{"issue.md", "pr.md", "verdict.md", "state.md"} {
+		if _, err := os.Stat(filepath.Join(dir, "agentbox-orchestrator", file)); err != nil {
+			t.Fatalf("--dir did not write %s: %v", file, err)
+		}
 	}
 	path := filepath.Join(dir, "agentbox-cli", "SKILL.md")
 	if err := os.WriteFile(path, []byte("edited locally\n"), 0644); err != nil {
@@ -178,6 +253,33 @@ func TestSkillsInstallRefusesDifferingFileWithoutForce(t *testing.T) {
 	}
 	if string(body) != "edited locally\n" {
 		t.Fatalf("refused install changed the file: %q", body)
+	}
+}
+
+// TestSkillsInstallRefusesDifferingTemplateWithoutForce isolates the template
+// case in its own --dir so the failure can only come from the template.
+func TestSkillsInstallRefusesDifferingTemplateWithoutForce(t *testing.T) {
+	dir := t.TempDir()
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	if err := dispatch(context.Background(), a, []string{"skills", "install", "--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	template := filepath.Join(dir, "agentbox-orchestrator", "pr.md")
+	if err := os.WriteFile(template, []byte("edited template\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := dispatch(context.Background(), a, []string{"skills", "install", "--dir", dir})
+	if err == nil {
+		t.Fatal("install overwrote a differing template without --force")
+	}
+	if !strings.Contains(err.Error(), template) {
+		t.Fatalf("failure was not caused by the modified template: %v", err)
+	}
+	if strings.Contains(err.Error(), filepath.Join(dir, "agentbox-cli")) {
+		t.Fatalf("failure also reported an untouched skill: %v", err)
+	}
+	if body, err := os.ReadFile(template); err != nil || string(body) != "edited template\n" {
+		t.Fatalf("refused template install changed the file: %q (%v)", body, err)
 	}
 }
 
@@ -204,6 +306,9 @@ func TestSkillsLifecycleJSONAndFlags(t *testing.T) {
 	for _, result := range results {
 		if result.Skill == "" || result.Target == "" || result.Path == "" || result.Action == "" {
 			t.Fatalf("install result is missing a stable field: %+v", result)
+		}
+		if result.Target == "agents" && result.File == "" {
+			t.Fatalf("canonical install result is missing its file: %+v", result)
 		}
 	}
 

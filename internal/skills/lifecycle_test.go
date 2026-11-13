@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,8 +73,12 @@ func TestInstallWritesCanonicalCopyAndRelativeLinks(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s missing from the manifest", name)
 		}
-		if record.Version != "1.0.0" || len(record.SHA256) != 64 {
+		entry, tracked := record.File("SKILL.md")
+		if record.Version != "1.0.0" || !tracked || len(entry.SHA256) != 64 {
 			t.Fatalf("%s manifest record = %+v", name, record)
+		}
+		if len(record.Files) != len(Files(name)) {
+			t.Fatalf("%s manifest files = %d, want %d", name, len(record.Files), len(Files(name)))
 		}
 		if record.Path != filepath.Join(home, ".agents", "skills", name, "SKILL.md") {
 			t.Fatalf("%s manifest path = %q", name, record.Path)
@@ -89,10 +94,16 @@ func TestInstallWritesCanonicalCopyAndRelativeLinks(t *testing.T) {
 	} else if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	// Each skill produced exactly one canonical write and two links.
+	// Each shipped file produced one canonical write; each skill produced two
+	// links.
 	for _, name := range Names() {
 		got := strings.Join(actionsOf(results, name), ",")
-		want := "agents/installed,claude/linked,opencode/linked"
+		var actions []string
+		for range Files(name) {
+			actions = append(actions, "agents/installed")
+		}
+		actions = append(actions, "claude/linked", "opencode/linked")
+		want := strings.Join(actions, ",")
 		if got != want {
 			t.Fatalf("%s actions = %s, want %s", name, got, want)
 		}
@@ -200,11 +211,16 @@ func TestInstallDirOverrideWritesPlainCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, result := range results {
-		if result.Path != filepath.Join(dir, result.Skill, "SKILL.md") {
+		if result.Path != filepath.Join(dir, result.Skill, result.File) {
 			t.Fatalf("path = %s", result.Path)
 		}
 		if _, err := os.Stat(result.Path); err != nil {
 			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"issue.md", "pr.md", "verdict.md", "state.md"} {
+		if _, err := os.Stat(filepath.Join(dir, "agentbox-orchestrator", name)); err != nil {
+			t.Fatalf("--dir did not write %s: %v", name, err)
 		}
 	}
 	home := t.TempDir()
@@ -213,6 +229,52 @@ func TestInstallDirOverrideWritesPlainCopies(t *testing.T) {
 	}
 	if _, err := Install(Options{Dir: dir, Agents: []string{"claude"}}); err == nil {
 		t.Fatal("accepted --dir combined with --agent")
+	}
+}
+
+// TestInstallDirForceBacksUpModifiedFile preserves the promise every other
+// --force path makes: the replaced content lands in a timestamped backup
+// before the embedded copy is written.
+func TestInstallDirForceBacksUpModifiedFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "custom", "skills")
+	if _, err := Install(Options{Dir: dir, Version: "1.0.0"}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "agentbox-cli", "SKILL.md")
+	if err := os.WriteFile(path, []byte("edited locally\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(Options{Dir: dir, Version: "2.0.0"}); err == nil {
+		t.Fatal("--dir overwrote a modified file without --force")
+	}
+	if body := mustRead(t, path); string(body) != "edited locally\n" {
+		t.Fatalf("refused --dir install changed the file: %q", body)
+	}
+
+	results, err := Install(Options{Dir: dir, Version: "2.0.0", Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var forced *Result
+	for i := range results {
+		if results[i].Skill == "agentbox-cli" && results[i].File == "SKILL.md" {
+			forced = &results[i]
+		}
+	}
+	if forced == nil || forced.Action != "updated" || !strings.Contains(forced.Detail, "backed up") {
+		t.Fatalf("forced --dir result = %+v", results)
+	}
+	if got := InstalledVersion(mustRead(t, path)); got != "2.0.0" {
+		t.Fatalf("version after --dir --force = %q", got)
+	}
+	backup := filepath.Join(dir, ".agentbox-skill-backups")
+	stamps, err := os.ReadDir(backup)
+	if err != nil || len(stamps) != 1 {
+		t.Fatalf("--dir backup stamps = %v (%v)", stamps, err)
+	}
+	saved := filepath.Join(backup, stamps[0].Name(), "agentbox-cli", "SKILL.md")
+	if body := mustRead(t, saved); string(body) != "edited locally\n" {
+		t.Fatalf("--dir backup content = %q", body)
 	}
 }
 
@@ -608,9 +670,13 @@ func TestManifestRoundTrip(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "skills")
 	record := ManifestSkill{
 		Version: "1.2.3",
-		SHA256:  strings.Repeat("a", 64),
 		Path:    filepath.Join(root, "agentbox-cli", "SKILL.md"),
 		Links:   []string{filepath.Join(t.TempDir(), "link")},
+		Files: []ManifestEntry{{
+			Name:   "SKILL.md",
+			SHA256: strings.Repeat("a", 64),
+			Path:   filepath.Join(root, "agentbox-cli", "SKILL.md"),
+		}},
 	}
 	if err := saveManifest(root, &Manifest{Skills: map[string]ManifestSkill{"agentbox-cli": record}}); err != nil {
 		t.Fatal(err)
@@ -620,7 +686,8 @@ func TestManifestRoundTrip(t *testing.T) {
 		t.Fatalf("manifest version = %d", loaded.Version)
 	}
 	got, ok := loaded.Skills["agentbox-cli"]
-	if !ok || got.Version != record.Version || got.SHA256 != record.SHA256 || got.Path != record.Path || len(got.Links) != 1 {
+	entry, tracked := got.File("SKILL.md")
+	if !ok || got.Version != record.Version || !tracked || entry.SHA256 != record.Files[0].SHA256 || got.Path != record.Path || len(got.Links) != 1 {
 		t.Fatalf("round trip = %+v (ok = %v)", got, ok)
 	}
 	// A corrupt manifest loads as empty instead of failing.
@@ -671,5 +738,378 @@ func TestDeprecatedTargetAliasMapsToAgents(t *testing.T) {
 	}
 	if _, err := Update(Options{Target: "all", Home: home}); err == nil {
 		t.Fatal("update accepted --target")
+	}
+}
+
+// TestInstallWritesTemplatesAsSiblings keeps the packaging contract: the
+// orchestrator templates install beside SKILL.md, not in a templates/
+// subdirectory.
+func TestInstallWritesTemplatesAsSiblings(t *testing.T) {
+	home := prepareHome(t)
+	results, err := Install(Options{All: true, Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator")
+	for _, name := range []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("%s missing beside SKILL.md: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "templates")); !os.IsNotExist(err) {
+		t.Fatal("templates were installed in a templates/ subdirectory")
+	}
+	var files int
+	for _, result := range results {
+		if result.Skill == "agentbox-orchestrator" && result.Target == "agents" {
+			files++
+		}
+	}
+	if files != len(Files("agentbox-orchestrator")) {
+		t.Fatalf("canonical file results = %d, want %d", files, len(Files("agentbox-orchestrator")))
+	}
+}
+
+// TestUpdateRefreshesStaleAndProtectsModifiedTemplates covers per-file
+// lifecycle decisions inside one skill directory.
+func TestUpdateRefreshesStaleAndProtectsModifiedTemplates(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator")
+	results, err := Update(Options{All: true, Version: "2.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var refreshed bool
+	for _, result := range results {
+		if result.Skill == "agentbox-orchestrator" && result.File == "issue.md" {
+			refreshed = result.Action == "updated" && strings.Contains(result.Detail, "refreshed from version 1.0.0")
+		}
+	}
+	if !refreshed {
+		t.Fatalf("stale template was not refreshed: %+v", actionsOf(results, "agentbox-orchestrator"))
+	}
+	if body := string(mustRead(t, filepath.Join(dir, "issue.md"))); !strings.Contains(body, "agentbox-orchestrator 2.0.0") {
+		t.Fatalf("template footer was not refreshed: %s", body)
+	}
+
+	// A hand-edited template is refused without --force and preserved.
+	path := filepath.Join(dir, "verdict.md")
+	if err := os.WriteFile(path, []byte("edited verdict template\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	results, err = Update(Options{All: true, Version: "3.0.0", Home: home})
+	if err == nil {
+		t.Fatal("update overwrote a modified template without --force")
+	}
+	var skipped bool
+	for _, result := range results {
+		if result.Skill == "agentbox-orchestrator" && result.File == "verdict.md" {
+			skipped = result.Action == "skipped"
+		}
+	}
+	if !skipped {
+		t.Fatalf("modified template result = %+v", actionsOf(results, "agentbox-orchestrator"))
+	}
+	if body := mustRead(t, path); string(body) != "edited verdict template\n" {
+		t.Fatalf("modified template changed: %q", body)
+	}
+
+	// --force backs up the template at its managed relative path and replaces it.
+	if _, err := Update(Options{All: true, Version: "3.0.0", Home: home, Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(home, ".agents", ".agentbox-skill-backups")
+	stamps, err := os.ReadDir(backup)
+	if err != nil || len(stamps) == 0 {
+		t.Fatalf("backup stamps = %v (%v)", stamps, err)
+	}
+	saved := filepath.Join(backup, stamps[0].Name(), "canonical", "agentbox-orchestrator", "verdict.md")
+	if string(mustRead(t, saved)) != "edited verdict template\n" {
+		t.Fatalf("template backup content = %q", mustRead(t, saved))
+	}
+}
+
+// TestUpdateForceRepairsUnreadableTemplate covers a destination that exists
+// but cannot be read. Without --force the refusal points at --force; with it
+// the path is moved into the backup and the shipped template is written.
+func TestUpdateForceRepairsUnreadableTemplate(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator", "verdict.md")
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.ReadFile(path); err == nil {
+		t.Skip("permission bits do not restrict this user")
+	}
+	statuses, err := List(ListOptions{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fileStateOf(t, statuses, "agentbox-orchestrator", "verdict.md").State; got != "unreadable" {
+		t.Fatalf("unreadable template state = %q", got)
+	}
+
+	results, err := Update(Options{All: true, Version: "1.0.0", Home: home})
+	if err == nil {
+		t.Fatal("update replaced an unreadable template without --force")
+	}
+	var refused bool
+	for _, result := range results {
+		if result.Skill == "agentbox-orchestrator" && result.File == "verdict.md" {
+			refused = result.Action == "skipped" && strings.Contains(result.Detail, "use --force to replace it")
+		}
+	}
+	if !refused {
+		t.Fatalf("unreadable template was not refused with force guidance: %+v", actionsOf(results, "agentbox-orchestrator"))
+	}
+
+	results, err = Update(Options{All: true, Version: "1.0.0", Home: home, Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var repaired bool
+	for _, result := range results {
+		if result.Skill == "agentbox-orchestrator" && result.File == "verdict.md" {
+			repaired = result.Action == "updated" && strings.Contains(result.Detail, "unreadable path")
+		}
+	}
+	if !repaired {
+		t.Fatalf("--force did not repair the unreadable template: %+v", actionsOf(results, "agentbox-orchestrator"))
+	}
+	expected, err := EmbeddedFile("agentbox-orchestrator", "verdict.md", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := mustRead(t, path); !bytes.Equal(body, expected) {
+		t.Fatalf("repaired template does not match the shipped copy: %q", body)
+	}
+	backup := filepath.Join(home, ".agents", ".agentbox-skill-backups")
+	stamps, err := os.ReadDir(backup)
+	if err != nil || len(stamps) == 0 {
+		t.Fatalf("backup stamps = %v (%v)", stamps, err)
+	}
+	saved := filepath.Join(backup, stamps[0].Name(), "canonical", "agentbox-orchestrator", "verdict.md")
+	if err := os.Chmod(saved, 0o644); err != nil {
+		t.Fatalf("unreadable template was not backed up: %v", err)
+	}
+	if !bytes.Equal(mustRead(t, saved), expected) {
+		t.Fatal("backup does not contain the previous template")
+	}
+}
+
+// TestInstallForceRepairsModifiedTemplateWithoutSkill proves the doctor's
+// install --force advice for a modified template whose SKILL.md is gone.
+func TestInstallForceRepairsModifiedTemplateWithoutSkill(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator")
+	if err := os.Remove(filepath.Join(dir, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "pr.md")
+	if err := os.WriteFile(path, []byte("edited pr template\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home, Force: true}); err != nil {
+		t.Fatalf("install --force did not repair the template: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err != nil {
+		t.Fatalf("install --force did not recreate SKILL.md: %v", err)
+	}
+	expected, err := EmbeddedFile("agentbox-orchestrator", "pr.md", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := mustRead(t, path); !bytes.Equal(body, expected) {
+		t.Fatalf("repaired template does not match the shipped copy: %q", body)
+	}
+	backup := filepath.Join(home, ".agents", ".agentbox-skill-backups")
+	stamps, err := os.ReadDir(backup)
+	if err != nil || len(stamps) == 0 {
+		t.Fatalf("backup stamps = %v (%v)", stamps, err)
+	}
+	saved := filepath.Join(backup, stamps[0].Name(), "canonical", "agentbox-orchestrator", "pr.md")
+	if body := mustRead(t, saved); string(body) != "edited pr template\n" {
+		t.Fatalf("template backup content = %q", body)
+	}
+}
+
+// TestUpdateAddsTemplatesToLegacyManifestV1Install migrates a version 1
+// install without orphaning it: the recorded SKILL.md hash is recognised, the
+// skill reports stale against a newer binary, and update adds the templates
+// and rewrites the manifest as version 2.
+func TestUpdateAddsTemplatesToLegacyManifestV1Install(t *testing.T) {
+	home := prepareHome(t)
+	root := filepath.Join(home, ".agents", "skills")
+	dir := filepath.Join(root, "agentbox-orchestrator")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content, err := Embedded("agentbox-orchestrator", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "SKILL.md")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"version":1,"skills":{"agentbox-orchestrator":{"version":"1.0.0","sha256":"` + hashHex(content) + `","path":"` + path + `","links":[]}}}`
+	if err := os.WriteFile(filepath.Join(root, ManifestFile), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A v1 record still proves the copy is AgentBox's, so it reports stale
+	// rather than modified, and the missing templates are visible.
+	statuses, err := List(ListOptions{Version: "2.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf(t, statuses, "agentbox-orchestrator", "agents").State; got != "stale" {
+		t.Fatalf("v1 canonical state = %q, want stale", got)
+	}
+	for _, file := range templateStatusesFor(t, statuses, "agentbox-orchestrator") {
+		if file.State != "missing" {
+			t.Fatalf("%s state = %+v", file.Name, file)
+		}
+	}
+
+	results, err := Update(Options{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var added int
+	for _, result := range results {
+		if result.Skill == "agentbox-orchestrator" && result.Target == "agents" && result.Action == "installed" {
+			added++
+		}
+	}
+	if added != 4 {
+		t.Fatalf("installed template rows = %d: %s", added, actionsOf(results, "agentbox-orchestrator"))
+	}
+	for _, name := range []string{"issue.md", "pr.md", "verdict.md", "state.md"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("%s was not added by update: %v", name, err)
+		}
+	}
+	body := mustRead(t, filepath.Join(root, ManifestFile))
+	if !strings.Contains(string(body), `"version": 2`) {
+		t.Fatalf("manifest was not rewritten as version 2: %s", body)
+	}
+	manifest := loadManifest(root)
+	if got := len(manifest.Skills["agentbox-orchestrator"].Files); got != len(Files("agentbox-orchestrator")) {
+		t.Fatalf("migrated manifest files = %d", got)
+	}
+}
+
+// TestRemoveDeletesTemplatesAndKeepsForeignFiles proves remove deletes only
+// managed files and leaves unrelated user content and the directory behind.
+func TestRemoveDeletesTemplatesAndKeepsForeignFiles(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator")
+	foreign := filepath.Join(dir, "notes.md")
+	if err := os.WriteFile(foreign, []byte("user notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Remove(Options{Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s survived remove", name)
+		}
+	}
+	if body := mustRead(t, foreign); string(body) != "user notes\n" {
+		t.Fatalf("remove touched a foreign file: %q", body)
+	}
+}
+
+// TestRemoveKeepsUnrecordedTemplate keeps a file at a shipped template path
+// that the manifest never recorded, even when the file is byte-identical to
+// the embedded template.
+func TestRemoveKeepsUnrecordedTemplate(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(home, ".agents", "skills")
+	dir := filepath.Join(root, "agentbox-orchestrator")
+	unrecorded := filepath.Join(dir, "issue.md")
+	original := mustRead(t, unrecorded)
+
+	manifest := loadManifest(root)
+	record := manifest.Skills["agentbox-orchestrator"]
+	kept := record.Files[:0]
+	for _, file := range record.Files {
+		if file.Name != "issue.md" {
+			kept = append(kept, file)
+		}
+	}
+	record.Files = kept
+	manifest.Skills["agentbox-orchestrator"] = record
+	if err := saveManifest(root, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := Remove(Options{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := mustRead(t, unrecorded); !bytes.Equal(body, original) {
+		t.Fatalf("remove deleted or changed an unrecorded template: %q", body)
+	}
+	var reported bool
+	for _, result := range results {
+		if result.Skill == "agentbox-orchestrator" && result.File == "issue.md" {
+			reported = result.Action == "skipped" && strings.Contains(result.Detail, "not recorded")
+		}
+	}
+	if !reported {
+		t.Fatalf("unrecorded template was not reported as left alone: %+v", actionsOf(results, "agentbox-orchestrator"))
+	}
+	for _, name := range []string{"SKILL.md", "pr.md", "verdict.md", "state.md"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s survived remove", name)
+		}
+	}
+}
+
+// TestRemoveRefusesModifiedTemplateWithoutForce keeps the manifest record so
+// a later forced removal can still clean the modified template.
+func TestRemoveRefusesModifiedTemplateWithoutForce(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(home, ".agents", "skills")
+	dir := filepath.Join(root, "agentbox-orchestrator")
+	path := filepath.Join(dir, "pr.md")
+	if err := os.WriteFile(path, []byte("edited pr template\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Remove(Options{Version: "1.0.0", Home: home}); err == nil {
+		t.Fatal("removed a modified template without --force")
+	}
+	if body := mustRead(t, path); string(body) != "edited pr template\n" {
+		t.Fatalf("modified template was removed: %q", body)
+	}
+	if _, ok := loadManifest(root).Skills["agentbox-orchestrator"]; !ok {
+		t.Fatal("manifest record was dropped while a modified template remained")
+	}
+	if _, err := Remove(Options{Version: "1.0.0", Home: home, Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("forced remove left the modified template behind")
 	}
 }

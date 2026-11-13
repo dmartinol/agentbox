@@ -992,7 +992,10 @@ func skillsCmd(args []string) error {
 				if version == "" {
 					version = "-"
 				}
-				fmt.Printf("  %-9s %-12s %-8s %s\n", installation.Target, installation.State, version, installation.Path)
+				fmt.Println(formatSkillStatusRow(installation.Target, installation.State, version, installation.Path))
+			}
+			for _, file := range status.Files {
+				fmt.Println(formatSkillStatusRow("file:"+file.Name, file.State, "-", file.Path))
 			}
 		}
 		return nil
@@ -1027,6 +1030,12 @@ func skillsCmd(args []string) error {
 	return fmt.Errorf("unknown skills command %q", args[0])
 }
 
+// formatSkillStatusRow keeps installation and template rows aligned. The
+// target column fits the longest template label, "file:verdict.md".
+func formatSkillStatusRow(target, state, version, path string) string {
+	return fmt.Sprintf("  %-16s %-12s %-8s %s", target, state, version, path)
+}
+
 // printSkillsOutput renders lifecycle results as text or JSON and returns the
 // collected error after the report, so a refusal still shows every action.
 func printSkillsOutput(results []skills.Result, err error, jsonOut bool) error {
@@ -1036,14 +1045,21 @@ func printSkillsOutput(results []skills.Result, err error, jsonOut bool) error {
 		}
 		return err
 	}
+	writer := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	for _, result := range results {
 		detail := ""
 		if result.Detail != "" {
 			detail = " (" + result.Detail + ")"
 		}
-		fmt.Printf("%-14s %-14s %s%s\n", result.Action, result.Skill, result.Path, detail)
+		label := result.Skill
+		if result.File != "" && result.File != "SKILL.md" {
+			label += "/" + result.File
+		}
+		if _, err := fmt.Fprintf(writer, "%s\t%s\t%s%s\n", result.Action, label, result.Path, detail); err != nil {
+			return err
+		}
 	}
-	return err
+	return errors.Join(err, writer.Flush())
 }
 
 func agentCmd(ctx context.Context, a *app.App, args []string) error {

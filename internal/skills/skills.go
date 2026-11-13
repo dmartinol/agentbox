@@ -1,9 +1,9 @@
 // Package skills embeds AgentBox's own usage skills and manages their
 // lifecycle on the host. Every skill is version-matched to the running
-// binary and installed as a single canonical copy under ~/.agents/skills
-// (or ./.agents/skills with --local). Harnesses that do not read that shared
-// root receive a relative symlink; nothing is ever written into
-// ~/.codex/skills.
+// binary and installed as one canonical directory under ~/.agents/skills
+// (or ./.agents/skills with --local), containing SKILL.md and any templates
+// the skill ships. Harnesses that do not read that shared root receive a
+// relative symlink; nothing is ever written into ~/.codex/skills.
 package skills
 
 import (
@@ -22,11 +22,59 @@ import (
 // compared against the binary that wrote them.
 const VersionPlaceholder = "{{VERSION}}"
 
-//go:embed agentbox-cli/SKILL.md agentbox-api/SKILL.md agentbox-orchestrator/SKILL.md
+//go:embed agentbox-cli/SKILL.md agentbox-api/SKILL.md agentbox-orchestrator/SKILL.md agentbox-orchestrator/templates/issue.md agentbox-orchestrator/templates/pr.md agentbox-orchestrator/templates/verdict.md agentbox-orchestrator/templates/state.md
 var embedded embed.FS
 
+// SkillFile is one file shipped with an embedded skill.
+type SkillFile struct {
+	// Name is the installed path relative to the skill directory, using
+	// forward slashes. Templates are flattened: the shipped
+	// templates/issue.md installs as issue.md beside SKILL.md.
+	Name string
+	// Source is the path of the file within the embedded filesystem.
+	Source string
+	// Template reports whether the file is a shipped template rather than
+	// SKILL.md.
+	Template bool
+}
+
+// skillSpec is the ordered file inventory of one embedded skill.
+type skillSpec struct {
+	name  string
+	files []SkillFile
+}
+
+// newSkillSpec builds an inventory with SKILL.md first and the named
+// templates after it, in the given order.
+func newSkillSpec(name string, templates ...string) skillSpec {
+	files := []SkillFile{{Name: "SKILL.md", Source: name + "/SKILL.md"}}
+	for _, template := range templates {
+		files = append(files, SkillFile{
+			Name:     template + ".md",
+			Source:   name + "/templates/" + template + ".md",
+			Template: true,
+		})
+	}
+	return skillSpec{name: name, files: files}
+}
+
+// specs is the stable ordered inventory of every embedded skill. Other skills
+// remain single-file; the orchestrator skill ships its templates beside
+// SKILL.md so an installed copy is self-contained.
+var specs = []skillSpec{
+	newSkillSpec("agentbox-cli"),
+	newSkillSpec("agentbox-api"),
+	newSkillSpec("agentbox-orchestrator", "issue", "pr", "verdict", "state"),
+}
+
 // names lists the embedded skills in a stable order.
-var names = []string{"agentbox-cli", "agentbox-api", "agentbox-orchestrator"}
+var names = func() []string {
+	out := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		out = append(out, spec.name)
+	}
+	return out
+}()
 
 // harnesses lists every supported harness in a stable order.
 var harnesses = []string{"claude", "codex", "opencode"}
@@ -59,16 +107,76 @@ func ValidName(name string) bool {
 	return false
 }
 
-// Embedded returns the rendered content of one embedded skill.
+// Files returns the shipped files of one embedded skill in stable order,
+// with SKILL.md first.
+func Files(name string) []SkillFile {
+	spec, ok := lookupSpec(name)
+	if !ok {
+		return nil
+	}
+	out := make([]SkillFile, len(spec.files))
+	copy(out, spec.files)
+	return out
+}
+
+// lookupSpec finds the inventory of one embedded skill.
+func lookupSpec(name string) (skillSpec, bool) {
+	for _, spec := range specs {
+		if spec.name == name {
+			return spec, true
+		}
+	}
+	return skillSpec{}, false
+}
+
+// lookupFile finds one shipped file of a skill.
+func lookupFile(name, file string) (SkillFile, bool) {
+	spec, ok := lookupSpec(name)
+	if !ok {
+		return SkillFile{}, false
+	}
+	for _, candidate := range spec.files {
+		if candidate.Name == file {
+			return candidate, true
+		}
+	}
+	return SkillFile{}, false
+}
+
+// Embedded returns the rendered content of one embedded skill's SKILL.md.
 func Embedded(name, version string) ([]byte, error) {
+	return EmbeddedFile(name, "SKILL.md", version)
+}
+
+// EmbeddedFile returns the rendered content of one shipped file of an
+// embedded skill. The version placeholder is substituted in every file, so
+// templates can name the orchestrator version too.
+func EmbeddedFile(name, file, version string) ([]byte, error) {
 	if !ValidName(name) {
 		return nil, fmt.Errorf("unknown skill %q (available: %s)", name, strings.Join(names, ", "))
 	}
-	raw, err := embedded.ReadFile(name + "/SKILL.md")
+	spec, ok := lookupFile(name, file)
+	if !ok {
+		return nil, fmt.Errorf("unknown file %q for skill %q (available: %s)", file, name, strings.Join(fileNames(name), ", "))
+	}
+	raw, err := embedded.ReadFile(spec.Source)
 	if err != nil {
 		return nil, err
 	}
 	return render(raw, version), nil
+}
+
+// fileNames returns the installed names of a skill's files in stable order.
+func fileNames(name string) []string {
+	spec, ok := lookupSpec(name)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(spec.files))
+	for _, file := range spec.files {
+		out = append(out, file.Name)
+	}
+	return out
 }
 
 func render(raw []byte, version string) []byte {

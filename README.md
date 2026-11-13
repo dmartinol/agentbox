@@ -164,19 +164,26 @@ discover the CLI and HTTP API without reading this repository:
 
 Three skills ship: `agentbox-cli` (run lifecycle), `agentbox-api` (local HTTP
 API), and `agentbox-orchestrator` (the issue-to-PR orchestrator flow: triage,
-plan, one-writer implementation, verification, pull request, independent
-review, gated merge, and close, with a GitHub tracker adapter).
+per-stage workers with the agent, model, and effort they actually applied
+(`not-applicable` for AgentBox workers, which cannot set an effort), isolated
+verify and review worktrees detached at the PR head, provenance-marked
+comments and PRs, gated merge, and close, with a GitHub tracker adapter). The
+orchestrator skill also installs
+`issue.md`, `pr.md`, `verdict.md`, and `state.md` beside its `SKILL.md`, so an
+installed copy carries the templates it tells the orchestrator to use.
 
-One canonical copy is written to `~/.agents/skills` (or `./.agents/skills`
-with `--local`) and Claude and OpenCode receive relative symlinks into it.
+One canonical copy of each skill, including its shipped templates, is written
+to `~/.agents/skills` (or `./.agents/skills` with `--local`) and Claude and
+OpenCode receive relative symlinks into it.
 Nothing is ever written to `~/.codex/skills`: Codex reads `~/.agents/skills`
 directly and would otherwise list every skill twice. The skills land in the
 shared `.agents/skills` layout, so they appear in `npx skills list` as
 `untracked`; update them with `agentbox skills update` (not
 `npx skills update`) and remove them with `agentbox skills remove` or
 `npx skills remove`. AgentBox records what it owns in
-`~/.agents/skills/.agentbox-managed.json`, and every forced replacement or
-removal first moves the previous copy to
+`~/.agents/skills/.agentbox-managed.json`, including one path and hash per
+managed file, and every forced replacement or removal first moves the previous
+copy to
 `~/.agents/.agentbox-skill-backups/<timestamp>/`.
 
 Discover the latest supported Codex version:

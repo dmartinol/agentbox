@@ -74,9 +74,24 @@ func (a *App) skillChecks() []Check {
 		return []Check{{Name: "skills", Detail: err.Error()}}
 	}
 	installed := 0
-	var stale, modified, invalid, broken, legacy []string
+	var (
+		stale, staleWithoutSkill           []string
+		modified, modifiedWithoutSkill     []string
+		missing                            []string
+		unreadableCanonical                []string
+		unreadable, unreadableWithoutSkill []string
+		invalid, broken, legacy            []string
+	)
 	for _, status := range statuses {
+		// Only a readable canonical SKILL.md lets update repair templates.
+		// When the canonical skill path is itself unreadable, update moves
+		// the blocker into the backup and then skips the skill because no
+		// SKILL.md remains; install --force recreates the whole path.
+		canonicalUsable := false
 		for _, installation := range status.Installations {
+			if installation.Target == "agents" && installation.Present && installation.State != "unreadable" {
+				canonicalUsable = true
+			}
 			switch installation.State {
 			case "current":
 				if installation.Target == "agents" {
@@ -86,6 +101,10 @@ func (a *App) skillChecks() []Check {
 				stale = append(stale, installation.Path)
 			case "modified":
 				modified = append(modified, installation.Path)
+			case "unreadable":
+				if installation.Target == "agents" {
+					unreadableCanonical = append(unreadableCanonical, installation.Path)
+				}
 			case "invalid":
 				invalid = append(invalid, installation.Path)
 			case "broken-link":
@@ -94,16 +113,54 @@ func (a *App) skillChecks() []Check {
 				legacy = append(legacy, installation.Path)
 			}
 		}
+		for _, file := range status.Files {
+			switch file.State {
+			case "stale":
+				if canonicalUsable {
+					stale = append(stale, file.Path)
+				} else {
+					staleWithoutSkill = append(staleWithoutSkill, file.Path)
+				}
+			case "modified":
+				if canonicalUsable {
+					modified = append(modified, file.Path)
+				} else {
+					modifiedWithoutSkill = append(modifiedWithoutSkill, file.Path)
+				}
+			case "missing":
+				// Without a canonical copy, list reports every template as
+				// missing; only call that a problem when the skill is installed.
+				if canonicalUsable {
+					missing = append(missing, file.Path)
+				}
+			case "unreadable":
+				if canonicalUsable {
+					unreadable = append(unreadable, file.Path)
+				} else {
+					unreadableWithoutSkill = append(unreadableWithoutSkill, file.Path)
+				}
+			}
+		}
 	}
-	if len(invalid) > 0 {
-		problems = append(problems, fmt.Sprintf("invalid front matter: %s; run `agentbox skills install --force`", strings.Join(invalid, ", ")))
+	// A template without its canonical SKILL.md cannot be repaired by update:
+	// update reports the skill as not installed and changes nothing. Install
+	// creates the missing SKILL.md first, so those templates are grouped under
+	// install instead of the update command the other states use.
+	appendFix := func(label string, paths []string, command, note string) {
+		if len(paths) == 0 {
+			return
+		}
+		problems = append(problems, fmt.Sprintf("%s: %s; run `%s`%s", label, strings.Join(paths, ", "), command, note))
 	}
-	if len(stale) > 0 {
-		problems = append(problems, fmt.Sprintf("stale: %s; run `agentbox skills update`", strings.Join(stale, ", ")))
-	}
-	if len(modified) > 0 {
-		problems = append(problems, fmt.Sprintf("modified: %s; run `agentbox skills update --force` (the previous copy is backed up)", strings.Join(modified, ", ")))
-	}
+	appendFix("invalid front matter", invalid, "agentbox skills install --force", "")
+	appendFix("stale", stale, "agentbox skills update", "")
+	appendFix("stale", staleWithoutSkill, "agentbox skills install", "")
+	appendFix("modified", modified, "agentbox skills update --force", " (the previous copy is backed up)")
+	appendFix("modified", modifiedWithoutSkill, "agentbox skills install --force", " (the previous copy is backed up)")
+	appendFix("missing files", missing, "agentbox skills update", "")
+	appendFix("unreadable", unreadableCanonical, "agentbox skills install --force", " (the previous path is backed up)")
+	appendFix("unreadable files", unreadable, "agentbox skills update --force", " (the previous copy is backed up)")
+	appendFix("unreadable files", unreadableWithoutSkill, "agentbox skills install --force", " (the previous copy is backed up)")
 	if len(broken) > 0 {
 		problems = append(problems, fmt.Sprintf("broken links: %s; run `agentbox skills install`", strings.Join(broken, ", ")))
 	}

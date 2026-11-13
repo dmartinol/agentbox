@@ -112,6 +112,39 @@ func TestRenderDefaultVersionIsDev(t *testing.T) {
 	}
 }
 
+// TestEmbeddedInventoryDiscoversEveryFile keeps the per-skill inventory
+// stable: SKILL.md first, every source reachable in the embed filesystem, and
+// no version placeholder left after rendering.
+func TestEmbeddedInventoryDiscoversEveryFile(t *testing.T) {
+	for _, name := range Names() {
+		files := Files(name)
+		if len(files) == 0 || files[0].Name != "SKILL.md" || files[0].Template {
+			t.Fatalf("%s inventory = %v", name, files)
+		}
+		for _, file := range files {
+			if !strings.HasPrefix(file.Source, name+"/") {
+				t.Fatalf("%s source %q is outside the skill", file.Name, file.Source)
+			}
+			content, err := EmbeddedFile(name, file.Name, "1.0.0")
+			if err != nil {
+				t.Fatalf("%s/%s: %v", name, file.Name, err)
+			}
+			if strings.Contains(string(content), VersionPlaceholder) {
+				t.Fatalf("%s/%s still contains the version placeholder", name, file.Name)
+			}
+		}
+		if _, err := EmbeddedFile(name, "missing.md", "1.0.0"); err == nil {
+			t.Fatalf("%s accepted an unknown file", name)
+		}
+	}
+	if Files("bogus") != nil {
+		t.Fatal("Files returned an inventory for an unknown skill")
+	}
+	if _, err := EmbeddedFile("bogus", "SKILL.md", "1.0.0"); err == nil {
+		t.Fatal("EmbeddedFile accepted an unknown skill")
+	}
+}
+
 // mustRead reads path and fails the test on error.
 func mustRead(t *testing.T, path string) []byte {
 	t.Helper()
