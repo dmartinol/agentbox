@@ -10,6 +10,8 @@ subcommands:
   - list
   - push
   - pull
+  - rm
+  - prune
   - registry show
   - registry set
   - registry clear
@@ -112,6 +114,32 @@ The `registry` subcommands configure an optional external registry used by
 `registry discover` and `registry push`. Running `agentbox image registry` with
 no subcommand is equivalent to `registry show`. Registry operations use
 Podman's existing registry login.
+
+## rm
+{: #image-rm }
+
+Delete one local AgentBox image.
+
+```text
+agentbox image rm LOCAL_IMAGE
+```
+
+The reference must name a local AgentBox image. Images referenced by a profile
+or by a non-terminal run are refused, and the error names every holder. Delete
+or retarget those profiles and finish those runs first.
+
+## prune
+{: #image-prune }
+
+Delete every local AgentBox image that nothing references.
+
+```text
+agentbox image prune
+```
+
+An image is kept when a profile's `image` field names it or a non-terminal run
+was created from it. Prune prints each removed reference, or a notice when
+there is nothing to remove. It removes nothing else and has no force flag.
 
 ## registry show
 {: #image-registry-show }

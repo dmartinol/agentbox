@@ -100,7 +100,7 @@ sandbox to make a command run.
 | Projects | `GET|POST /api/projects` |
 | Profiles | `GET|POST /api/profiles` |
 | Providers | `GET|POST /api/providers`, `GET /api/providers/{name}/models`, `POST /api/providers/{name}/update`, `POST /api/providers/{name}/delete` |
-| Images | `GET /api/images`, `POST /api/images/version`, `POST /api/images/build`, `POST /api/images/pull`, `POST /api/images/push`, `GET /api/tasks/{id}`, `POST /api/tasks/{id}/stop` |
+| Images | `GET /api/images`, `POST /api/images/version`, `POST /api/images/build`, `POST /api/images/refresh`, `POST /api/images/delete`, `POST /api/images/prune`, `POST /api/images/pull`, `POST /api/images/push`, `GET /api/tasks/{id}`, `POST /api/tasks/{id}/stop` |
 | Registry | `GET|POST /api/registry`, `POST /api/registry/discover` |
 | Gateways | `GET /api/gateways`, `POST /api/gateways/connect`, `POST /api/gateways/start`, `GET /api/gateways/{name}/info` |
 | Policies | `GET|POST /api/policies`, `GET|POST /api/policies/{name}`, `POST /api/policies/{name}/host`, `POST /api/policies/{name}/apply` |

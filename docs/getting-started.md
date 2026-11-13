@@ -76,7 +76,7 @@ agentbox provider setup \
 
 agentbox profile create \
   --agent codex \
-  --image localhost/openshell:codex-REPLACE_VERSION-r3 \
+  --image localhost/openshell:codex-REPLACE_VERSION-r4 \
   --mode gateway \
   --model exact-model-id \
   --provider my-gateway \

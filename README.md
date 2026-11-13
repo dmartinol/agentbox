@@ -94,7 +94,7 @@ The live suite checks:
 
 - `doctor` dependencies and gateway connectivity
 - Podman exposure from the active gateway
-- at least one AgentBox image and r3 metadata for all built-in agents
+- at least one AgentBox image and r4 metadata for all built-in agents
 - real profile validation and a launch preview when `AGENTBOX_LIVE_PROFILE` is set
 - run state, base/effective policy, and loaded policy revision when `AGENTBOX_LIVE_RUN` is set
 - live policy allow/deny behavior when a sandbox network binary is available
@@ -205,7 +205,7 @@ Image build help and command discovery:
 ./agentbox image build --help
 ```
 
-If `--version` is omitted, AgentBox discovers and uses the latest compatible release for the selected agent. In the GUI build dialog, **Discover latest** queries npm and fills the exact version field so it can be inspected before building. The build pins the Node base image by digest and tags the result as `localhost/openshell:<agent>-<version>-r3`.
+If `--version` is omitted, AgentBox discovers and uses the latest compatible release for the selected agent. In the GUI build dialog, **Discover latest** queries npm and fills the exact version field so it can be inspected before building. The build pins the Node base image by digest and tags the result as `localhost/openshell:<agent>-<version>-r4`.
 
 Configure an external image registry:
 
@@ -213,7 +213,7 @@ Configure an external image registry:
 ./agentbox image registry set quay.io/dmartino/openshell
 ./agentbox image registry discover
 ./agentbox image registry discover --json
-./agentbox image registry push localhost/openshell:codex-0.167.0-r3
+./agentbox image registry push localhost/openshell:codex-0.167.0-r4
 ./agentbox image registry show --json
 ./agentbox image registry clear
 ```
@@ -231,9 +231,9 @@ One registry repository holds all AgentBox agent images. The agent, version, rec
 Example:
 
 ```text
-quay.io/dmartino/openshell:codex-0.167.0-r3-linux-arm64
-quay.io/dmartino/openshell:claude-2.1.319-r3-linux-arm64
-quay.io/dmartino/openshell:opencode-2.2.6-r3-linux-arm64
+quay.io/dmartino/openshell:codex-0.167.0-r4-linux-arm64
+quay.io/dmartino/openshell:claude-2.1.319-r4-linux-arm64
+quay.io/dmartino/openshell:opencode-2.2.6-r4-linux-arm64
 ```
 
 The `-<os>-<arch>` suffix is used for single-architecture images. A future multi-architecture manifest may publish the architecture-free tag as an additional alias.
@@ -241,8 +241,16 @@ The `-<os>-<arch>` suffix is used for single-architecture images. A future multi
 Local builds use the same agent-in-tag convention:
 
 ```text
-localhost/openshell:codex-0.167.0-r3
+localhost/openshell:codex-0.167.0-r4
 ```
+
+Recipe `r4` images include a fixed local-work toolset: `git`, `tmux`,
+`ca-certificates`, `curl`, `jq`, `ripgrep`, `unzip`, `less`, `git-lfs`, and
+`procps`. Rebuild at newer harness versions with
+**Refresh all agents** in Setup → Images. Remove one image with
+`./agentbox image rm REF`, or remove every image that no profile and no
+non-terminal run references with `./agentbox image prune`. Neither command
+rewrites profiles, and both refuse images that are still in use.
 
 AgentBox derives the remote reference from the local image metadata and OCI labels. In **Images → Push**, the local image is selected from a dropdown and the remote reference is derived read-only from the configured registry.
 
@@ -309,7 +317,7 @@ Then create a profile that uses the provider:
 ```sh
 ./agentbox profile create \
   --agent codex \
-  --image localhost/openshell:codex-0.167.0-r3 \
+  --image localhost/openshell:codex-0.167.0-r4 \
   --mode gateway \
   --model exact-model-id \
   --base-url https://models.example.com/v1 \
@@ -347,6 +355,15 @@ AgentBox and the gateway run. Their host and credential environment are fixed:
 created under another name, edited, or deleted. The Setup provider list shows
 them as `Not registered` when the matching credential environment is missing.
 Use the **Set up provider** dialog only for EnMaaS and other gateway providers.
+
+### Repository access
+
+Images ship a local-work toolset (`git`, `git-lfs`, `curl`, `jq`, `ripgrep`,
+`unzip`, `less`, `procps`) and deliberately leave out `gh` and
+`openssh-client`. AgentBox never adds a forge credential, a git credential
+helper, or a generated `.gitconfig` to a run, and a sandbox has no forge
+reachability unless the run policy is edited to allow those hosts. Use plain
+`git` inside the sandbox, or run forge tooling on the host and sync the result.
 
 EnMaaS uses one key but more than one API authentication dialect. Create two
 provider configurations with the same `ENMAAS_KEY` credential reference when

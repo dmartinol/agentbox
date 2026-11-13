@@ -658,6 +658,50 @@ describe('image pulls', () => {
   });
 });
 
+describe('image lifecycle', () => {
+  async function openImages(tab = 'Images') {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /setup/i }))[0]);
+    await user.click(await screen.findByRole('tab', { name: tab }));
+    return user;
+  }
+
+  it('disables delete for an image held by a profile and names the holder', async () => {
+    await openImages();
+    const row = (await screen.findByText('localhost/openshell:codex-1.0.0-r3')).closest('tr');
+    if (!row) throw new Error('image row missing');
+    const button = within(row).getByRole('button', { name: 'Delete' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', 'In use by profile codex-default');
+    expect(within(row).getByText('profile codex-default')).toBeInTheDocument();
+  });
+
+  it('prunes unused images after confirmation', async () => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/images/prune': { removed: ['localhost/openshell:opencode-2.0.0-r3'] }
+    });
+    const user = await openImages();
+    await user.click(await screen.findByRole('button', { name: 'Prune unused' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Prune' }));
+    expect(await screen.findByText('Removed 1 unused image(s)')).toBeInTheDocument();
+  });
+
+  it('streams refresh-all progress in the log drawer', async () => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/images/refresh': { id: 'refresh-task', status: 'running', output: 'Refreshing codex to 1.0.0\n' },
+      'GET /api/tasks/refresh-task': { id: 'refresh-task', status: 'running', output: 'Refreshing codex to 1.0.0\nBuilt image: localhost/openshell:codex-1.0.0-r4\n' }
+    });
+    const user = await openImages();
+    await user.click(await screen.findByRole('button', { name: 'Refresh all agents' }));
+    expect(await screen.findByText(/Refreshing codex to 1.0.0/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Built image: localhost\/openshell:codex-1.0.0-r4/i)).toBeInTheDocument();
+  });
+});
+
 describe('provider setup', () => {
   it('only offers gateway provider types because direct providers are built in', async () => {
     const user = userEvent.setup();

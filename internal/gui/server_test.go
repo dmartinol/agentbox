@@ -327,11 +327,13 @@ func TestRunAttachWebSocket(t *testing.T) {
 	if string(message) != "attach terminal output" {
 		t.Fatalf("terminal output = %q", message)
 	}
-	if len(runner.commands) != 2 {
+	// The attach waits for the tmux session before streaming, so the last two
+	// recorded commands are the attach itself and its initial size.
+	if len(runner.commands) < 2 {
 		t.Fatalf("attach commands = %#v", runner.commands)
 	}
-	attach := runner.commands[0]
-	size := runner.commands[1]
+	attach := runner.commands[len(runner.commands)-2]
+	size := runner.commands[len(runner.commands)-1]
 	if !slices.Contains(size, "100") || !slices.Contains(size, "30") {
 		t.Fatalf("terminal size = %#v", size)
 	}
@@ -807,7 +809,7 @@ func TestImageBuildEndpointStartsCapturedTask(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !strings.Contains(task.Output, "simulated build output") || !strings.Contains(task.Output, "localhost/openshell:codex-0.167.0-r3") {
+	if !strings.Contains(task.Output, "simulated build output") || !strings.Contains(task.Output, "localhost/openshell:codex-0.167.0-r4") {
 		t.Fatalf("build task output = %q", task.Output)
 	}
 }
@@ -1333,5 +1335,64 @@ func TestSkillsEndpointsEmitArraysForMissingSelections(t *testing.T) {
 	}, &created)
 	if response.StatusCode != http.StatusCreated || created.Skills == nil || created.Plugins == nil {
 		t.Fatalf("skill-only create: status=%d entry=%+v", response.StatusCode, created)
+	}
+}
+
+func TestImageLifecycleEndpointsGuardHolders(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProfile(app.Profile{
+		Version: 1, Name: "codex-default", Agent: "codex", Image: "localhost/openshell:codex-0.167.0-r4",
+		Mode: "standard", Provider: "openai", Policy: "/tmp/unit-policy.yaml", Approval: "prompted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runner := testRunner()
+	runner.images = `[
+		{"Id":"image-held","Names":["localhost/openshell:codex-0.167.0-r4"],"Digest":"sha256:held","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"0.167.0","agentbox.recipe":"4"}},
+		{"Id":"image-free","Names":["localhost/openshell:opencode-2.0.0-r4"],"Digest":"sha256:free","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"opencode","agentbox.version":"2.0.0","agentbox.recipe":"4"}}
+	]`
+	server, err := New(&app.App{Store: store, Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	var images []struct {
+		Reference string   `json:"reference"`
+		UsedBy    []string `json:"used_by"`
+	}
+	response := requestJSON(t, http.MethodGet, httpServer.URL+"/api/images", nil, &images)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("list status = %d", response.StatusCode)
+	}
+	used := map[string][]string{}
+	for _, image := range images {
+		used[image.Reference] = image.UsedBy
+	}
+	if !slices.Equal(used["localhost/openshell:codex-0.167.0-r4"], []string{"profile codex-default"}) {
+		t.Fatalf("held image usage = %#v", used)
+	}
+	if len(used["localhost/openshell:opencode-2.0.0-r4"]) != 0 {
+		t.Fatalf("free image usage = %#v", used)
+	}
+
+	response = requestJSON(t, http.MethodPost, httpServer.URL+"/api/images/delete", map[string]string{"reference": "localhost/openshell:codex-0.167.0-r4"}, nil)
+	if response.StatusCode != http.StatusConflict {
+		t.Fatalf("held delete status = %d; want conflict", response.StatusCode)
+	}
+	response = requestJSON(t, http.MethodPost, httpServer.URL+"/api/images/delete", map[string]string{"reference": "localhost/openshell:opencode-2.0.0-r4"}, nil)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("free delete status = %d", response.StatusCode)
+	}
+	var pruned struct {
+		Removed []string `json:"removed"`
+	}
+	response = requestJSON(t, http.MethodPost, httpServer.URL+"/api/images/prune", nil, &pruned)
+	if response.StatusCode != http.StatusOK || !slices.Contains(pruned.Removed, "localhost/openshell:opencode-2.0.0-r4") {
+		t.Fatalf("prune status = %d removed = %#v", response.StatusCode, pruned.Removed)
 	}
 }

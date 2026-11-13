@@ -140,3 +140,89 @@ func (a *App) LocalImage(ctx context.Context, reference string) (ImageArtifact, 
 	}
 	return ImageArtifact{}, fmt.Errorf("local AgentBox image %q not found", reference)
 }
+
+// ImageUsage maps local AgentBox image references to the profiles and
+// non-terminal runs that still reference them.
+func (a *App) ImageUsage() (map[string][]string, error) {
+	usage := map[string][]string{}
+	if a.Store.Base == "" {
+		return usage, nil
+	}
+	profiles, err := a.Store.ListProfiles()
+	if err != nil {
+		return nil, err
+	}
+	for _, profile := range profiles {
+		if profile.Image != "" {
+			usage[profile.Image] = append(usage[profile.Image], "profile "+profile.Name)
+		}
+	}
+	runs, err := a.Store.ListRuns()
+	if err != nil {
+		return nil, err
+	}
+	for _, run := range runs {
+		if run.Image == "" || terminalRunStatus(run.Status) {
+			continue
+		}
+		name := run.ID
+		if run.Name != "" {
+			name = run.Name
+		}
+		usage[run.Image] = append(usage[run.Image], "run "+name+" ("+run.Status+")")
+	}
+	for reference := range usage {
+		sort.Strings(usage[reference])
+	}
+	return usage, nil
+}
+
+func terminalRunStatus(status string) bool {
+	switch status {
+	case "finished", "stopped", "completed", "exited":
+		return true
+	}
+	return false
+}
+
+// ImageRemove deletes one local AgentBox image. Images referenced by a profile
+// or a non-terminal run are refused with the names of their holders.
+func (a *App) ImageRemove(ctx context.Context, reference string) error {
+	image, err := a.LocalImage(ctx, reference)
+	if err != nil {
+		return err
+	}
+	usage, err := a.ImageUsage()
+	if err != nil {
+		return err
+	}
+	if holders := usage[image.Reference]; len(holders) > 0 {
+		return fmt.Errorf("image %q is in use by %s", image.Reference, strings.Join(holders, ", "))
+	}
+	_, err = a.Runner.Output(ctx, "podman", "image", "rm", image.Reference)
+	return err
+}
+
+// ImagePrune deletes every local AgentBox image that no profile and no
+// non-terminal run references.
+func (a *App) ImagePrune(ctx context.Context) ([]string, error) {
+	images, err := a.LocalImages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	usage, err := a.ImageUsage()
+	if err != nil {
+		return nil, err
+	}
+	removed := make([]string, 0, len(images))
+	for _, image := range images {
+		if len(usage[image.Reference]) > 0 {
+			continue
+		}
+		if _, err := a.Runner.Output(ctx, "podman", "image", "rm", image.Reference); err != nil {
+			return removed, fmt.Errorf("remove %q: %w", image.Reference, err)
+		}
+		removed = append(removed, image.Reference)
+	}
+	return removed, nil
+}

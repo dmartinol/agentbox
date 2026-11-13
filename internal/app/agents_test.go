@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -507,5 +508,58 @@ func TestActivityScriptReportsQuestionsAsWaitingForInput(t *testing.T) {
 	h.hook("PreToolUse", "working", "running a tool", trap)
 	if got := h.current(); got != "working/running a tool" {
 		t.Fatalf("text inside tool_input was read as the tool name: %q", got)
+}
+
+func TestPrepareAgentNeverWritesGitCredentials(t *testing.T) {
+	for _, agent := range []string{"codex", "claude", "opencode"} {
+		t.Run(agent, func(t *testing.T) {
+			store := Store{Base: t.TempDir()}
+			app := App{Store: store}
+			dir, err := app.PrepareAgent(context.Background(), Run{ID: "run-unit123"}, testProfile(agent, "standard", "prompted"), "", nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "home", ".gitconfig")); !os.IsNotExist(err) {
+				t.Fatalf("run config has a gitconfig: %v", err)
+			}
+			err = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+				if err != nil || entry.IsDir() {
+					return err
+				}
+				body, readErr := os.ReadFile(path)
+				if readErr != nil {
+					return readErr
+				}
+				if strings.Contains(string(body), "git-credential") {
+					return fmt.Errorf("%s configures a git credential helper", path)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestPrepareAgentTrustsCodexWorktreeInEveryMode(t *testing.T) {
+	for _, mode := range []string{"standard", "gateway"} {
+		t.Run(mode, func(t *testing.T) {
+			store := Store{Base: t.TempDir()}
+			app := App{Store: store}
+			dir, err := app.PrepareAgent(context.Background(), Run{ID: "run-unit123"}, testProfile("codex", mode, "unattended"), "", nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config, err := os.ReadFile(filepath.Join(dir, "home", ".codex", "config.toml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{`[projects."/workspace/project"]`, `trust_level = "trusted"`} {
+				if !strings.Contains(string(config), want) {
+					t.Fatalf("codex config lacks %q:\n%s", want, config)
+				}
+			}
+		})
 	}
 }
