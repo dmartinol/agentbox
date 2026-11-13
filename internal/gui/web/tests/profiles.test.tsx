@@ -25,6 +25,12 @@ const sharedPolicy: PolicyConfiguration = {
   used_by: ['codex-default', 'claude-default']
 };
 
+const defaultPolicy: PolicyConfiguration = {
+  name: profile.name,
+  path: profile.policy,
+  used_by: [profile.name]
+};
+
 function jsonResponse(value: unknown, status = 200) {
   return {
     ok: status >= 200 && status < 300,
@@ -145,6 +151,51 @@ describe('profile policy selection', () => {
     if (!expected) {
       expect(within(policySelect).queryByRole('option', { name: /codex-default — used by/ })).not.toBeInTheDocument();
     }
+  });
+
+  it('preserves the original generated policy path when renaming its profile', async () => {
+    const { savedProfiles } = setupApi({
+      profiles: [profile],
+      policies: [defaultPolicy, sharedPolicy]
+    });
+    const user = await openEdit(profile);
+    const nameInput = screen.getByRole('textbox', { name: 'Name' });
+    const policySelect = screen.getByRole('combobox', { name: 'Policy' });
+
+    await screen.findByRole('option', { name: /shared-policy/ });
+    await user.clear(nameInput);
+    await user.type(nameInput, 'renamed-codex');
+
+    expect(policySelect).toHaveValue(profile.policy);
+    expect(within(policySelect).getByRole('option', { name: new RegExp(`Original default — ${profile.policy}`) })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(savedProfiles).toHaveLength(1));
+    expect(savedProfiles[0]?.name).toBe('renamed-codex');
+    expect(savedProfiles[0]?.policy).toBe(profile.policy);
+  });
+
+  it('lets a renamed profile switch to its new AgentBox default', async () => {
+    const { savedProfiles } = setupApi({
+      profiles: [profile],
+      policies: [defaultPolicy, sharedPolicy]
+    });
+    const user = await openEdit(profile);
+    await screen.findByRole('option', { name: /shared-policy/ });
+    await user.clear(screen.getByRole('textbox', { name: 'Name' }));
+    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'renamed-codex');
+
+    const policySelect = screen.getByRole('combobox', { name: 'Policy' });
+    expect(policySelect).toHaveValue(profile.policy);
+    await user.selectOptions(policySelect, '');
+    expect(policySelect).toHaveValue('');
+    expect(within(policySelect).getByRole('option', { name: /Original default —/ })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(savedProfiles).toHaveLength(1));
+    expect(savedProfiles[0]?.name).toBe('renamed-codex');
+    expect(savedProfiles[0]?.policy).toBe('');
   });
 
   it('keeps the current selection visible and disables the select while policies load', async () => {
