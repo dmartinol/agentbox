@@ -39,6 +39,7 @@ stages:
     agent: <agent-id>
     model: <model-id>
     effort: <effort-level>
+    worker_id: <id>
     worktree: <id>
     commit: <full-sha>
     pr: <number>
@@ -63,5 +64,9 @@ updated: <RFC3339 timestamp>
 Model and effort identifiers are allowed in this record. Credentials,
 environment-variable values, account identifiers, absolute host paths, private
 URLs, logs, and secret values are not.
+
+Record the effort the worker actually ran with. Use `not-applicable` when the
+selected runtime cannot apply a reasoning effort, such as an AgentBox worker;
+never record an effort that was requested but not applied.
 
 Orchestrated by agentbox-orchestrator {{VERSION}} · workflow <workflow-id> · stage state · worker orchestrator · model <model-id> · commit <full-sha>

@@ -71,6 +71,13 @@ Rules:
 - Changing a selection after work has started is a new explicit instruction,
   recorded as a new stage entry. It does not rewrite prior provenance.
 
+Reasoning effort is per runtime. An Orca worker accepts `--effort`. An
+AgentBox worker cannot apply one — `agentbox agent start` has no effort
+control — so a stage dispatched to AgentBox records `effort: not-applicable`
+after the user confirms that limitation during triage. If the user asks for a
+specific effort for an AgentBox worker, set `blocked` with the exact reason.
+Never record an effort that was not applied.
+
 ## Stage ownership and isolation
 
 | Stage | Runs in | Worktree | Forge writes |
@@ -78,18 +85,18 @@ Rules:
 | triage | orchestrator | not applicable | none |
 | plan | worker of the selected type | its own new worktree | none |
 | implement | worker of the selected type, branch `orchestrator/<issue>-<slug>` | its own new worktree | see the forge capability matrix |
-| verify | fresh worker | fresh worktree checked out at the pull request head | none |
-| review | fresh worker | fresh worktree checked out at the pull request head | none; it returns a verdict artifact |
+| verify | fresh worker | fresh detached worktree at the full pull request head SHA | none |
+| review | fresh worker | fresh detached worktree at the full pull request head SHA | none; it returns a verdict artifact |
 | merge / close | orchestrator | not applicable | orchestrator |
 
 Every stage except triage and merge/close runs in its own selected
 worker/worktree. Plan, implement, verify, and review are never performed by
 the orchestrator turn.
 
-- Verify and review each start from a fresh worktree at the pull request head.
-  They must not share the implementer's worktree and must not see uncommitted
-  state; a verdict about a working tree that is not the pushed head is
-  invalid.
+- Verify and review each start from a fresh detached worktree created at the
+  full 40-character pull request head SHA. They must not share the
+  implementer's worktree and must not see uncommitted state; a verdict about a
+  working tree that is not the pushed head is invalid.
 - A fix cycle dispatches a new implementer and then a new reviewer at the new
   head. Previous approvals carry forward only when the diff is unaffected.
 - A rebase or force-push invalidates prior verification and review evidence
@@ -254,6 +261,10 @@ credentials, environment-variable values, account identifiers, absolute host
 paths, private URLs, logs, or secret values. Values are short identifiers,
 tracker references, and gate results only.
 
+`effort` records what the worker actually ran with. Use `not-applicable` when
+the selected runtime cannot apply one, such as an AgentBox worker; never
+record a requested effort that the worker did not apply.
+
 ## Workflow gates
 
 Advance one gate at a time; record the result in the state record before
@@ -303,8 +314,10 @@ moving on. Gates 2 through 6 each dispatch a worker; none runs inline.
 ## Worker runtimes
 
 Dispatch a self-contained task spec to a worker of the selected type. Record
-the runtime, agent, model, effort, worker identifier, worktree, and commit in
-the state record for every stage.
+the runtime, agent, model, worker identifier, worktree, and commit in the
+state record for every stage, plus the effort actually applied: a concrete
+level for Orca, and `not-applicable` for AgentBox, which has no effort
+control.
 
 ### AgentBox worker loop
 
@@ -321,6 +334,27 @@ deadline. On completion or stall: `agentbox agent diff RUN_ID` and
 orchestrator verifies the synced branch, pushes it from the host, opens the
 pull request, and deletes the run with `agentbox agent delete RUN_ID`; never
 reuse a run for a second task.
+
+For verify and review, never dispatch with `--project`: that uses the
+registered project's current checkout, whose HEAD may not be the pull request
+head. Create one fresh detached worktree per stage at the full head SHA and
+pass it with `--source`:
+
+```sh
+HEAD_SHA=$(gh pr view PR --json headRefOid --jq .headRefOid)
+git -C REPO worktree add --detach VERIFY_WORKTREE "$HEAD_SHA"
+agentbox agent start --profile PROFILE --source VERIFY_WORKTREE --gateway GATEWAY \
+  --name ISSUE-verify --model MODEL --prompt "<full verify task spec>" \
+  --approval unattended
+
+git -C REPO worktree add --detach REVIEW_WORKTREE "$HEAD_SHA"
+agentbox agent start --profile PROFILE --source REVIEW_WORKTREE --gateway GATEWAY \
+  --name ISSUE-review --model MODEL --prompt "<full review task spec>" \
+  --approval unattended
+```
+
+Record the same full SHA in each stage entry, and remove each worktree after
+the stage returns.
 
 ### Orca worker
 

@@ -28,7 +28,7 @@ Three skills are shipped:
 | --- | --- |
 | `agentbox-cli` | Starting, inspecting, attaching to, syncing, and deleting runs; project, profile, and policy basics; the blocked-host recovery path. |
 | `agentbox-api` | The local HTTP API at `http://127.0.0.1:8080/api/...` with `curl`, plus a map of the Fleet and Setup surfaces. |
-| `agentbox-orchestrator` | The issue-to-PR orchestrator flow: triage, a selected worker with recorded agent/model/effort for every stage, isolated verify and review worktrees at the PR head, a capability-based forge matrix, provenance-marked comments and PRs, gated merge, and close, with a GitHub tracker adapter. It ships `issue.md`, `pr.md`, `verdict.md`, and `state.md` templates. |
+| `agentbox-orchestrator` | The issue-to-PR orchestrator flow: triage, a selected worker per stage with the agent, model, and effort it actually applied (`not-applicable` for AgentBox workers), isolated verify and review worktrees detached at the PR head, a capability-based forge matrix, provenance-marked comments and PRs, gated merge, and close, with a GitHub tracker adapter. It ships `issue.md`, `pr.md`, `verdict.md`, and `state.md` templates. |
 
 ## Layout: one canonical copy plus links
 {: #skills-layout }
@@ -42,7 +42,7 @@ ship several files, installed together as siblings:
 | Claude link | `~/.claude/skills/<name>` → `../../.agents/skills/<name>` (or `./.claude/skills/<name>` with `--local`) |
 | OpenCode link | `~/.config/opencode/skills/<name>` → `../../../.agents/skills/<name>` (or `./.opencode/skills/<name>` with `--local`) |
 | Manifest | `~/.agents/skills/.agentbox-managed.json` (or `./.agents/skills/.agentbox-managed.json`) |
-| Backups | `~/.agents/.agentbox-skill-backups/<timestamp>/` (or `./.agents/.agentbox-skill-backups/<timestamp>/`) |
+| Backups | `~/.agents/.agentbox-skill-backups/<timestamp>/` (or `./.agents/.agentbox-skill-backups/<timestamp>/`); `--dir` installs back up under `<dir>/.agentbox-skill-backups/<timestamp>/` |
 
 Claude and OpenCode do not read the shared `.agents/skills` root, so they get
 a relative symlink to the canonical copy. **Nothing is ever written into
@@ -92,7 +92,7 @@ agentbox skills install [--agent a,b|--target T] [--all] [--local] [--dir PATH] 
 | `--target` | — | Deprecated alias for `--agent`. `agents` writes only the canonical copies; `codex`, `claude`, `opencode` select one harness; `all` selects all three. |
 | `--all` | `false` | Install for every harness regardless of directory detection. |
 | `--local` | `false` | Put the canonical root at `./.agents/skills` for the current project and link into `./.claude/skills` and `./.opencode/skills`. |
-| `--dir` | — | Escape hatch: write plain copies of every shipped skill file under this directory with no links, manifest, or lifecycle. Refused inside `~/.codex/skills`. |
+| `--dir` | — | Escape hatch: write plain copies of every shipped skill file under this directory with no links, manifest, or lifecycle. Refused inside `~/.codex/skills`. With `--force`, a replaced file is first moved to `<dir>/.agentbox-skill-backups/<timestamp>/`. |
 | `--force` | `false` | Replace modified copies and foreign destinations, backing up the previous content first. |
 | `--dry-run` | `false` | Report the planned changes without touching the filesystem. |
 | `--json` | `false` | Print the result list as JSON. |
@@ -106,7 +106,9 @@ directory; an explicit `--agent` or `--all` does. The canonical
 `unchanged`, one result per file. Stale files that still match the manifest
 are refreshed in place. A modified file — anything that differs from what the
 manifest recorded and from the embedded skill — is preserved and refused
-unless `--force` replaces it after a backup. The same rule protects foreign
+unless `--force` replaces it after a backup. The backup rule also covers
+`--dir` installs, where the previous file lands under
+`<dir>/.agentbox-skill-backups/<timestamp>/`. The same rule protects foreign
 destinations: an existing real directory or foreign symlink at a link path is
 reported and skipped unless `--force`.
 
@@ -176,7 +178,8 @@ template. A managed file that differs from both the manifest hash and the
 embedded skill is refused unless `--force` removes it after a backup; the
 manifest record is kept while such a file remains. Foreign files and
 directories sitting at recorded link paths, and files at shipped template
-paths that AgentBox never recorded, are always left alone. When the manifest
+paths that AgentBox never recorded, are always left alone, even when such a
+template file is byte-identical to the shipped template. When the manifest
 runs empty, the manifest file itself is removed. `remove --agent codex` is a
 no-op by design: Codex reads the canonical copy directly, so there is no Codex
 link to remove.
@@ -259,7 +262,6 @@ agentbox skills show --json agentbox-api
 [
   {
     "skill": "agentbox-cli",
-    "file": "SKILL.md",
     "target": "claude",
     "path": "/home/user/.claude/skills/agentbox-cli",
     "action": "linked",

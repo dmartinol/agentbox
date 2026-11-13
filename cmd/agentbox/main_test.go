@@ -185,7 +185,7 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 	}
 }
 
-func TestSkillsInstallRefusesDifferingFileWithoutForce(t *testing.T) {
+func TestSkillsInstallRefusesDifferingSkillFileWithoutForce(t *testing.T) {
 	dir := t.TempDir()
 	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
 	if err := dispatch(context.Background(), a, []string{"skills", "install", "--dir", dir}); err != nil {
@@ -210,12 +210,29 @@ func TestSkillsInstallRefusesDifferingFileWithoutForce(t *testing.T) {
 	if string(body) != "edited locally\n" {
 		t.Fatalf("refused install changed the file: %q", body)
 	}
+}
+
+// TestSkillsInstallRefusesDifferingTemplateWithoutForce isolates the template
+// case in its own --dir so the failure can only come from the template.
+func TestSkillsInstallRefusesDifferingTemplateWithoutForce(t *testing.T) {
+	dir := t.TempDir()
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	if err := dispatch(context.Background(), a, []string{"skills", "install", "--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
 	template := filepath.Join(dir, "agentbox-orchestrator", "pr.md")
 	if err := os.WriteFile(template, []byte("edited template\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := dispatch(context.Background(), a, []string{"skills", "install", "--dir", dir}); err == nil {
+	err := dispatch(context.Background(), a, []string{"skills", "install", "--dir", dir})
+	if err == nil {
 		t.Fatal("install overwrote a differing template without --force")
+	}
+	if !strings.Contains(err.Error(), template) {
+		t.Fatalf("failure was not caused by the modified template: %v", err)
+	}
+	if strings.Contains(err.Error(), filepath.Join(dir, "agentbox-cli")) {
+		t.Fatalf("failure also reported an untouched skill: %v", err)
 	}
 	if body, err := os.ReadFile(template); err != nil || string(body) != "edited template\n" {
 		t.Fatalf("refused template install changed the file: %q (%v)", body, err)

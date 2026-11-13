@@ -164,9 +164,11 @@ discover the CLI and HTTP API without reading this repository:
 
 Three skills ship: `agentbox-cli` (run lifecycle), `agentbox-api` (local HTTP
 API), and `agentbox-orchestrator` (the issue-to-PR orchestrator flow: triage,
-per-stage workers with recorded agent, model, and effort, isolated verify and
-review worktrees, provenance-marked comments and PRs, gated merge, and close,
-with a GitHub tracker adapter). The orchestrator skill also installs
+per-stage workers with the agent, model, and effort they actually applied
+(`not-applicable` for AgentBox workers, which cannot set an effort), isolated
+verify and review worktrees detached at the PR head, provenance-marked
+comments and PRs, gated merge, and close, with a GitHub tracker adapter). The
+orchestrator skill also installs
 `issue.md`, `pr.md`, `verdict.md`, and `state.md` beside its `SKILL.md`, so an
 installed copy carries the templates it tells the orchestrator to use.
 

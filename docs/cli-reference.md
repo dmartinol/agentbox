@@ -101,9 +101,9 @@ orchestrator's `issue.md`, `pr.md`, `verdict.md`, and `state.md` beside
 `SKILL.md`, relative links for Claude and OpenCode, a
 `.agentbox-managed.json` manifest recording the path and hash of every file
 AgentBox owns, and timestamped backups under
-`~/.agents/.agentbox-skill-backups`. Nothing is written to `~/.codex/skills`,
-because Codex reads `~/.agents/skills` directly and would list every skill
-twice. See the
+`~/.agents/.agentbox-skill-backups` (or `<dir>/.agentbox-skill-backups` for a
+`--dir` install). Nothing is written to `~/.codex/skills`, because Codex reads
+`~/.agents/skills` directly and would list every skill twice. See the
 [skills command page]({{ '/cli-reference/skills/' | relative_url }}) for the
 layout, per-file template states, the `npx skills` relationship, and the
 update and remove lifecycle.

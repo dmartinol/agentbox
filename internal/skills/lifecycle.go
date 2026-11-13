@@ -32,7 +32,8 @@ type Options struct {
 	ProjectDir string
 	// Dir overrides the destination root entirely. Every shipped skill file
 	// is written as a plain copy beneath it: no links, no manifest, no
-	// lifecycle.
+	// lifecycle. Forced replacements are backed up under
+	// <dir>/.agentbox-skill-backups/<timestamp>/ first.
 	Dir string
 	// Force replaces modified copies and foreign destinations, moving the
 	// previous content into a timestamped backup first.
@@ -871,11 +872,17 @@ func removeCanonicalFile(dir, skill, file string, record ManifestSkill, opts Opt
 		return res, false, err
 	}
 	rendered, renderErr := EmbeddedFile(skill, file, opts.Version)
-	ours := (trackedFile && hashHex(body) == tracked.SHA256) || (renderErr == nil && bytes.Equal(body, rendered))
+	ours := trackedFile && hashHex(body) == tracked.SHA256
+	if file == "SKILL.md" && renderErr == nil && bytes.Equal(body, rendered) {
+		// The shipped SKILL.md belongs to the skill even when its per-file
+		// entry is missing, which a version 1 record can produce.
+		ours = true
+	}
 	if !ours {
 		if !trackedFile && file != "SKILL.md" {
-			// A user file at a shipped template path was never managed; keep it.
-			res.Action, res.Detail = "skipped", "differs from the managed copy; left alone"
+			// A user file at a shipped template path was never managed; keep
+			// it even when it happens to be byte-identical to the template.
+			res.Action, res.Detail = "skipped", "not recorded as managed; left alone"
 			return res, true, nil
 		}
 		if !opts.Force {
@@ -960,6 +967,7 @@ func installDir(opts Options) ([]Result, error) {
 	}
 	var results []Result
 	var failures []error
+	bk := newDirBackupSet(opts.Dir)
 	for _, name := range names {
 		files, err := renderFiles(name, opts.Version)
 		if err != nil {
@@ -968,7 +976,7 @@ func installDir(opts Options) ([]Result, error) {
 		}
 		for _, file := range files {
 			path := filepath.Join(opts.Dir, name, filepath.FromSlash(file.spec.Name))
-			result, err := installDirOne(name, file.spec.Name, path, file.content, opts)
+			result, err := installDirOne(name, file.spec.Name, path, file.content, opts, bk)
 			results = append(results, result)
 			if err != nil {
 				failures = append(failures, err)
@@ -976,6 +984,14 @@ func installDir(opts Options) ([]Result, error) {
 		}
 	}
 	return results, errors.Join(failures...)
+}
+
+// newDirBackupSet collects the forced replacements of one --dir install under
+// a single timestamped directory. The target directory is the user's to
+// manage, so the backups live inside it rather than under the home directory
+// used by managed installs.
+func newDirBackupSet(dir string) *backupSet {
+	return &backupSet{root: filepath.Join(dir, ".agentbox-skill-backups")}
 }
 
 // refuseCodexDestination rejects a --dir inside ~/.codex/skills: Codex reads
@@ -997,9 +1013,10 @@ func refuseCodexDestination(dir, home string) error {
 	return fmt.Errorf("--dir %s is inside %s; Codex reads ~/.agents/skills directly, so a copy there would register the skill twice", dir, codexRoot)
 }
 
-func installDirOne(name, file, path string, content []byte, opts Options) (Result, error) {
+func installDirOne(name, file, path string, content []byte, opts Options, bk *backupSet) (Result, error) {
 	result := Result{Skill: name, File: file, Target: "dir", Path: path}
 	existing, err := os.ReadFile(path)
+	replaced := false
 	switch {
 	case err == nil && bytes.Equal(existing, content):
 		result.Action = "unchanged"
@@ -1015,9 +1032,14 @@ func installDirOne(name, file, path string, content []byte, opts Options) (Resul
 		}
 		if opts.DryRun {
 			result.Action = "would-update"
+			result.Detail = "replace the existing file (backed up first)"
 			return result, nil
 		}
-		result.Detail = "replaced existing file"
+		if err := bk.move(path, filepath.Join(name, filepath.FromSlash(file))); err != nil {
+			result.Action, result.Detail = "skipped", err.Error()
+			return result, err
+		}
+		replaced = true
 	case errors.Is(err, fs.ErrNotExist):
 		if opts.DryRun {
 			result.Action = "would-install"
@@ -1032,6 +1054,11 @@ func installDirOne(name, file, path string, content []byte, opts Options) (Resul
 		result.Action = "skipped"
 		result.Detail = err.Error()
 		return result, err
+	}
+	if replaced {
+		result.Action = "updated"
+		result.Detail = "replaced the existing file (backed up)"
+		return result, nil
 	}
 	result.Action = "installed"
 	return result, nil

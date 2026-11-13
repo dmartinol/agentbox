@@ -105,6 +105,11 @@ func TestOrchestratorSkillSelection(t *testing.T) {
 		"sets `blocked` with the exact reason",
 		"Never fall back to a default, a cheaper model, or a different agent",
 		"Reviewer independence",
+		"Reasoning effort is per runtime",
+		"AgentBox worker cannot apply one",
+		"records `effort: not-applicable`",
+		"If the user asks for a specific effort for an AgentBox worker, set `blocked` with the exact reason",
+		"Never record an effort that was not applied",
 	)
 }
 
@@ -117,14 +122,33 @@ func TestOrchestratorSkillStageDispatch(t *testing.T) {
 		"| triage | orchestrator |",
 		"| plan | worker of the selected type | its own new worktree |",
 		"| implement | worker of the selected type, branch `orchestrator/<issue>-<slug>` |",
-		"| verify | fresh worker | fresh worktree checked out at the pull request head |",
-		"| review | fresh worker | fresh worktree checked out at the pull request head |",
+		"| verify | fresh worker | fresh detached worktree at the full pull request head SHA |",
+		"| review | fresh worker | fresh detached worktree at the full pull request head SHA |",
 		"| merge / close | orchestrator |",
 		"Every stage except triage and merge/close runs in its own selected worker/worktree",
 		"Plan, implement, verify, and review are never performed by the orchestrator turn",
+		"fresh detached worktree created at the full 40-character pull request head SHA",
 		"must not share the implementer's worktree and must not see uncommitted state",
 		"A fix cycle dispatches a new implementer and then a new reviewer at the new head",
 		"A rebase or force-push invalidates prior verification and review evidence",
+	)
+}
+
+// TestOrchestratorSkillAgentBoxVerifyAndReviewUsePRHead pins the AgentBox
+// dispatch rule for verify and review: a fresh detached worktree at the full
+// PR head SHA passed with --source, never the project checkout.
+func TestOrchestratorSkillAgentBoxVerifyAndReviewUsePRHead(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"For verify and review, never dispatch with `--project`",
+		"registered project's current checkout, whose HEAD may not be the pull request head",
+		"Create one fresh detached worktree per stage at the full head SHA and pass it with `--source`",
+		"HEAD_SHA=$(gh pr view PR --json headRefOid --jq .headRefOid)",
+		`git -C REPO worktree add --detach VERIFY_WORKTREE "$HEAD_SHA"`,
+		`git -C REPO worktree add --detach REVIEW_WORKTREE "$HEAD_SHA"`,
+		"agentbox agent start --profile PROFILE --source VERIFY_WORKTREE --gateway GATEWAY",
+		"agentbox agent start --profile PROFILE --source REVIEW_WORKTREE --gateway GATEWAY",
+		"Record the same full SHA in each stage entry, and remove each worktree after the stage returns",
 	)
 }
 
@@ -284,6 +308,57 @@ func TestOrchestratorSkillStateRecordExampleIsClean(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestOrchestratorStateTemplateRecordsVerifyWorkerID keeps every stage entry
+// able to name the worker that produced it, and pins the effort rule.
+func TestOrchestratorStateTemplateRecordsVerifyWorkerID(t *testing.T) {
+	content, err := EmbeddedFile("agentbox-orchestrator", "state.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(content)
+	var block []string
+	inVerify := false
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "- stage:") {
+			inVerify = trimmed == "- stage: verify"
+		}
+		if inVerify {
+			block = append(block, trimmed)
+		}
+	}
+	if len(block) == 0 {
+		t.Fatal("state.md has no verify stage entry")
+	}
+	verify := strings.Join(block, "\n")
+	if !strings.Contains(verify, "worker_id: <id>") {
+		t.Fatalf("verify stage entry lacks worker_id:\n%s", verify)
+	}
+	wantAll(t, strings.Join(strings.Fields(body), " "),
+		"Record the effort the worker actually ran with",
+		"Use `not-applicable` when the selected runtime cannot apply a reasoning effort",
+		"never record an effort that was requested but not applied",
+	)
+}
+
+// TestOrchestratorPRTemplateProvenanceIsNeutral removes the false claim that
+// only the orchestrator authors the pull request body.
+func TestOrchestratorPRTemplateProvenanceIsNeutral(t *testing.T) {
+	content, err := EmbeddedFile("agentbox-orchestrator", "pr.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(content)
+	if strings.Contains(body, "authored by the orchestrator") {
+		t.Fatalf("pr.md still claims orchestrator authorship:\n%s", body)
+	}
+	wantAll(t, strings.Join(strings.Fields(body), " "),
+		"## Provenance",
+		"it may be written by that worker or by the orchestrator on its behalf",
+		"does not imply a human author",
+	)
 }
 
 // TestOrchestratorSkillInstallsAndLists covers install, list, and show for

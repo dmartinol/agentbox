@@ -24,8 +24,8 @@ What could regress, what remains untested, and who should know.
 
 ## Provenance
 
-See the workflow marker above. This body is authored by the orchestrator on
-behalf of the named stage, worker, and model; it does not imply a human wrote
-it.
+See the workflow marker above. This body describes the work of the stage,
+worker, and model it names; it may be written by that worker or by the
+orchestrator on its behalf, and it does not imply a human author.
 
 Orchestrated by agentbox-orchestrator {{VERSION}} · workflow <workflow-id> · stage implement · worker <runtime>/<agent> · model <model-id> · commit <full-sha>

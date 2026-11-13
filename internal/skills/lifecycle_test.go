@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -228,6 +229,52 @@ func TestInstallDirOverrideWritesPlainCopies(t *testing.T) {
 	}
 	if _, err := Install(Options{Dir: dir, Agents: []string{"claude"}}); err == nil {
 		t.Fatal("accepted --dir combined with --agent")
+	}
+}
+
+// TestInstallDirForceBacksUpModifiedFile preserves the promise every other
+// --force path makes: the replaced content lands in a timestamped backup
+// before the embedded copy is written.
+func TestInstallDirForceBacksUpModifiedFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "custom", "skills")
+	if _, err := Install(Options{Dir: dir, Version: "1.0.0"}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "agentbox-cli", "SKILL.md")
+	if err := os.WriteFile(path, []byte("edited locally\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(Options{Dir: dir, Version: "2.0.0"}); err == nil {
+		t.Fatal("--dir overwrote a modified file without --force")
+	}
+	if body := mustRead(t, path); string(body) != "edited locally\n" {
+		t.Fatalf("refused --dir install changed the file: %q", body)
+	}
+
+	results, err := Install(Options{Dir: dir, Version: "2.0.0", Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var forced *Result
+	for i := range results {
+		if results[i].Skill == "agentbox-cli" && results[i].File == "SKILL.md" {
+			forced = &results[i]
+		}
+	}
+	if forced == nil || forced.Action != "updated" || !strings.Contains(forced.Detail, "backed up") {
+		t.Fatalf("forced --dir result = %+v", results)
+	}
+	if got := InstalledVersion(mustRead(t, path)); got != "2.0.0" {
+		t.Fatalf("version after --dir --force = %q", got)
+	}
+	backup := filepath.Join(dir, ".agentbox-skill-backups")
+	stamps, err := os.ReadDir(backup)
+	if err != nil || len(stamps) != 1 {
+		t.Fatalf("--dir backup stamps = %v (%v)", stamps, err)
+	}
+	saved := filepath.Join(backup, stamps[0].Name(), "agentbox-cli", "SKILL.md")
+	if body := mustRead(t, saved); string(body) != "edited locally\n" {
+		t.Fatalf("--dir backup content = %q", body)
 	}
 }
 
@@ -874,6 +921,56 @@ func TestRemoveDeletesTemplatesAndKeepsForeignFiles(t *testing.T) {
 	}
 	if body := mustRead(t, foreign); string(body) != "user notes\n" {
 		t.Fatalf("remove touched a foreign file: %q", body)
+	}
+}
+
+// TestRemoveKeepsUnrecordedTemplate keeps a file at a shipped template path
+// that the manifest never recorded, even when the file is byte-identical to
+// the embedded template.
+func TestRemoveKeepsUnrecordedTemplate(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(home, ".agents", "skills")
+	dir := filepath.Join(root, "agentbox-orchestrator")
+	unrecorded := filepath.Join(dir, "issue.md")
+	original := mustRead(t, unrecorded)
+
+	manifest := loadManifest(root)
+	record := manifest.Skills["agentbox-orchestrator"]
+	kept := record.Files[:0]
+	for _, file := range record.Files {
+		if file.Name != "issue.md" {
+			kept = append(kept, file)
+		}
+	}
+	record.Files = kept
+	manifest.Skills["agentbox-orchestrator"] = record
+	if err := saveManifest(root, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := Remove(Options{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := mustRead(t, unrecorded); !bytes.Equal(body, original) {
+		t.Fatalf("remove deleted or changed an unrecorded template: %q", body)
+	}
+	var reported bool
+	for _, result := range results {
+		if result.Skill == "agentbox-orchestrator" && result.File == "issue.md" {
+			reported = result.Action == "skipped" && strings.Contains(result.Detail, "not recorded")
+		}
+	}
+	if !reported {
+		t.Fatalf("unrecorded template was not reported as left alone: %+v", actionsOf(results, "agentbox-orchestrator"))
+	}
+	for _, name := range []string{"SKILL.md", "pr.md", "verdict.md", "state.md"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("%s survived remove", name)
+		}
 	}
 }
 

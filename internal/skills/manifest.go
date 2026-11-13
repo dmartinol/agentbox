@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // ManifestFile is the bookkeeping file AgentBox writes into a canonical
@@ -53,6 +54,32 @@ type legacyManifestSkill struct {
 }
 
 func manifestPath(root string) string { return filepath.Join(root, ManifestFile) }
+
+// validManifestFileName reports whether name is a safe installed file name
+// relative to one skill directory. Installed names are slash-separated and
+// always stay inside that directory: the check is path-local, so an empty
+// name, an absolute path, a "." or ".." element, or any traversal is refused
+// before a manifest name can be joined onto a directory.
+func validManifestFileName(name string) bool {
+	if name == "" || strings.ContainsRune(name, 0) {
+		return false
+	}
+	if filepath.IsAbs(name) || filepath.VolumeName(name) != "" {
+		return false
+	}
+	slashed := filepath.ToSlash(name)
+	// A backslash is a path separator on Windows even when this manifest was
+	// written on a Unix host.
+	if strings.Contains(slashed, `\`) {
+		return false
+	}
+	for _, element := range strings.Split(slashed, "/") {
+		if element == "" || element == "." || element == ".." {
+			return false
+		}
+	}
+	return true
+}
 
 func manifestExists(root string) bool {
 	info, err := os.Stat(manifestPath(root))
@@ -117,12 +144,20 @@ func loadManifest(root string) *Manifest {
 			if record.Path == "" {
 				record.Path = filepath.Join(root, name, "SKILL.md")
 			}
-			for i, file := range record.Files {
+			files := make([]ManifestEntry, 0, len(record.Files))
+			for _, file := range record.Files {
+				// The manifest is user-writable, so every name is validated
+				// before lifecycle code joins it onto a directory. A rejected
+				// entry is treated as unmanaged and dropped.
+				if !validManifestFileName(file.Name) {
+					continue
+				}
 				if file.Path == "" {
 					file.Path = filepath.Join(root, name, filepath.FromSlash(file.Name))
-					record.Files[i] = file
 				}
+				files = append(files, file)
 			}
+			record.Files = files
 			parsed.Skills[name] = record
 		}
 		return &parsed
