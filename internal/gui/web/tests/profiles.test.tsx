@@ -256,3 +256,23 @@ describe('profile policy selection', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 });
+
+describe('profile image selection', () => {
+  it('keeps a missing profile image visible and saves a newly selected image', async () => {
+    const staleImage = 'localhost/openshell:codex-1.0.0-r4';
+    const staleProfile = { ...profile, image: staleImage };
+    const { savedProfiles } = setupApi({ profiles: [staleProfile], policies: [defaultPolicy] });
+    const user = await openEdit(staleProfile);
+    const imageSelect = screen.getByRole('combobox', { name: 'Image' });
+
+    expect(await screen.findByRole('option', { name: `${staleImage} (not found locally)` })).toHaveValue(staleImage);
+    expect(imageSelect).toHaveValue(staleImage);
+
+    await user.selectOptions(imageSelect, 'localhost/openshell:codex-1.0.0-r3');
+    expect(imageSelect).toHaveValue('localhost/openshell:codex-1.0.0-r3');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(savedProfiles).toHaveLength(1));
+    expect(savedProfiles[0]?.image).toBe('localhost/openshell:codex-1.0.0-r3');
+  });
+});

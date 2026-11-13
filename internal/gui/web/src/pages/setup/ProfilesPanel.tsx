@@ -139,6 +139,7 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
   const agentImages = useMemo(() => images
     .filter((image) => image.agent === form.agent)
     .sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true })), [images, form.agent]);
+  const currentImageMissing = Boolean(form.image) && !agentImages.some((image) => image.reference === form.image);
 
   const reusablePolicies = useMemo(() => policies
     .filter((policy) => policy.path !== currentDefaultPolicyPath)
@@ -311,9 +312,17 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
               {agents.map((agent) => <option key={agent} value={agent}>{agent}</option>)}
             </Select>
           </Field>
-          <Field label="Image" htmlFor="profile-image" required helper="Only images matching the selected agent are listed.">
+          <Field
+            label="Image"
+            htmlFor="profile-image"
+            required
+            helper={currentImageMissing ? 'The saved image is not installed locally. Choose an installed image or build it.' : 'Only images matching the selected agent are listed.'}
+          >
             <Select id="profile-image" value={form.image} onChange={(event) => setForm({ ...form, image: event.target.value })}>
-              {agentImages.length ? agentImages.map((image) => <option key={image.reference} value={image.reference}>{image.reference}</option>) : <option value="">No matching image</option>}
+              {currentImageMissing ? <option value={form.image}>{form.image} (not found locally)</option> : null}
+              {agentImages.length
+                ? agentImages.map((image) => <option key={image.reference} value={image.reference}>{image.reference}</option>)
+                : currentImageMissing ? null : <option value="">No matching image</option>}
             </Select>
           </Field>
           <Field label="Mode" htmlFor="profile-mode" required>
