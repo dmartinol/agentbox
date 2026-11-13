@@ -29,6 +29,25 @@ func TestParsePolicyRejectsUnsafeOrMalformedRules(t *testing.T) {
 	}
 }
 
+func TestDefaultPolicyAllowsAgentTemporaryFiles(t *testing.T) {
+	policy, err := ParsePolicy(DefaultPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"/tmp", "/var/tmp"} {
+		found := false
+		for _, path := range policy.Filesystem.ReadWrite {
+			if path == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("default policy does not allow temporary files under %s: %v", want, policy.Filesystem.ReadWrite)
+		}
+	}
+}
+
 func TestAddNetworkRuleProducesValidRuleAndRejectsBadInputs(t *testing.T) {
 	got, err := addNetworkRule(DefaultPolicy(), "codex", "api.example.test", "")
 	if err != nil {

@@ -219,7 +219,7 @@ func agentScript(p Profile, prompt string) (string, error) {
 		}
 	}
 	var b strings.Builder
-	b.WriteString("#!/bin/sh\nset -eu\ncd /workspace/project\nexport HOME=/workspace/state/home\nexport XDG_CONFIG_HOME=/workspace/state/config\nexport XDG_DATA_HOME=/workspace/state/data\nexport CODEX_HOME=/workspace/state/home/.codex\nexport CLAUDE_CONFIG_DIR=/workspace/state/home/.claude\n")
+	b.WriteString("#!/bin/sh\nset -eu\ncd /workspace/project\nexport HOME=/workspace/state/home\nexport XDG_CONFIG_HOME=/workspace/state/config\nexport XDG_DATA_HOME=/workspace/state/data\nexport CODEX_HOME=/workspace/state/home/.codex\nexport CLAUDE_CONFIG_DIR=/workspace/state/home/.claude\nexport TMPDIR=/tmp\n")
 	b.WriteString("export LANG=" + sandboxLocale + "\nexport LC_ALL=" + sandboxLocale + "\n")
 	if p.Mode == "standard" && p.Agent == "codex" && p.APIKeyEnv == "OPENAI_API_KEY" {
 		b.WriteString(`if [ -n "\${OPENAI_API_KEY:-}" ]; then printf '%s' "$OPENAI_API_KEY" | codex login --with-api-key >/dev/null; fi

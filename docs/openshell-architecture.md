@@ -201,7 +201,13 @@ XDG_CONFIG_HOME=/workspace/state/config
 XDG_DATA_HOME=/workspace/state/data
 CODEX_HOME=/workspace/state/home/.codex
 CLAUDE_CONFIG_DIR=/workspace/state/home/.claude
+TMPDIR=/tmp
 ```
+
+Agent and shell sessions set `TMPDIR=/tmp`. Codex's TUI opens a SQLite
+migration database before the model starts; when `TMPDIR` is unset, SQLite
+selects `/var/tmp`, which can pass a writable-access check but still be
+denied by Landlock.
 
 Agent-specific files include:
 
