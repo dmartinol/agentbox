@@ -146,6 +146,26 @@ func TestOrchestratorSkillWorkflowContent(t *testing.T) {
 			t.Fatalf("missing worker-loop element %q", want)
 		}
 	}
+	// Worker contract: pure worker, result report, and the actor rule.
+	for _, want := range []string{
+		"pure worker",
+		"It never pushes, opens a PR, comments on the tracker, labels, or merges",
+		"branch name, HEAD SHA, changed paths, gate output, and any blockers",
+		"only actor that talks to the tracker and the forge",
+		"pushes that branch from the host",
+		"never needs a remote, a forge token",
+		"may push and open the PR",
+		"still verifies and owns the merge",
+		"not a prerequisite for this skill",
+		"AgentBox <agentbox@local.invalid>",
+		"preserve authorship",
+		"host run worktree",
+		"pushes it from the host",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing worker-contract rule %q", want)
+		}
+	}
 	// Seven-operation adapter contract.
 	for _, op := range []string{"read issue", "list ready", "create issue", "set labels", "comment/upsert state", "link PR", "close"} {
 		if !strings.Contains(body, op) {

@@ -17,9 +17,9 @@ tooling on its own.
 - One issue, one writer, one branch at a time. Never run two writers on one
   issue.
 - Ask for runtime selections once, record them, and never silently fall back.
-- The orchestrator host performs tracker and remote writes (`gh`, `git push`)
-  until sandbox images ship GitHub tooling. Workers deliver changes; they do
-  not touch the tracker or the remote.
+- The orchestrator is the only actor that talks to the tracker and the
+  forge: push, PR, verdict comments, labels, merge, close. Workers do local
+  checkout work under the worker contract below.
 - Never bypass branch protection, required checks, or review requirements.
 - On any doubt, set `blocked` with a reason instead of improvising.
 
@@ -33,6 +33,31 @@ keep them for the life of the issue. If a selection becomes unavailable, set
 | --- | --- | --- |
 | Orchestrator | `orca` (recommended: supervision, ask/reply, decision gates) or `harness` (native subagents of the current harness) | ask |
 | Worker | `agentbox` (recommended: one sandboxed run per task), `orca` (child worktree), or `harness` (review-only or sequential subagent) | ask |
+
+## Worker contract
+
+Every worker is a **pure worker**. It owns only local code work inside its
+own isolated checkout: read, edit, run gates, and commit on its branch. It
+never pushes, opens a PR, comments on the tracker, labels, or merges. When
+it finishes, it reports a result the orchestrator consumes: branch name,
+HEAD SHA, changed paths, gate output, and any blockers.
+
+- The orchestrator is the only actor that talks to the tracker and the
+  forge: push, PR, verdict comments, labels, merge, close.
+- AgentBox worker handoff: the sandbox syncs its commits into the host run
+  worktree; the orchestrator pushes that branch from the host, then deletes
+  the run. The sandbox never needs a remote, a forge token, or egress to
+  the forge.
+- When the worker is a host process (Orca child worktree or harness
+  subagent) it shares host credentials, so it may push and open the PR
+  itself; the orchestrator still verifies and owns the merge.
+- Forge access inside a sandbox — the opt-in Git-hosting egress preset and
+  the image Git/GitHub tooling and credential provider — is a separate,
+  later, opt-in read capability, not a prerequisite for this skill.
+- Sandbox commits need an explicit identity: AgentBox configures only the
+  host baseline commit today (`AgentBox <agentbox@local.invalid>`), so the
+  task spec must set one and the orchestrator must preserve authorship on
+  push.
 
 ## Configuration precedence
 
@@ -146,23 +171,27 @@ agentbox agent start --profile PROFILE --project PROJECT --gateway GATEWAY \
 ```
 
 Poll `agentbox agent show RUN_ID --json` every 20–30 seconds with a
-per-task deadline. On completion or stall: `agentbox agent logs RUN_ID` to
-read the outcome, `agentbox agent diff RUN_ID` to review the changes, then
-`agentbox agent sync RUN_ID` to bring the branch into the local worktree for
-verification. After the verified branch is pushed and reviewed, delete the
-run with `agentbox agent delete RUN_ID`; never reuse a run for a second task.
+per-task deadline. On completion or stall: `agentbox agent diff RUN_ID` and
+`agentbox agent logs RUN_ID` to review the changes and the outcome, then
+`agentbox agent sync RUN_ID` so the commits land in the host run worktree.
+The orchestrator verifies the synced branch, pushes it from the host, and
+deletes the run with `agentbox agent delete RUN_ID`; never reuse a run for a
+second task.
 
 ### Orca worker
 
-Dispatch the task spec to an Orca child worktree, wait for the worker's
-result, and sync that worktree's branch for verification. Same rules: one
-writer, own worktree, no tracker access.
+Dispatch the task spec to an Orca child worktree and wait for the worker's
+result. An Orca child worktree is a host process sharing host credentials,
+so it may push the branch and open the PR itself; the orchestrator still
+verifies the result and owns the merge.
 
 ### Harness worker
 
 Use the current harness's subagent for small, self-contained tasks
-(review-only or strictly sequential execution). The orchestrator still owns
-gates, the state record, and all tracker writes.
+(review-only or strictly sequential execution). A harness subagent is a host
+process sharing host credentials, so it may push the branch and open the PR
+itself; the orchestrator still owns gates, the state record, verification,
+and the merge.
 
 ## Tracker adapter contract
 
