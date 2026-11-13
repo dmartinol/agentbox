@@ -3,7 +3,7 @@ layout: docs
 title: Policy commands
 nav_title: Policies
 command: policy
-order: 8
+order: 9
 subcommands:
   - show
   - edit

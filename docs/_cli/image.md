@@ -3,7 +3,7 @@ layout: docs
 title: Image commands
 nav_title: Images
 command: image
-order: 5
+order: 6
 subcommands:
   - versions
   - build

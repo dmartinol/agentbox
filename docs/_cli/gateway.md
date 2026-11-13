@@ -3,7 +3,7 @@ layout: docs
 title: Gateway commands
 nav_title: Gateways
 command: gateway
-order: 6
+order: 7
 subcommands:
   - list
   - connect

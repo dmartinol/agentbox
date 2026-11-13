@@ -149,6 +149,17 @@ Run the doctor command to inspect local prerequisites:
 ./agentbox doctor --json
 ```
 
+Install AgentBox's own usage skills for host agents. The content is embedded in
+the binary and version-matched, so a coding agent working alongside AgentBox can
+discover the CLI and HTTP API without reading this repository:
+
+```sh
+./agentbox skills install                 # every harness found on this machine
+./agentbox skills install --target codex  # ~/.codex/skills
+./agentbox skills install --target all    # agents, Codex, Claude, OpenCode
+./agentbox skills list
+```
+
 Discover the latest supported Codex version:
 
 ```sh

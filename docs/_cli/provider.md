@@ -3,7 +3,7 @@ layout: docs
 title: Provider commands
 nav_title: Providers
 command: provider
-order: 7
+order: 8
 subcommands:
   - setup
 ---

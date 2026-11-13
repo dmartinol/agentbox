@@ -3,7 +3,7 @@ layout: docs
 title: Settings commands
 nav_title: Settings
 command: settings
-order: 2
+order: 3
 subcommands:
   - show
   - set
