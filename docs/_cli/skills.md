@@ -174,15 +174,16 @@ agentbox skills remove [--agent a,b] [--all] [--local] [--force] [--dry-run] [--
 | `--json` | `false` | Print the result list as JSON. |
 
 `remove` deletes only manifest-recorded paths, including every managed
-template. A managed file that differs from both the manifest hash and the
-embedded skill is refused unless `--force` removes it after a backup; the
-manifest record is kept while such a file remains. Foreign files and
-directories sitting at recorded link paths, and files at shipped template
-paths that AgentBox never recorded, are always left alone, even when such a
-template file is byte-identical to the shipped template. When the manifest
-runs empty, the manifest file itself is removed. `remove --agent codex` is a
-no-op by design: Codex reads the canonical copy directly, so there is no Codex
-link to remove.
+template. A recorded template is removed only when it matches the hash in the
+recorded manifest; a recorded `SKILL.md` is also removed when it matches the
+rendered copy embedded in the running binary. A recorded file that matches
+neither is refused unless `--force` removes it after a backup; the manifest
+record is kept while such a file remains. Foreign files and directories
+sitting at recorded link paths, and files at shipped template paths that
+AgentBox never recorded, are always left alone, even when such a template file
+is byte-identical to the shipped template. When the manifest runs empty, the
+manifest file itself is removed. `remove --agent codex` is a no-op by design:
+Codex reads the canonical copy directly, so there is no Codex link to remove.
 
 ## list
 {: #skills-list }

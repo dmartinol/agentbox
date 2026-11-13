@@ -268,7 +268,9 @@ record a requested effort that the worker did not apply.
 ## Workflow gates
 
 Advance one gate at a time; record the result in the state record before
-moving on. Gates 2 through 6 each dispatch a worker; none runs inline.
+moving on. Gates 2, 3, 4, and 6 each dispatch a worker; gate 5, pull request
+creation, is performed by the host implementer or the orchestrator. No stage
+work runs inline.
 
 1. **Triage.** Search for duplicate open issues, check eligibility (in scope
    for this repository, actionable, one issue), and run environment sanity
@@ -368,6 +370,25 @@ An Orca child worktree is a host process sharing host credentials, so it may
 commit, push, and open the pull request itself; the orchestrator validates
 the returned head SHA before review and still owns the merge.
 
+For verify and review, start each stage in its own fresh child worktree pinned
+to the full pull request head SHA. Never reuse the implementer's worktree or
+the project checkout, whose HEAD may not be the pull request head:
+
+```sh
+HEAD_SHA=$(gh pr view PR --json headRefOid --jq .headRefOid)
+orca orchestration worker-start --worktree new-child --base-branch "$HEAD_SHA" \
+  --name ISSUE-verify --agent AGENT --model MODEL --effort EFFORT \
+  --spec-file - --json
+orca orchestration worker-start --worktree new-child --base-branch "$HEAD_SHA" \
+  --name ISSUE-review --agent AGENT --model MODEL --effort EFFORT \
+  --spec-file - --json
+```
+
+`--worktree new-child` with `--base-branch "$HEAD_SHA"` creates a separate
+fresh worktree for each command, so neither stage sees uncommitted state.
+Record the same full SHA in each stage entry and remove each worktree after
+the stage returns.
+
 ### Harness worker
 
 Use the current harness's subagent for a stage that needs a local worker. A
@@ -375,6 +396,25 @@ harness subagent is a host process sharing host credentials, so it may commit,
 push, and open the pull request itself. Supply a model override where the
 harness supports one; otherwise record the declared model and set `blocked`
 when the requested model cannot be honoured.
+
+For verify and review, create one fresh detached worktree per stage at the
+full pull request head SHA and launch the worker with that worktree as its
+working root. The worker spec, reads, edits, and gate commands must stay
+inside that path; never run the worker in the implementer's worktree or the
+project checkout:
+
+```sh
+HEAD_SHA=$(gh pr view PR --json headRefOid --jq .headRefOid)
+git -C REPO worktree add --detach VERIFY_WORKTREE "$HEAD_SHA"
+codex exec -C VERIFY_WORKTREE --model MODEL - < VERIFY_SPEC
+git -C REPO worktree add --detach REVIEW_WORKTREE "$HEAD_SHA"
+codex exec -C REVIEW_WORKTREE --model MODEL - < REVIEW_SPEC
+```
+
+Substitute the harness's own non-interactive command where it is not Codex,
+and do not add the host repo or the implementer's worktree as an additional
+writable root. Record the same full SHA in each stage entry and remove each
+worktree after the stage returns.
 
 ## Tracker adapter contract
 

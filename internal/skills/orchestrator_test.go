@@ -152,6 +152,59 @@ func TestOrchestratorSkillAgentBoxVerifyAndReviewUsePRHead(t *testing.T) {
 	)
 }
 
+// TestOrchestratorSkillOrcaVerifyAndReviewUsePRHead pins the Orca dispatch
+// rule: each stage gets its own fresh child worktree based on the full PR head
+// SHA, never the implementer worktree or the project checkout.
+func TestOrchestratorSkillOrcaVerifyAndReviewUsePRHead(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"For verify and review, start each stage in its own fresh child worktree pinned to the full pull request head SHA",
+		"Never reuse the implementer's worktree or the project checkout, whose HEAD may not be the pull request head",
+		`HEAD_SHA=$(gh pr view PR --json headRefOid --jq .headRefOid)`,
+		`--worktree new-child --base-branch "$HEAD_SHA"`,
+		"--name ISSUE-verify --agent AGENT --model MODEL --effort EFFORT",
+		"--name ISSUE-review --agent AGENT --model MODEL --effort EFFORT",
+		"creates a separate fresh worktree for each command",
+		"Record the same full SHA in each stage entry and remove each worktree after the stage returns",
+	)
+	if got := strings.Count(body, `worker-start --worktree new-child --base-branch "$HEAD_SHA"`); got != 2 {
+		t.Fatalf("expected one pinned worktree per verify and review stage, got %d", got)
+	}
+}
+
+// TestOrchestratorSkillHarnessVerifyAndReviewUseDetachedWorktree pins the
+// harness dispatch rule: a fresh detached worktree at the full PR head SHA,
+// with the worker confined to that path.
+func TestOrchestratorSkillHarnessVerifyAndReviewUseDetachedWorktree(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"For verify and review, create one fresh detached worktree per stage at the full pull request head SHA",
+		"launch the worker with that worktree as its working root",
+		"The worker spec, reads, edits, and gate commands must stay inside that path",
+		"never run the worker in the implementer's worktree or the project checkout",
+		`git -C REPO worktree add --detach VERIFY_WORKTREE "$HEAD_SHA"`,
+		`codex exec -C VERIFY_WORKTREE --model MODEL - < VERIFY_SPEC`,
+		`git -C REPO worktree add --detach REVIEW_WORKTREE "$HEAD_SHA"`,
+		`codex exec -C REVIEW_WORKTREE --model MODEL - < REVIEW_SPEC`,
+		"do not add the host repo or the implementer's worktree as an additional writable root",
+		"Record the same full SHA in each stage entry and remove each worktree after the stage returns",
+	)
+}
+
+// TestOrchestratorSkillGateDispatchRule pins which gates dispatch workers and
+// that pull request creation is not a worker stage.
+func TestOrchestratorSkillGateDispatchRule(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"Gates 2, 3, 4, and 6 each dispatch a worker",
+		"gate 5, pull request creation, is performed by the host implementer or the orchestrator",
+		"No stage work runs inline",
+	)
+	if strings.Contains(body, "Gates 2 through 6 each dispatch a worker") {
+		t.Fatal("gate rule still claims every gate from 2 through 6 dispatches a worker")
+	}
+}
+
 // TestOrchestratorSkillForgeMatrix pins the single stage-aware capability
 // matrix and its consequences for sandbox and host workers.
 func TestOrchestratorSkillForgeMatrix(t *testing.T) {

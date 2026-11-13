@@ -78,6 +78,32 @@ func TestDoctorReportsModifiedUsageSkills(t *testing.T) {
 	}
 }
 
+func TestDoctorReportsModifiedUsageSkillTemplate(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if _, err := skills.Install(skills.Options{All: true, Version: "0.2.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator", "pr.md")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(body, []byte("hand edit\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	found := doctorSkillCheck(t, installedApp(t, "0.2.0"))
+	if found.OK || !strings.Contains(found.Detail, "modified") {
+		t.Fatalf("modified template check = %+v", found)
+	}
+	if !strings.Contains(found.Detail, path) {
+		t.Fatalf("modified template check lacks the template path: %s", found.Detail)
+	}
+	if !strings.Contains(found.Detail, "skills update --force") || !strings.Contains(found.Detail, "backed up") {
+		t.Fatalf("modified template check lacks the recovery command: %s", found.Detail)
+	}
+}
+
 func TestDoctorReportsInvalidFrontMatter(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

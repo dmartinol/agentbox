@@ -185,6 +185,24 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 	}
 }
 
+func TestSkillsListRowsKeepTemplateColumnsAligned(t *testing.T) {
+	installation := formatSkillStatusRow("agents", "current", "0.2.0", "/tmp/skill/SKILL.md")
+	template := formatSkillStatusRow("file:verdict.md", "modified", "-", "/tmp/skill/verdict.md")
+	if !strings.HasPrefix(template, "  file:verdict.md ") {
+		t.Fatalf("template target was truncated: %q", template)
+	}
+	installationState := strings.Index(installation, "current")
+	templateState := strings.Index(template, "modified")
+	if installationState == 0 || templateState != installationState {
+		t.Fatalf("state columns differ: installation=%q template=%q", installation, template)
+	}
+	installationPath := strings.Index(installation, "/tmp/skill/SKILL.md")
+	templatePath := strings.Index(template, "/tmp/skill/verdict.md")
+	if installationPath == 0 || templatePath != installationPath {
+		t.Fatalf("path columns differ: installation=%q template=%q", installation, template)
+	}
+}
+
 func TestSkillsInstallRefusesDifferingSkillFileWithoutForce(t *testing.T) {
 	dir := t.TempDir()
 	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}

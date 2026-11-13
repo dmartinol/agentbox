@@ -74,9 +74,13 @@ func (a *App) skillChecks() []Check {
 		return []Check{{Name: "skills", Detail: err.Error()}}
 	}
 	installed := 0
-	var stale, modified, invalid, broken, legacy []string
+	var stale, modified, missing, unreadable, invalid, broken, legacy []string
 	for _, status := range statuses {
+		canonicalPresent := false
 		for _, installation := range status.Installations {
+			if installation.Target == "agents" && installation.Present {
+				canonicalPresent = true
+			}
 			switch installation.State {
 			case "current":
 				if installation.Target == "agents" {
@@ -94,6 +98,22 @@ func (a *App) skillChecks() []Check {
 				legacy = append(legacy, installation.Path)
 			}
 		}
+		for _, file := range status.Files {
+			switch file.State {
+			case "stale":
+				stale = append(stale, file.Path)
+			case "modified":
+				modified = append(modified, file.Path)
+			case "missing":
+				// Without a canonical copy, list reports every template as
+				// missing; only call that a problem when the skill is installed.
+				if canonicalPresent {
+					missing = append(missing, file.Path)
+				}
+			case "unreadable":
+				unreadable = append(unreadable, file.Path)
+			}
+		}
 	}
 	if len(invalid) > 0 {
 		problems = append(problems, fmt.Sprintf("invalid front matter: %s; run `agentbox skills install --force`", strings.Join(invalid, ", ")))
@@ -103,6 +123,12 @@ func (a *App) skillChecks() []Check {
 	}
 	if len(modified) > 0 {
 		problems = append(problems, fmt.Sprintf("modified: %s; run `agentbox skills update --force` (the previous copy is backed up)", strings.Join(modified, ", ")))
+	}
+	if len(missing) > 0 {
+		problems = append(problems, fmt.Sprintf("missing files: %s; run `agentbox skills update`", strings.Join(missing, ", ")))
+	}
+	if len(unreadable) > 0 {
+		problems = append(problems, fmt.Sprintf("unreadable files: %s; run `agentbox skills update --force` (the previous copy is backed up)", strings.Join(unreadable, ", ")))
 	}
 	if len(broken) > 0 {
 		problems = append(problems, fmt.Sprintf("broken links: %s; run `agentbox skills install`", strings.Join(broken, ", ")))

@@ -992,10 +992,10 @@ func skillsCmd(args []string) error {
 				if version == "" {
 					version = "-"
 				}
-				fmt.Printf("  %-9s %-12s %-8s %s\n", installation.Target, installation.State, version, installation.Path)
+				fmt.Println(formatSkillStatusRow(installation.Target, installation.State, version, installation.Path))
 			}
 			for _, file := range status.Files {
-				fmt.Printf("  %-9s %-12s %-8s %s\n", "file:"+file.Name, file.State, "-", file.Path)
+				fmt.Println(formatSkillStatusRow("file:"+file.Name, file.State, "-", file.Path))
 			}
 		}
 		return nil
@@ -1028,6 +1028,12 @@ func skillsCmd(args []string) error {
 		return err
 	}
 	return fmt.Errorf("unknown skills command %q", args[0])
+}
+
+// formatSkillStatusRow keeps installation and template rows aligned. The
+// target column fits the longest template label, "file:verdict.md".
+func formatSkillStatusRow(target, state, version, path string) string {
+	return fmt.Sprintf("  %-16s %-12s %-8s %s", target, state, version, path)
 }
 
 // printSkillsOutput renders lifecycle results as text or JSON and returns the
