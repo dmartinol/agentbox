@@ -203,6 +203,32 @@ func TestSkillsListRowsKeepTemplateColumnsAligned(t *testing.T) {
 	}
 }
 
+// TestSkillsOutputAlignsLongTemplateLabels covers lifecycle output, where the
+// skill and template form one combined label. A long template label must not
+// shift the path column.
+func TestSkillsOutputAlignsLongTemplateLabels(t *testing.T) {
+	results := []skills.Result{
+		{Skill: "agentbox-orchestrator", File: "SKILL.md", Target: "agents", Path: "/tmp/skill/SKILL.md", Action: "unchanged"},
+		{Skill: "agentbox-orchestrator", File: "verdict.md", Target: "agents", Path: "/tmp/skill/verdict.md", Action: "updated"},
+	}
+	output, err := captureStdout(t, func() error { return printSkillsOutput(results, nil, false) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(output, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("output lines = %d: %q", len(lines), output)
+	}
+	if !strings.Contains(lines[1], "agentbox-orchestrator/verdict.md") {
+		t.Fatalf("template label missing: %q", lines[1])
+	}
+	installationPath := strings.Index(lines[0], "/tmp/skill/SKILL.md")
+	templatePath := strings.Index(lines[1], "/tmp/skill/verdict.md")
+	if installationPath == 0 || templatePath != installationPath {
+		t.Fatalf("path columns differ: installation=%q template=%q", lines[0], lines[1])
+	}
+}
+
 func TestSkillsInstallRefusesDifferingSkillFileWithoutForce(t *testing.T) {
 	dir := t.TempDir()
 	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}

@@ -74,7 +74,13 @@ func (a *App) skillChecks() []Check {
 		return []Check{{Name: "skills", Detail: err.Error()}}
 	}
 	installed := 0
-	var stale, modified, missing, unreadable, invalid, broken, legacy []string
+	var (
+		stale, staleWithoutSkill           []string
+		modified, modifiedWithoutSkill     []string
+		missing                            []string
+		unreadable, unreadableWithoutSkill []string
+		invalid, broken, legacy            []string
+	)
 	for _, status := range statuses {
 		canonicalPresent := false
 		for _, installation := range status.Installations {
@@ -101,9 +107,17 @@ func (a *App) skillChecks() []Check {
 		for _, file := range status.Files {
 			switch file.State {
 			case "stale":
-				stale = append(stale, file.Path)
+				if canonicalPresent {
+					stale = append(stale, file.Path)
+				} else {
+					staleWithoutSkill = append(staleWithoutSkill, file.Path)
+				}
 			case "modified":
-				modified = append(modified, file.Path)
+				if canonicalPresent {
+					modified = append(modified, file.Path)
+				} else {
+					modifiedWithoutSkill = append(modifiedWithoutSkill, file.Path)
+				}
 			case "missing":
 				// Without a canonical copy, list reports every template as
 				// missing; only call that a problem when the skill is installed.
@@ -111,25 +125,32 @@ func (a *App) skillChecks() []Check {
 					missing = append(missing, file.Path)
 				}
 			case "unreadable":
-				unreadable = append(unreadable, file.Path)
+				if canonicalPresent {
+					unreadable = append(unreadable, file.Path)
+				} else {
+					unreadableWithoutSkill = append(unreadableWithoutSkill, file.Path)
+				}
 			}
 		}
 	}
-	if len(invalid) > 0 {
-		problems = append(problems, fmt.Sprintf("invalid front matter: %s; run `agentbox skills install --force`", strings.Join(invalid, ", ")))
+	// A template without its canonical SKILL.md cannot be repaired by update:
+	// update reports the skill as not installed and changes nothing. Install
+	// creates the missing SKILL.md first, so those templates are grouped under
+	// install instead of the update command the other states use.
+	appendFix := func(label string, paths []string, command, note string) {
+		if len(paths) == 0 {
+			return
+		}
+		problems = append(problems, fmt.Sprintf("%s: %s; run `%s`%s", label, strings.Join(paths, ", "), command, note))
 	}
-	if len(stale) > 0 {
-		problems = append(problems, fmt.Sprintf("stale: %s; run `agentbox skills update`", strings.Join(stale, ", ")))
-	}
-	if len(modified) > 0 {
-		problems = append(problems, fmt.Sprintf("modified: %s; run `agentbox skills update --force` (the previous copy is backed up)", strings.Join(modified, ", ")))
-	}
-	if len(missing) > 0 {
-		problems = append(problems, fmt.Sprintf("missing files: %s; run `agentbox skills update`", strings.Join(missing, ", ")))
-	}
-	if len(unreadable) > 0 {
-		problems = append(problems, fmt.Sprintf("unreadable files: %s; run `agentbox skills update --force` (the previous copy is backed up)", strings.Join(unreadable, ", ")))
-	}
+	appendFix("invalid front matter", invalid, "agentbox skills install --force", "")
+	appendFix("stale", stale, "agentbox skills update", "")
+	appendFix("stale", staleWithoutSkill, "agentbox skills install", "")
+	appendFix("modified", modified, "agentbox skills update --force", " (the previous copy is backed up)")
+	appendFix("modified", modifiedWithoutSkill, "agentbox skills install --force", " (the previous copy is backed up)")
+	appendFix("missing files", missing, "agentbox skills update", "")
+	appendFix("unreadable files", unreadable, "agentbox skills update --force", " (the previous copy is backed up)")
+	appendFix("unreadable files", unreadableWithoutSkill, "agentbox skills install --force", " (the previous copy is backed up)")
 	if len(broken) > 0 {
 		problems = append(problems, fmt.Sprintf("broken links: %s; run `agentbox skills install`", strings.Join(broken, ", ")))
 	}

@@ -526,8 +526,33 @@ func ensureCanonicalFile(dir, skill string, spec SkillFile, content []byte, reco
 		res.Action = "installed"
 		return res, true, nil
 	default:
-		res.Action, res.Detail = "skipped", err.Error()
-		return res, false, err
+		// The path exists but cannot be read: a permission error, a
+		// directory, or another non-file entry. Move it aside under --force
+		// so the destination is repaired rather than skipped.
+		if !opts.Force {
+			res.Action = "skipped"
+			res.Detail = fmt.Sprintf("cannot read the existing path (%v); use --force to replace it", err)
+			if opts.DryRun {
+				return res, false, nil
+			}
+			return res, false, fmt.Errorf("refusing to replace unreadable %s; use --force", path)
+		}
+		if opts.DryRun {
+			res.Action, res.Detail = "would-update", "replace the unreadable path (backed up first)"
+			return res, true, nil
+		}
+		if moveErr := bk.move(path, filepath.Join("canonical", skill, filepath.FromSlash(spec.Name))); moveErr != nil {
+			res.Action = "skipped"
+			res.Detail = fmt.Sprintf("cannot move the unreadable path into the backup (%v); fix its permissions or remove it, then rerun", moveErr)
+			return res, false, moveErr
+		}
+		if writeErr := writeFile(path, content); writeErr != nil {
+			res.Action = "skipped"
+			res.Detail = fmt.Sprintf("cannot write %s after moving the previous path to the backup (%v); fix its permissions or restore the backup, then rerun", path, writeErr)
+			return res, false, writeErr
+		}
+		res.Action, res.Detail = "updated", "replaced the unreadable path (backed up)"
+		return res, true, nil
 	}
 }
 

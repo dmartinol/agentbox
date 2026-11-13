@@ -47,11 +47,13 @@ agentbox doctor [--json]
 The checks cover the platform (the spike targets `darwin/arm64`), the `git`,
 `podman`, `openshell`, and `npm` executables, the Podman connection, the
 OpenShell gateway status, and the installed usage skills. The skills check
-compares each installed copy of `agentbox-cli` and `agentbox-api` with the
-running binary and reports `stale` when they differ; rerun
-`agentbox skills install --force` to refresh them. A failed check is reported
-without stopping the remaining checks; use the output to decide what to install
-or start.
+compares every installed usage skill and its templates with the running binary
+and reports stale, modified, invalid, missing-template, unreadable-template,
+broken-link, and legacy states. Each problem names the exact
+`agentbox skills update` or `agentbox skills install` command that repairs it;
+forced replacements are backed up first. A failed check is reported without
+stopping the remaining checks; use the output to decide what to install or
+start.
 
 **Examples**
 

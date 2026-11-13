@@ -832,6 +832,116 @@ func TestUpdateRefreshesStaleAndProtectsModifiedTemplates(t *testing.T) {
 	}
 }
 
+// TestUpdateForceRepairsUnreadableTemplate covers a destination that exists
+// but cannot be read. Without --force the refusal points at --force; with it
+// the path is moved into the backup and the shipped template is written.
+func TestUpdateForceRepairsUnreadableTemplate(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator", "verdict.md")
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.ReadFile(path); err == nil {
+		t.Skip("permission bits do not restrict this user")
+	}
+	statuses, err := List(ListOptions{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fileStateOf(t, statuses, "agentbox-orchestrator", "verdict.md").State; got != "unreadable" {
+		t.Fatalf("unreadable template state = %q", got)
+	}
+
+	results, err := Update(Options{All: true, Version: "1.0.0", Home: home})
+	if err == nil {
+		t.Fatal("update replaced an unreadable template without --force")
+	}
+	var refused bool
+	for _, result := range results {
+		if result.Skill == "agentbox-orchestrator" && result.File == "verdict.md" {
+			refused = result.Action == "skipped" && strings.Contains(result.Detail, "use --force to replace it")
+		}
+	}
+	if !refused {
+		t.Fatalf("unreadable template was not refused with force guidance: %+v", actionsOf(results, "agentbox-orchestrator"))
+	}
+
+	results, err = Update(Options{All: true, Version: "1.0.0", Home: home, Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var repaired bool
+	for _, result := range results {
+		if result.Skill == "agentbox-orchestrator" && result.File == "verdict.md" {
+			repaired = result.Action == "updated" && strings.Contains(result.Detail, "unreadable path")
+		}
+	}
+	if !repaired {
+		t.Fatalf("--force did not repair the unreadable template: %+v", actionsOf(results, "agentbox-orchestrator"))
+	}
+	expected, err := EmbeddedFile("agentbox-orchestrator", "verdict.md", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := mustRead(t, path); !bytes.Equal(body, expected) {
+		t.Fatalf("repaired template does not match the shipped copy: %q", body)
+	}
+	backup := filepath.Join(home, ".agents", ".agentbox-skill-backups")
+	stamps, err := os.ReadDir(backup)
+	if err != nil || len(stamps) == 0 {
+		t.Fatalf("backup stamps = %v (%v)", stamps, err)
+	}
+	saved := filepath.Join(backup, stamps[0].Name(), "canonical", "agentbox-orchestrator", "verdict.md")
+	if err := os.Chmod(saved, 0o644); err != nil {
+		t.Fatalf("unreadable template was not backed up: %v", err)
+	}
+	if !bytes.Equal(mustRead(t, saved), expected) {
+		t.Fatal("backup does not contain the previous template")
+	}
+}
+
+// TestInstallForceRepairsModifiedTemplateWithoutSkill proves the doctor's
+// install --force advice for a modified template whose SKILL.md is gone.
+func TestInstallForceRepairsModifiedTemplateWithoutSkill(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator")
+	if err := os.Remove(filepath.Join(dir, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "pr.md")
+	if err := os.WriteFile(path, []byte("edited pr template\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home, Force: true}); err != nil {
+		t.Fatalf("install --force did not repair the template: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err != nil {
+		t.Fatalf("install --force did not recreate SKILL.md: %v", err)
+	}
+	expected, err := EmbeddedFile("agentbox-orchestrator", "pr.md", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := mustRead(t, path); !bytes.Equal(body, expected) {
+		t.Fatalf("repaired template does not match the shipped copy: %q", body)
+	}
+	backup := filepath.Join(home, ".agents", ".agentbox-skill-backups")
+	stamps, err := os.ReadDir(backup)
+	if err != nil || len(stamps) == 0 {
+		t.Fatalf("backup stamps = %v (%v)", stamps, err)
+	}
+	saved := filepath.Join(backup, stamps[0].Name(), "canonical", "agentbox-orchestrator", "pr.md")
+	if body := mustRead(t, saved); string(body) != "edited pr template\n" {
+		t.Fatalf("template backup content = %q", body)
+	}
+}
+
 // TestUpdateAddsTemplatesToLegacyManifestV1Install migrates a version 1
 // install without orphaning it: the recorded SKILL.md hash is recognised, the
 // skill reports stale against a newer binary, and update adds the templates

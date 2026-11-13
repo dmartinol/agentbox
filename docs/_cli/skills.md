@@ -92,8 +92,8 @@ agentbox skills install [--agent a,b|--target T] [--all] [--local] [--dir PATH] 
 | `--target` | — | Deprecated alias for `--agent`. `agents` writes only the canonical copies; `codex`, `claude`, `opencode` select one harness; `all` selects all three. |
 | `--all` | `false` | Install for every harness regardless of directory detection. |
 | `--local` | `false` | Put the canonical root at `./.agents/skills` for the current project and link into `./.claude/skills` and `./.opencode/skills`. |
-| `--dir` | — | Escape hatch: write plain copies of every shipped skill file under this directory with no links, manifest, or lifecycle. Refused inside `~/.codex/skills`. With `--force`, a replaced file is first moved to `<dir>/.agentbox-skill-backups/<timestamp>/`. |
-| `--force` | `false` | Replace modified copies and foreign destinations, backing up the previous content first. |
+| `--dir` | — | Escape hatch: write plain copies of every shipped skill file under this directory with no links, manifest, or lifecycle. Refused inside `~/.codex/skills`. With `--force`, a replaced file is first moved to `<dir>/.agentbox-skill-backups/<timestamp>/`; an unreadable path is refused and left in place. |
+| `--force` | `false` | Replace modified copies, unreadable managed files, and foreign destinations, backing up the previous content first. |
 | `--dry-run` | `false` | Report the planned changes without touching the filesystem. |
 | `--json` | `false` | Print the result list as JSON. |
 
@@ -110,7 +110,10 @@ unless `--force` replaces it after a backup. The backup rule also covers
 `--dir` installs, where the previous file lands under
 `<dir>/.agentbox-skill-backups/<timestamp>/`. The same rule protects foreign
 destinations: an existing real directory or foreign symlink at a link path is
-reported and skipped unless `--force`.
+reported and skipped unless `--force`. In the managed layout, a path that
+exists but cannot be read is reported as `unreadable`; `--force` moves it into
+the backup and writes the shipped file. A `--dir` install refuses an unreadable
+path without touching it.
 
 On the first `install` or `update`, AgentBox also migrates copies that older
 releases wrote into `~/.codex/skills/agentbox-*`: directories containing
@@ -151,9 +154,9 @@ agentbox skills update [--agent a,b] [--all] [--local] [--force] [--dry-run] [--
 `SKILL.md` is `missing` (run `install` for those). For an installed skill,
 `update` also adds files this binary ships but the install predates, so a
 version 1 install gains the orchestrator templates. Modified files are skipped
-unless `--force` replaces them after a backup. Dangling links are repaired
-without `--force`, and the legacy `~/.codex/skills` migration runs on `update`
-as well.
+unless `--force` replaces them after a backup; unreadable paths are repaired
+the same way. Dangling links are repaired without `--force`, and the legacy
+`~/.codex/skills` migration runs on `update` as well.
 
 ## remove
 {: #skills-remove }
@@ -210,10 +213,12 @@ line, so a hand-edited copy that keeps the version line still reports as
 | `agents` | `modified` | Differs from both the manifest and the embedded skill. |
 | `agents` | `invalid` | Front matter does not parse as strict YAML. |
 | `agents` | `missing` | No canonical copy. |
+| `agents` | `unreadable` | The path exists but cannot be read, for example because of permissions or because it is not a file. |
 | `claude`, `opencode` | `current` | Link points at the canonical copy and a skill file is reachable through it. |
 | `claude`, `opencode` | `broken-link` | Symlink resolves nowhere or has no skill behind it. |
 | `claude`, `opencode` | `foreign` | A real directory, file, or foreign symlink occupies the link path. |
 | `claude`, `opencode` | `missing` | No link. |
+| `claude`, `opencode` | `unreadable` | The link path exists but cannot be inspected. |
 | `codex` | `legacy` | Leftover copy in `~/.codex/skills` from an older release. |
 | `codex` | `missing` | No leftover copy (the normal state; Codex reads the canonical root). |
 
@@ -226,6 +231,7 @@ from the same hashes:
 | `file` | `stale` | Byte-identical to the manifest record, but the binary is newer. |
 | `file` | `modified` | Differs from both the manifest and the shipped template. |
 | `file` | `missing` | No installed template at that path. |
+| `file` | `unreadable` | The template path exists but cannot be read; `--force` replaces it after a backup. |
 
 The `agents` row still describes `SKILL.md`, so existing `SKILL.md` and link
 rows keep their meaning.
@@ -281,5 +287,8 @@ above, including a `files` array of template states for skills that ship
 templates, and `show` prints the single-skill object.
 
 `agentbox doctor` reports the same states: stale copies, modified copies,
-invalid front matter, broken links, and legacy Codex copies each come with
-the exact command that fixes them.
+invalid front matter, missing and unreadable template files, broken links, and
+legacy Codex copies each come with the exact command that fixes them. When a
+template problem is reported without a canonical `SKILL.md`, the advice uses
+`agentbox skills install`, or `agentbox skills install --force` for modified
+and unreadable templates, because `update` skips a missing skill.

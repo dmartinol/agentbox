@@ -1045,6 +1045,7 @@ func printSkillsOutput(results []skills.Result, err error, jsonOut bool) error {
 		}
 		return err
 	}
+	writer := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	for _, result := range results {
 		detail := ""
 		if result.Detail != "" {
@@ -1054,9 +1055,11 @@ func printSkillsOutput(results []skills.Result, err error, jsonOut bool) error {
 		if result.File != "" && result.File != "SKILL.md" {
 			label += "/" + result.File
 		}
-		fmt.Printf("%-14s %-20s %s%s\n", result.Action, label, result.Path, detail)
+		if _, err := fmt.Fprintf(writer, "%s\t%s\t%s%s\n", result.Action, label, result.Path, detail); err != nil {
+			return err
+		}
 	}
-	return err
+	return errors.Join(err, writer.Flush())
 }
 
 func agentCmd(ctx context.Context, a *app.App, args []string) error {
