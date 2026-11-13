@@ -1,0 +1,184 @@
+package skills
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// stateOf finds the installation row of one skill and target.
+func stateOf(t *testing.T, statuses []Status, skill, target string) Installation {
+	t.Helper()
+	for _, status := range statuses {
+		if status.Name != skill {
+			continue
+		}
+		for _, installation := range status.Installations {
+			if installation.Target == target {
+				return installation
+			}
+		}
+	}
+	t.Fatalf("no %s installation for %s", target, skill)
+	return Installation{}
+}
+
+// TestListStatesCurrentStaleModifiedMissing covers the hash-derived states of
+// the canonical copy. A hand-edited file that keeps its version line must
+// report modified, not current.
+func TestListStatesCurrentStaleModifiedMissing(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := List(ListOptions{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stateOf(t, statuses, "agentbox-cli", "agents").State != "current" {
+		t.Fatalf("fresh copy state = %+v", stateOf(t, statuses, "agentbox-cli", "agents"))
+	}
+
+	// Same manifest hash, newer binary: stale.
+	statuses, err = List(ListOptions{Version: "2.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stateOf(t, statuses, "agentbox-cli", "agents").State != "stale" {
+		t.Fatalf("stale copy state = %+v", stateOf(t, statuses, "agentbox-cli", "agents"))
+	}
+
+	// Byte-changed copy that keeps the version line: modified.
+	path := filepath.Join(home, ".agents", "skills", "agentbox-cli", "SKILL.md")
+	body := mustRead(t, path)
+	edited := append(append([]byte{}, body...), []byte("extra line\n")...)
+	if err := os.WriteFile(path, edited, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err = List(ListOptions{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst := stateOf(t, statuses, "agentbox-cli", "agents")
+	if inst.State != "modified" || inst.Version != "1.0.0" {
+		t.Fatalf("modified copy state = %+v", inst)
+	}
+
+	// Removed copy: missing.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err = List(ListOptions{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst := stateOf(t, statuses, "agentbox-cli", "agents"); inst.State != "missing" || inst.Present {
+		t.Fatalf("missing copy state = %+v", inst)
+	}
+}
+
+// TestListReportsBrokenLink covers a dangling symlink: the link is present
+// but resolves nowhere.
+func TestListReportsBrokenLink(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(home, ".agents", "skills", "agentbox-cli", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := List(ListOptions{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst := stateOf(t, statuses, "agentbox-cli", "claude")
+	if inst.State != "broken-link" || !inst.Present {
+		t.Fatalf("broken link state = %+v", inst)
+	}
+}
+
+// TestListReportsInvalidFrontMatter covers a copy whose front matter strict
+// consumers reject, such as the unquoted descriptions shipped by PR #29.
+func TestListReportsInvalidFrontMatter(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, ".agents", "skills", "agentbox-cli", "SKILL.md")
+	broken := "---\nname: agentbox-cli\ndescription: broken: colon\nversion: \"1.0.0\"\n---\n"
+	if err := os.WriteFile(path, []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := List(ListOptions{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst := stateOf(t, statuses, "agentbox-cli", "agents")
+	if inst.State != "invalid" {
+		t.Fatalf("invalid front matter state = %+v", inst)
+	}
+	if inst.Detail == "" {
+		t.Fatal("invalid front matter lacks a remediation hint")
+	}
+}
+
+// TestListReportsForeignLink covers a real directory sitting at a link path.
+func TestListReportsForeignLink(t *testing.T) {
+	home := prepareHome(t)
+	foreign := filepath.Join(home, ".claude", "skills", "agentbox-cli")
+	if err := os.MkdirAll(foreign, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := List(ListOptions{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst := stateOf(t, statuses, "agentbox-cli", "claude"); inst.State != "foreign" {
+		t.Fatalf("foreign link state = %+v", inst)
+	}
+}
+
+// TestListReportsLegacyCodexCopy covers the report-only Codex row: clean
+// machines report missing, leftover PR #29 copies report legacy.
+func TestListReportsLegacyCodexCopy(t *testing.T) {
+	home := prepareHome(t)
+	statuses, err := List(ListOptions{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst := stateOf(t, statuses, "agentbox-cli", "codex"); inst.State != "missing" {
+		t.Fatalf("clean codex state = %+v", inst)
+	}
+	legacy := filepath.Join(home, ".codex", "skills", "agentbox-cli")
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "SKILL.md"), []byte("old copy\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err = List(ListOptions{Version: "1.0.0", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst := stateOf(t, statuses, "agentbox-cli", "codex")
+	if inst.State != "legacy" || !inst.Present {
+		t.Fatalf("legacy codex state = %+v", inst)
+	}
+}
+
+// TestListReadsLocalRoot checks the --local scope of list.
+func TestListReadsLocalRoot(t *testing.T) {
+	project := t.TempDir()
+	statuses, err := List(ListOptions{Version: "1.0.0", Local: true, ProjectDir: project})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst := stateOf(t, statuses, "agentbox-cli", "agents")
+	if inst.State != "missing" || inst.Path != filepath.Join(project, ".agents", "skills", "agentbox-cli", "SKILL.md") {
+		t.Fatalf("local installation = %+v", inst)
+	}
+	opencode := stateOf(t, statuses, "agentbox-cli", "opencode")
+	if want := filepath.Join(project, ".opencode", "skills", "agentbox-cli"); opencode.Path != want {
+		t.Fatalf("local opencode path = %s, want %s", opencode.Path, want)
+	}
+}

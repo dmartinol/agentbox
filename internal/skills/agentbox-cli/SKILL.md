@@ -1,6 +1,6 @@
 ---
 name: agentbox-cli
-description: Operate AgentBox from a shell: start, inspect, attach to, sync, and delete OpenShell-backed coding-agent runs, and recover from sandbox policy host blocks. Use when a user asks you to run or manage an agent through the agentbox CLI.
+description: "Operate AgentBox from a shell: start, inspect, attach to, sync, and delete OpenShell-backed coding-agent runs, and recover from sandbox policy host blocks. Use when a user asks you to run or manage an agent through the agentbox CLI."
 version: "{{VERSION}}"
 ---
 
