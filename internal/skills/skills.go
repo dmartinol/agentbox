@@ -22,11 +22,11 @@ import (
 // compared against the binary that wrote them.
 const VersionPlaceholder = "{{VERSION}}"
 
-//go:embed agentbox-cli/SKILL.md agentbox-api/SKILL.md
+//go:embed agentbox-cli/SKILL.md agentbox-api/SKILL.md agentbox-orchestrator/SKILL.md
 var embedded embed.FS
 
 // names lists the embedded skills in a stable order.
-var names = []string{"agentbox-cli", "agentbox-api"}
+var names = []string{"agentbox-cli", "agentbox-api", "agentbox-orchestrator"}
 
 // harnesses lists every supported harness in a stable order.
 var harnesses = []string{"claude", "codex", "opencode"}

@@ -22,12 +22,13 @@ This command is separate from [`agentbox skill`]({{ '/cli-reference/skill/' | re
 which selects host skills and plugin bundles to deliver **into** an agent's
 sandbox. `agentbox skills` documents how to drive AgentBox itself.
 
-Two skills are shipped:
+Three skills are shipped:
 
 | Skill | Covers |
 | --- | --- |
 | `agentbox-cli` | Starting, inspecting, attaching to, syncing, and deleting runs; project, profile, and policy basics; the blocked-host recovery path. |
 | `agentbox-api` | The local HTTP API at `http://127.0.0.1:8080/api/...` with `curl`, plus a map of the Fleet and Setup surfaces. |
+| `agentbox-orchestrator` | The issue-to-PR orchestrator flow: triage, plan, one-writer implementation, verification on the synced commit, pull request, independent review, gated merge, and close, with a GitHub tracker adapter. |
 
 ## Layout: one canonical copy plus links
 {: #skills-layout }
@@ -210,8 +211,9 @@ agentbox skills show NAME [--json]
 ```
 
 `--json` prints `{name, version, description, content}` instead of the raw
-markdown. Valid names are `agentbox-cli` and `agentbox-api`. `show` performs
-no writes and does not need a home directory.
+markdown. Valid names are `agentbox-cli`, `agentbox-api`, and
+`agentbox-orchestrator`. `show` performs no writes and does not need a home
+directory.
 
 **Example**
 

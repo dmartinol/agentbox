@@ -143,6 +143,20 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 	if !strings.Contains(output, "curl -fsS") {
 		t.Fatalf("shown skill lacks API examples: %s", output[:200])
 	}
+
+	// The orchestrator skill is packaged, installed, and shown like the others.
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "agentbox-orchestrator", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "show", "agentbox-orchestrator"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "orchestrator-state") || !strings.Contains(output, "agentbox agent start") {
+		t.Fatalf("shown orchestrator skill lacks the flow content: %s", output[:200])
+	}
 }
 
 func TestSkillsInstallRefusesDifferingFileWithoutForce(t *testing.T) {

@@ -162,6 +162,11 @@ discover the CLI and HTTP API without reading this repository:
 ./agentbox skills remove
 ```
 
+Three skills ship: `agentbox-cli` (run lifecycle), `agentbox-api` (local HTTP
+API), and `agentbox-orchestrator` (the issue-to-PR orchestrator flow: triage,
+plan, one-writer implementation, verification, pull request, independent
+review, gated merge, and close, with a GitHub tracker adapter).
+
 One canonical copy is written to `~/.agents/skills` (or `./.agents/skills`
 with `--local`) and Claude and OpenCode receive relative symlinks into it.
 Nothing is ever written to `~/.codex/skills`: Codex reads `~/.agents/skills`
