@@ -42,7 +42,7 @@ func TestPrepareAgentGeneratesIsolatedConfigForEachAgentMode(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				for _, want := range []string{"HOME=/workspace/state/home", "XDG_CONFIG_HOME=/workspace/state/config", "XDG_DATA_HOME=/workspace/state/data", "print", "hello"} {
+				for _, want := range []string{"HOME=/workspace/state/home", "XDG_CONFIG_HOME=/workspace/state/config", "XDG_DATA_HOME=/workspace/state/data", "TMPDIR=/tmp", "print", "hello"} {
 					if !strings.Contains(string(script), want) {
 						t.Errorf("script lacks %q:\n%s", want, script)
 					}
