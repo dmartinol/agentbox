@@ -11,9 +11,9 @@ import (
 )
 
 // Roles are a second embedded artifact set: one harness-native agent
-// definition per non-orchestrator stage. They are installed globally because a
-// repository-scoped agent definition is a project convention AgentBox does not
-// own.
+// definition per stage plus the orchestrator controller. They are installed
+// globally because a repository-scoped agent definition is a project
+// convention AgentBox does not own.
 //
 //go:embed roles/*.yaml
 var embeddedRoles embed.FS
@@ -21,13 +21,20 @@ var embeddedRoles embed.FS
 // Role is one canonical agent role. The YAML definition is harness-neutral;
 // renderers turn it into the native format of each harness.
 type Role struct {
-	Name         string               `yaml:"name"`
-	Description  string               `yaml:"description"`
-	Instructions string               `yaml:"instructions"`
-	Write        bool                 `yaml:"write"`
-	Shell        bool                 `yaml:"shell"`
-	Steps        int                  `yaml:"steps,omitempty"`
-	Models       map[string]RoleModel `yaml:"models,omitempty"`
+	Name         string `yaml:"name"`
+	Description  string `yaml:"description"`
+	Instructions string `yaml:"instructions"`
+	Write        bool   `yaml:"write"`
+	Shell        bool   `yaml:"shell"`
+	// Dispatch reports that the role may launch other agent roles. It is the
+	// workflow-controller capability; stage roles must not dispatch.
+	Dispatch bool `yaml:"dispatch,omitempty"`
+	// TopLevel reports that the role is selected as a session's main agent
+	// rather than only as a dispatched child. OpenCode renders it as a
+	// primary agent.
+	TopLevel bool                 `yaml:"top_level,omitempty"`
+	Steps    int                  `yaml:"steps,omitempty"`
+	Models   map[string]RoleModel `yaml:"models,omitempty"`
 }
 
 // RoleModel is the optional per-harness model selection of a role. An absent
@@ -40,6 +47,7 @@ type RoleModel struct {
 
 // roleOrder is the stable order roles are installed and reported in.
 var roleOrder = []string{
+	"agentbox-orchestrator",
 	"agentbox-triage",
 	"agentbox-planner",
 	"agentbox-implementer",
@@ -171,6 +179,11 @@ const codexReadOnlyRule = "This role is read-only: do not create, edit, move, or
 // cannot reach the tracker or forge through `gh` or `git`.
 const codexNoShellRule = "This role has no shell access: do not run commands, including `git` and `gh`. Codex agent files cannot remove shell access, so this restriction is instruction-only."
 
+// codexDispatchRule is rendered into the Codex developer instructions for the
+// orchestrator role. Codex cannot remove subagent-spawning tools from a custom
+// agent, so the single-controller rule is instruction text.
+const codexDispatchRule = "This role is the workflow controller: dispatch the stage roles, but never launch another copy of this role or start a second workflow. Codex agent files cannot remove subagent tools, so this restriction is instruction-only."
+
 func renderCodexRole(role Role, model, effort, version string) []byte {
 	var b strings.Builder
 	writeTOMLString(&b, "name", role.Name)
@@ -187,6 +200,9 @@ func renderCodexRole(role Role, model, effort, version string) []byte {
 	}
 	if !role.Shell {
 		instructions = strings.TrimRight(instructions, "\n") + "\n\n" + codexNoShellRule + "\n"
+	}
+	if role.Dispatch {
+		instructions = strings.TrimRight(instructions, "\n") + "\n\n" + codexDispatchRule + "\n"
 	}
 	writeTOMLString(&b, "developer_instructions", instructions)
 	b.WriteString("# agentbox-role: " + effectiveVersion(version) + "\n")
@@ -211,6 +227,9 @@ func renderClaudeRole(role Role, model, version string) []byte {
 	if role.Shell {
 		tools += ", Bash"
 	}
+	if role.Dispatch {
+		tools += ", Agent"
+	}
 	if role.Write {
 		tools += ", Edit, Write"
 	}
@@ -231,7 +250,11 @@ func renderOpenCodeRole(role Role, model, version string) []byte {
 	var b strings.Builder
 	b.WriteString("---\n")
 	writeYAMLString(&b, "description", role.Description)
-	writeYAMLString(&b, "mode", "subagent")
+	mode := "subagent"
+	if role.TopLevel {
+		mode = "primary"
+	}
+	writeYAMLString(&b, "mode", mode)
 	if model != "" {
 		writeYAMLString(&b, "model", model)
 	}
@@ -239,14 +262,19 @@ func renderOpenCodeRole(role Role, model, version string) []byte {
 		fmt.Fprintf(&b, "steps: %d\n", role.Steps)
 	}
 	// OpenCode V2 agent permissions are an ordered rule list. Denying `edit`
-	// covers the write tools, and denying `shell` removes command execution.
-	if !role.Write || !role.Shell {
+	// covers the write tools, denying `shell` removes command execution, and
+	// denying `subagent` keeps a stage role from starting another coordination
+	// layer.
+	if !role.Write || !role.Shell || !role.Dispatch {
 		b.WriteString("permissions:\n")
 		if !role.Write {
 			b.WriteString("  - action: edit\n    resource: \"*\"\n    effect: deny\n")
 		}
 		if !role.Shell {
 			b.WriteString("  - action: shell\n    resource: \"*\"\n    effect: deny\n")
+		}
+		if !role.Dispatch {
+			b.WriteString("  - action: subagent\n    resource: \"*\"\n    effect: deny\n")
 		}
 	}
 	b.WriteString("---\n\n")
@@ -283,4 +311,14 @@ func RoleShellLimitation(harness string, role Role) string {
 		return ""
 	}
 	return "Codex agent files cannot enforce shell: false; the no-shell rule is instruction text"
+}
+
+// RoleDispatchLimitation describes how a harness represents dispatch: true.
+// Only Codex needs a note because it cannot remove subagent tools from the
+// custom agent.
+func RoleDispatchLimitation(harness string, role Role) string {
+	if !role.Dispatch || harness != "codex" {
+		return ""
+	}
+	return "Codex agent files cannot enforce the single-orchestrator rule; the no-recursive-dispatch rule is instruction text"
 }

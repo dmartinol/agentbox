@@ -23,7 +23,7 @@ This command is separate from [`agentbox skill`]({{ '/cli-reference/skill/' | re
 which selects host skills and plugin bundles to deliver **into** an agent's
 sandbox. `agentbox skills` documents how to drive AgentBox itself.
 
-Three usage skills and seven harness agent roles are shipped:
+Three usage skills and eight harness agent roles are shipped:
 
 | Skill | Covers |
 | --- | --- |
@@ -31,12 +31,13 @@ Three usage skills and seven harness agent roles are shipped:
 | `agentbox-api` | The local HTTP API at `http://127.0.0.1:8080/api/...` with `curl`, plus a map of the Fleet and Setup surfaces. |
 | `agentbox-orchestrator` | The issue-to-PR orchestrator flow: triage, a selected worker per stage with the agent, model, and effort it actually applied (`not-applicable` for AgentBox workers), isolated verify and review worktrees detached at the PR head, a capability-based forge matrix, provenance-marked comments and PRs, a severity-gated finding ledger with delta re-review and a bounded cycle cap, gated merge, and close, with a GitHub tracker adapter. It ships `issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`, and `verify-task.md` templates. |
 
-The agent roles are the orchestrator's non-orchestrator stages. They are
-rendered into each harness's native agent format from one canonical
+The agent roles are one controller plus the orchestrator's stage roles. They
+are rendered into each harness's native agent format from one canonical
 definition:
 
 | Role | Stage | Can write | Shell | Covers |
 | --- | --- | --- | --- | --- |
+| `agentbox-orchestrator` | orchestrate | no | yes | Follows the installed `agentbox-orchestrator` skill, dispatches every stage role, owns state, gates, merge, and close, and never performs stage work inline. |
 | `agentbox-triage` | triage | no | no | Tracker-blind disposition from a supplied issue, search, policy, and preflight snapshot: `ready`, `needs-info`, `out-of-scope`, or `blocked`, with evidence, questions, and risks. |
 | `agentbox-planner` | plan | no | yes | Acceptance criteria, gate list, branch and implementer task spec. |
 | `agentbox-implementer` | implement | yes | yes | Scoped implementation, tests, declared gates, commit and evidence. |
@@ -45,10 +46,18 @@ definition:
 | `agentbox-reviewer` | review | no | yes | Delta-scoped review against the severity bar; returns the verdict artifact. |
 | `agentbox-retro` | retro | no | no | Tracker-blind, post-terminal workflow record review; returns zero or more evidence-backed follow-up issue drafts. |
 
-The orchestrator remains the parent controller; there is no
-`agentbox-orchestrator` subagent role. Triage and retro have no shell, so they
-cannot call `gh` or `git`. The fixer may push only to the existing pull request
-branch, and the orchestrator remains the only PR creator and tracker writer.
+The orchestrator controller is installed too, but it is not a stage. It keeps
+a shell and child-agent dispatch and no source-edit tools, so it can run
+tracker and forge commands and launch the stage roles without implementing
+inline. Assign it explicitly: start Claude with
+`claude --agent agentbox-orchestrator`, select the OpenCode primary agent
+`agentbox-orchestrator`, or ask a Codex session to use the
+`agentbox-orchestrator` custom agent. Orca's `worker-start --agent` still takes
+only a runtime ID; the installed skill documents the supported in-session
+assignment path for each Orca-started harness and the Claude limitation.
+Triage and retro have no shell, so they cannot call `gh` or `git`. The fixer
+may push only to the existing pull request branch, and the orchestrator
+remains the only PR creator and tracker writer.
 
 ## Layout: one canonical copy plus links
 {: #skills-layout }
@@ -148,15 +157,19 @@ symlink occupies the canonical skill directory itself: without `--force` it is
 refused, and with `--force` it is backed up and the directory is recreated. A
 `--dir` install refuses an unreadable path without touching it.
 
-The same invocation writes the seven agent roles for every selected harness in
+The same invocation writes the eight agent roles for every selected harness in
 its native format: Codex TOML with `name`, `description`, and
 `developer_instructions`; Claude and OpenCode Markdown frontmatter. A role with
 `write: false` omits `Edit` and `Write` from the Claude `tools` list and denies
 the `edit` action for OpenCode. A role with `shell: false` also omits `Bash`
 from the Claude `tools` list and denies the `shell` action for OpenCode. Codex
-cannot narrow write or shell capabilities in an agent file, so the rules are
-rendered as instruction text and the result says so; do not read them as
-enforcement.
+cannot narrow write, shell, or subagent capabilities in an agent file, so the
+rules are rendered as instruction text and the result says so; do not read them
+as enforcement. The controller role keeps `Agent` in Claude and `subagent` in
+OpenCode; Claude omits `Agent` from stage roles and OpenCode denies
+`subagent` for them. Codex cannot narrow that capability, so a Codex stage
+role retains subagent tools. The controller renders as an OpenCode primary
+agent.
 `--local` and `--dir` report every role as `skipped` because agent roles are
 global-only.
 
@@ -297,7 +310,9 @@ The `agents` row still describes `SKILL.md`, so existing `SKILL.md` and link
 rows keep their meaning.
 
 Roles follow every skill in the same output. The role header is marked
-`(role)` in text output, and each role reports one row per harness:
+`(role)` in text output, and each role reports one row per harness. The skill
+and controller role share the name `agentbox-orchestrator`; the text marker and
+the JSON `kind` field distinguish them.
 
 | Row | State | Meaning |
 | --- | --- | --- |
@@ -316,17 +331,19 @@ unavailable.
 Print one embedded skill to standard output with the version substituted.
 
 ```text
-agentbox skills show NAME [--json]
+agentbox skills show NAME [--json] [--role]
 ```
 
 `--json` prints `{name, version, description, content}` instead of the raw
 markdown. Valid skill names are `agentbox-cli`, `agentbox-api`, and
-`agentbox-orchestrator`. `show` also accepts a role name (`agentbox-triage`,
-`agentbox-planner`, `agentbox-implementer`, `agentbox-fixer`,
-`agentbox-verifier`, `agentbox-reviewer`, or `agentbox-retro`) and prints its
-canonical YAML definition; `--json` then
-prints `{name, kind: "role", description, content}`. `show` performs no writes
-and does not need a home directory.
+`agentbox-orchestrator`. `show` also accepts a role name (`agentbox-orchestrator`,
+`agentbox-triage`, `agentbox-planner`, `agentbox-implementer`,
+`agentbox-fixer`, `agentbox-verifier`, `agentbox-reviewer`, or
+`agentbox-retro`) and prints its canonical YAML definition; `--json` then
+prints `{name, kind: "role", description, content}`. The skill and controller
+role share the name `agentbox-orchestrator`, so that name prints the skill by
+default; pass `--role` to print the controller definition instead. `show`
+performs no writes and does not need a home directory.
 
 **Example**
 
@@ -334,6 +351,7 @@ and does not need a home directory.
 agentbox skills show agentbox-cli
 agentbox skills show --json agentbox-api
 agentbox skills show agentbox-reviewer
+agentbox skills show --role agentbox-orchestrator
 ```
 
 ## roles render

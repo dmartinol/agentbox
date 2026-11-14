@@ -54,6 +54,10 @@ type Options struct {
 // skipped, with would- prefixed counterparts in dry runs.
 type Result struct {
 	Skill string `json:"skill"`
+	// Kind is "role" for a harness agent definition and empty for a skill
+	// result. It disambiguates the skill and controller role that share the
+	// name agentbox-orchestrator.
+	Kind string `json:"kind,omitempty"`
 	// File is the installed path of the acted-on file relative to the skill
 	// directory: SKILL.md, or a template such as issue.md. It is empty when
 	// the result describes a link rather than a file.

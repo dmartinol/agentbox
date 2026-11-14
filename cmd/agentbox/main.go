@@ -1045,13 +1045,17 @@ func skillsCmd(args []string) error {
 	case "show":
 		f := flags("skills show")
 		jsonOut := f.Bool("json", false, "JSON output")
+		roleOut := f.Bool("role", false, "show the canonical role definition instead of a skill")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
 		if err := need(f.Args(), 1); err != nil {
 			return err
 		}
-		if skills.ValidRoleName(f.Args()[0]) {
+		// A skill and the orchestrator controller role share the name
+		// agentbox-orchestrator. The skill keeps that name by default; --role
+		// selects the role definition explicitly.
+		if *roleOut || (!skills.ValidName(f.Args()[0]) && skills.ValidRoleName(f.Args()[0])) {
 			role, err := skills.RoleByName(f.Args()[0])
 			if err != nil {
 				return err

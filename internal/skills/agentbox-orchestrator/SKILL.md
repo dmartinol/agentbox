@@ -26,8 +26,11 @@ The orchestrator owns exactly two things:
   selected worker type can do these, the orchestrator performs no git
   management at all.
 
-The orchestrator remains the parent controller and is not itself an installed
-agent role. It MUST NOT triage, plan, implement, fix, verify, review, or run
+The orchestrator remains the parent controller. `agentbox skills install` also
+writes an `agentbox-orchestrator` role that loads this skill as its source of
+truth, so a user can explicitly assign the flow to a harness agent. That role
+has the same boundary and never dispatches a second orchestrator. The
+orchestrator MUST NOT triage, plan, implement, fix, verify, review, or run
 retro inline. If it starts doing stage work, it stops and dispatches a worker.
 Assembling a context packet for a worker, reading a returned artifact, and
 checking tracker or forge state are orchestration, not stage work. A resumed
@@ -516,10 +519,10 @@ the stage returns.
 
 ### Harness agent roles
 
-`agentbox skills install` also writes one harness agent definition per stage.
-Dispatch the named role instead of pasting the stage contract into an ad-hoc
-prompt; the role carries the tool limits and stage rules for its harness. The
-parent orchestrator is not installed as a subagent role.
+`agentbox skills install` also writes one harness agent definition per stage
+plus the `agentbox-orchestrator` controller role. Dispatch the named stage role
+instead of pasting the stage contract into an ad-hoc prompt; the role carries
+the tool limits and stage rules for its harness.
 
 | Stage | Role |
 | --- | --- |
@@ -542,6 +545,37 @@ requests and writes to the tracker.
 | Codex | `~/.codex/agents/<role>.toml` | select the role as the subagent, or pass the role name in the spawn request |
 | Claude Code | `~/.claude/agents/<role>.md` | pass `<role>` as the subagent type |
 | OpenCode | `~/.config/opencode/agents/<role>.md` | select the subagent `<role>` |
+
+The controller role is not a stage. A user assigns it explicitly, it never
+starts itself, and it never dispatches another `agentbox-orchestrator`:
+
+| Harness | Agent file | Explicit assignment |
+| --- | --- | --- |
+| Codex | `~/.codex/agents/agentbox-orchestrator.toml` | Ask the top-level session to use the `agentbox-orchestrator` custom agent. Codex runs custom agents as subagents and has no top-level `--agent` switch. |
+| Claude Code | `~/.claude/agents/agentbox-orchestrator.md` | Start the session with `claude --agent agentbox-orchestrator`. |
+| OpenCode | `~/.config/opencode/agents/agentbox-orchestrator.md` | Select the primary agent `agentbox-orchestrator` in the session, or run `opencode run --agent agentbox-orchestrator`. |
+
+From Orca, `orca orchestration worker-start --agent <id>` selects only the
+host runtime (`codex`, `claude`, or `opencode`); never pass
+`agentbox-orchestrator` there. After the worker starts, assign the role through
+its harness:
+
+- Codex: ask the started session to use the `agentbox-orchestrator` custom
+  agent.
+- OpenCode: switch the primary agent to `agentbox-orchestrator`.
+- Claude Code: an Orca-started session cannot select the role because Orca
+  starts the interactive session without `--agent`. Start Claude directly with
+  `--agent agentbox-orchestrator` outside Orca to use the role. This is a
+  harness limitation, not a reason to add an Orca-specific role flag.
+
+The controller keeps a shell and subagent dispatch and omits source-edit
+tools: Claude gets `Read`, `Grep`, `Glob`, `Bash`, and `Agent` but not `Edit`
+or `Write`; OpenCode runs it as a primary agent with `edit` denied and `shell`
+and `subagent` available. Those shells are needed for tracker, forge, and
+dispatch commands, so a shell-based source write remains instruction-only
+there. Codex cannot narrow sandbox, write, or subagent tools from an agent
+file, so the no-edit and single-orchestrator rules are instruction text with a
+reported limitation.
 
 A harness subagent is a host process sharing host credentials, so it may
 commit, push, and open the pull request itself. Supply a model override where
