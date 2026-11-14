@@ -50,7 +50,7 @@ the saved profile path.
 
 ```sh
 agentbox profile create --agent codex \
-  --image localhost/openshell:codex-0.167.0-r3 codex
+  --image localhost/openshell:codex-0.167.0-r4 codex
 ```
 
 ## edit

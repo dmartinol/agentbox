@@ -261,7 +261,7 @@ func TestImageRemoveAndPruneRespectProfileAndActiveRunHolders(t *testing.T) {
 		}
 	}
 	raw := []byte(`[
-		{"Id":"image-free","Names":["` + freeImage + `"],"Digest":"sha256:free","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"opencode","agentbox.version":"2.0.0","agentbox.recipe":"4"}},
+		{"Id":"image-free","Names":["` + freeImage + `","quay.io/team/openshell:opencode-2.0.0-r4"],"Digest":"sha256:free","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"opencode","agentbox.version":"2.0.0","agentbox.recipe":"4"}},
 		{"Id":"image-profile","Names":["` + profileImage + `"],"Digest":"sha256:profile","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"1.0.0","agentbox.recipe":"4"}},
 		{"Id":"image-run","Names":["` + runImage + `"],"Digest":"sha256:run","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"claude","agentbox.version":"1.0.0","agentbox.recipe":"4"}}
 		,{"Id":"image-terminal","Names":["` + terminalImage + `"],"Digest":"sha256:terminal","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"opencode","agentbox.version":"1.0.0","agentbox.recipe":"4"}}
@@ -317,13 +317,42 @@ func TestImageRemoveAndPruneRespectProfileAndActiveRunHolders(t *testing.T) {
 		t.Fatalf("unreferenced removal failed: %v", err)
 	}
 	for _, call := range runner.outputs {
-		if call.name == "podman" && len(call.args) >= 3 && call.args[0] == "image" && call.args[1] == "rm" && call.args[2] == "image-dangling" {
+		if call.name == "podman" && len(call.args) >= 3 && call.args[0] == "image" && call.args[1] == "rm" && call.args[2] == "image-free" {
 			return
 		}
 	}
-	t.Fatalf("dangling AgentBox image was not removed by image ID: %#v", runner.outputs)
+	t.Fatalf("multi-tag image was not removed by image ID: %#v", runner.outputs)
 }
 
+func TestImagePruneRefreshesDanglingIDsAfterNamedRemovals(t *testing.T) {
+	initial := []byte(`[
+		{"Id":"image-named","Names":["localhost/openshell:codex-1.0.0-r4"],"Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"1.0.0","agentbox.recipe":"4"}},
+		{"Id":"image-stale-dangling","Names":[],"Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"1.1.0","agentbox.recipe":"4"}}
+	]`)
+	current := initial
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if call.name == "podman" && len(call.args) > 0 && call.args[0] == "images" {
+			return current, nil
+		}
+		if call.name == "podman" && len(call.args) >= 3 && call.args[0] == "image" && call.args[1] == "rm" && call.args[2] == "image-named" {
+			current = []byte(`[]`)
+		}
+		return nil, nil
+	}}
+	app := App{Runner: runner}
+	removed, err := app.ImagePrune(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed) != 1 || removed[0] != "localhost/openshell:codex-1.0.0-r4" {
+		t.Fatalf("pruned = %#v; want only the named image", removed)
+	}
+	for _, call := range runner.outputs {
+		if call.name == "podman" && len(call.args) >= 3 && call.args[0] == "image" && call.args[1] == "rm" && call.args[2] == "image-stale-dangling" {
+			t.Fatalf("stale dangling image ID was removed: %#v", call)
+		}
+	}
+}
 func TestImageRemoveProtectsEveryNamedAlias(t *testing.T) {
 	store := Store{Base: t.TempDir()}
 	if err := store.Ensure(); err != nil {

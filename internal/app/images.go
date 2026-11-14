@@ -12,6 +12,11 @@ import (
 )
 
 const recipeRevision = "4"
+
+func CurrentImageRecipe() string {
+	return recipeRevision
+}
+
 const baseImage = "docker.io/library/node:22-bookworm-slim"
 
 // recipePackages is the fixed toolset installed in every agent image. The

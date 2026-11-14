@@ -1042,7 +1042,12 @@ func (s *Server) listImages(w http.ResponseWriter, r *http.Request) {
 	}
 	records := make([]imageRecord, 0, len(images))
 	for _, image := range images {
-		records = append(records, imageRecord{ImageArtifact: image, UsedBy: usage[image.Reference]})
+		holders := append([]string(nil), usage[image.Reference]...)
+		for _, reference := range image.References {
+			holders = append(holders, usage[reference]...)
+		}
+		sort.Strings(holders)
+		records = append(records, imageRecord{ImageArtifact: image, UsedBy: holders})
 	}
 	writeJSON(w, http.StatusOK, records)
 }

@@ -19,6 +19,7 @@ type ImageArtifact struct {
 	OS         string   `json:"os,omitempty"`
 	Arch       string   `json:"arch,omitempty"`
 	Digest     string   `json:"digest,omitempty"`
+	ID         string   `json:"-"`
 	References []string `json:"-"`
 }
 
@@ -97,6 +98,7 @@ func parseLocalImages(data []byte) ([]ImageArtifact, error) {
 			OS:         record.OS,
 			Arch:       record.Arch,
 			Digest:     record.Digest,
+			ID:         record.ID,
 		}
 		if artifact.Agent == "" || artifact.Version == "" || artifact.Reference == "" {
 			continue
@@ -215,7 +217,11 @@ func (a *App) ImageRemove(ctx context.Context, reference string) error {
 		sort.Strings(holders)
 		return fmt.Errorf("image %q is in use by %s", reference, strings.Join(holders, ", "))
 	}
-	_, err = a.Runner.Output(ctx, "podman", "image", "rm", image.Reference)
+	removeReference := image.ID
+	if removeReference == "" {
+		removeReference = image.Reference
+	}
+	_, err = a.Runner.Output(ctx, "podman", "image", "rm", removeReference)
 	return err
 }
 
@@ -230,10 +236,6 @@ func (a *App) ImagePrune(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	dangling, err := danglingAgentBoxImageIDs(data)
-	if err != nil {
-		return nil, err
-	}
 	usage, err := a.ImageUsage()
 	if err != nil {
 		return nil, err
@@ -243,10 +245,22 @@ func (a *App) ImagePrune(ctx context.Context) ([]string, error) {
 		if imageIsUsed(image, usage) {
 			continue
 		}
-		if _, err := a.Runner.Output(ctx, "podman", "image", "rm", image.Reference); err != nil {
+		removeReference := image.ID
+		if removeReference == "" {
+			removeReference = image.Reference
+		}
+		if _, err := a.Runner.Output(ctx, "podman", "image", "rm", removeReference); err != nil {
 			return removed, fmt.Errorf("remove %q: %w", image.Reference, err)
 		}
 		removed = append(removed, image.Reference)
+	}
+	currentData, err := a.ImageList(ctx)
+	if err != nil {
+		return removed, err
+	}
+	dangling, err := danglingAgentBoxImageIDs(currentData)
+	if err != nil {
+		return removed, err
 	}
 	for _, imageID := range dangling {
 		if _, err := a.Runner.Output(ctx, "podman", "image", "rm", imageID); err != nil {

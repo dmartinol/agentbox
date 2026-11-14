@@ -174,7 +174,7 @@ func TestAgentScriptUsesUTF8Locale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"export LANG=C.UTF-8", "export LC_ALL=C.UTF-8"} {
+	for _, want := range []string{"export LANG=C.UTF-8", "export LC_ALL=C.UTF-8", "export TMPDIR=/tmp"} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("agent script lacks %q:\n%s", want, script)
 		}

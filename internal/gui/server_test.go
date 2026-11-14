@@ -1345,14 +1345,14 @@ func TestImageLifecycleEndpointsGuardHolders(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.SaveProfile(app.Profile{
-		Version: 1, Name: "codex-default", Agent: "codex", Image: "localhost/openshell:codex-0.167.0-r4",
+		Version: 1, Name: "codex-default", Agent: "codex", Image: "quay.io/team/openshell:codex-0.167.0-r4",
 		Mode: "standard", Provider: "openai", Policy: "/tmp/unit-policy.yaml", Approval: "prompted",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	runner := testRunner()
 	runner.images = `[
-		{"Id":"image-held","Names":["localhost/openshell:codex-0.167.0-r4"],"Digest":"sha256:held","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"0.167.0","agentbox.recipe":"4"}},
+			{"Id":"image-held","Names":["localhost/openshell:codex-0.167.0-r4","quay.io/team/openshell:codex-0.167.0-r4"],"Digest":"sha256:held","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"0.167.0","agentbox.recipe":"4"}},
 		{"Id":"image-free","Names":["localhost/openshell:opencode-2.0.0-r4"],"Digest":"sha256:free","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"opencode","agentbox.version":"2.0.0","agentbox.recipe":"4"}}
 	]`
 	server, err := New(&app.App{Store: store, Runner: runner})
