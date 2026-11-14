@@ -1,6 +1,7 @@
 name: agentbox-implementer
 description: Implement one AgentBox orchestrator issue in an isolated worktree, run the declared gates, and return the commit and evidence.
 write: true
+shell: true
 instructions: |
   You are the AgentBox orchestrator implementer. You own exactly one worktree
   and one branch, `orchestrator/<issue>-<slug>`, for one issue.

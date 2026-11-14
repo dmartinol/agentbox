@@ -44,11 +44,32 @@ func frontMatterOf(t *testing.T, content string) map[string]any {
 	return out
 }
 
+// deniesAction reports whether an OpenCode permission rule list denies the
+// given action outright.
+func deniesAction(fm map[string]any, action string) bool {
+	rules, _ := fm["permissions"].([]any)
+	for _, raw := range rules {
+		rule, _ := raw.(map[string]any)
+		if rule["action"] == action && rule["effect"] == "deny" && rule["resource"] == "*" {
+			return true
+		}
+	}
+	return false
+}
+
 func TestEmbeddedRolesAreComplete(t *testing.T) {
 	if err := ValidateRoles(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"agentbox-planner", "agentbox-implementer", "agentbox-verifier", "agentbox-reviewer"}
+	want := []string{
+		"agentbox-triage",
+		"agentbox-planner",
+		"agentbox-implementer",
+		"agentbox-fixer",
+		"agentbox-verifier",
+		"agentbox-reviewer",
+		"agentbox-retro",
+	}
 	if got := RoleNames(); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("role names = %v", got)
 	}
@@ -72,6 +93,7 @@ func TestRenderCodexRoleParsesAndCarriesModel(t *testing.T) {
 		Description:  "Verify one pull request.",
 		Instructions: "Run the gates.",
 		Write:        false,
+		Shell:        true,
 		Models:       map[string]RoleModel{"codex": {Model: "gpt-5.1-codex", Effort: "high"}},
 	}
 	content, err := RenderRole(role, "codex", "", "", "1.0.0")
@@ -102,7 +124,7 @@ func TestRenderCodexRoleParsesAndCarriesModel(t *testing.T) {
 	}
 
 	// Without a model the renderer emits no model field at all.
-	plain := Role{Name: "agentbox-planner", Description: "Plan.", Instructions: "Plan it.", Write: false}
+	plain := Role{Name: "agentbox-planner", Description: "Plan.", Instructions: "Plan it.", Write: false, Shell: true}
 	content, err = RenderRole(plain, "codex", "", "", "1.0.0")
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +147,7 @@ func TestRenderCodexRoleParsesAndCarriesModel(t *testing.T) {
 // omits Edit and Write when write is false, and OpenCode denies the edit
 // action. A writable role gets both.
 func TestRenderClaudeAndOpenCodeRoles(t *testing.T) {
-	readOnly := Role{Name: "agentbox-reviewer", Description: "Review.", Instructions: "Review it.", Write: false}
+	readOnly := Role{Name: "agentbox-reviewer", Description: "Review.", Instructions: "Review it.", Write: false, Shell: true}
 	claude, err := RenderRole(readOnly, "claude", "", "", "1.0.0")
 	if err != nil {
 		t.Fatal(err)
@@ -150,12 +172,14 @@ func TestRenderClaudeAndOpenCodeRoles(t *testing.T) {
 	if fm["mode"] != "subagent" {
 		t.Fatalf("opencode frontmatter = %+v", fm)
 	}
-	permissions, _ := fm["permissions"].(map[string]any)
-	if permissions["edit"] != "deny" {
+	if !deniesAction(fm, "edit") {
 		t.Fatalf("read-only opencode role does not deny edit: %+v", fm)
 	}
+	if deniesAction(fm, "shell") {
+		t.Fatalf("read-only opencode role denies its gate shell: %+v", fm)
+	}
 
-	writable := Role{Name: "agentbox-implementer", Description: "Implement.", Instructions: "Implement it.", Write: true}
+	writable := Role{Name: "agentbox-implementer", Description: "Implement.", Instructions: "Implement it.", Write: true, Shell: true}
 	claude, err = RenderRole(writable, "claude", "", "", "1.0.0")
 	if err != nil {
 		t.Fatal(err)
@@ -170,6 +194,119 @@ func TestRenderClaudeAndOpenCodeRoles(t *testing.T) {
 	}
 	if _, ok := frontMatterOf(t, string(openCode))["permissions"]; ok {
 		t.Fatalf("writable opencode role carries edit permissions: %s", openCode)
+	}
+}
+
+// TestRenderShellLessRoleRemovesShellAccess pins the stronger limit used by
+// triage and retro: Claude omits Bash, OpenCode denies the shell and edit
+// Codex carries the rule as instruction text with a reported limitation.
+func TestRenderShellLessRoleRemovesShellAccess(t *testing.T) {
+	role := Role{Name: "agentbox-triage", Description: "Triage.", Instructions: "Triage it.", Write: false, Shell: false}
+
+	claude, err := RenderRole(role, "claude", "", "", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, _ := frontMatterOf(t, string(claude))["tools"].(string)
+	if strings.Contains(tools, "Bash") || strings.Contains(tools, "Edit") || strings.Contains(tools, "Write") {
+		t.Fatalf("shell-less claude role can act on the host: %q", tools)
+	}
+	if !strings.Contains(tools, "Read") {
+		t.Fatalf("shell-less claude role lost read access: %q", tools)
+	}
+
+	openCode, err := RenderRole(role, "opencode", "", "", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm := frontMatterOf(t, string(openCode))
+	if !deniesAction(fm, "edit") || !deniesAction(fm, "shell") {
+		t.Fatalf("shell-less opencode role permissions = %+v", fm["permissions"])
+	}
+
+	codex, err := RenderRole(role, "codex", "", "", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(codex), "no shell access") {
+		t.Fatalf("codex shell-less role is missing the no-shell rule: %s", codex)
+	}
+	if RoleShellLimitation("codex", role) == "" {
+		t.Fatal("codex shell limitation is not reported")
+	}
+	if RoleShellLimitation("claude", role) != "" || RoleShellLimitation("codex", Role{Shell: true}) != "" {
+		t.Fatal("shell limitation is reported where the harness enforces it")
+	}
+}
+
+// TestEmbeddedRoleContracts pins the input/output contract of the roles added
+// for triage, fix cycles, and retro. These are instruction contracts: the
+// tracker and forge rules must be explicit because neither harness format can
+// grant or revoke a tracker capability separately from the shell.
+func TestEmbeddedRoleContracts(t *testing.T) {
+	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	triage, err := RoleByName("agentbox-triage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if triage.Write || triage.Shell {
+		t.Fatalf("triage can act on the host: %+v", triage)
+	}
+	wantAll(t, flat(triage.Instructions),
+		"tracker-blind",
+		"Never call a tracker or forge API",
+		"`ready`",
+		"`needs-info`",
+		"`out-of-scope`",
+		"`blocked`",
+		"`evidence`",
+		"`questions`",
+		"`risks`",
+		"The orchestrator, not you, applies every label and state change",
+	)
+
+	fixer, err := RoleByName("agentbox-fixer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fixer.Write || !fixer.Shell {
+		t.Fatalf("fixer cannot work in its code worktree: %+v", fixer)
+	}
+	wantAll(t, flat(fixer.Instructions),
+		"`blocker` and `major`",
+		"not fixer work",
+		"existing pull request branch",
+		"call a tracker",
+		"open or merge a pull request",
+		"`findings`",
+		"`commit`",
+		"`gates`",
+		"`unresolved`",
+		"`blockers`",
+	)
+
+	retro, err := RoleByName("agentbox-retro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retro.Write || retro.Shell {
+		t.Fatalf("retro can act on the host: %+v", retro)
+	}
+	wantAll(t, flat(retro.Instructions),
+		"Never call a tracker or forge API",
+		"Return no proposals",
+		"empty list",
+		"cross-run pattern",
+		"`observation`",
+		"`evidence`",
+		"`impact`",
+		"`context`",
+		"`acceptance_criteria`",
+		"`related`",
+	)
+
+	if ValidRoleName("agentbox-orchestrator") {
+		t.Fatal("a separate orchestrator subagent role is installed")
 	}
 }
 

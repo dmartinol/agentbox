@@ -135,7 +135,7 @@ export function SkillsPanel() {
           <div className="text-xs text-muted">Installed globally by <code>agentbox skills install</code> for the orchestrator stages. A harness scans these directories at session start, so restart the session after installing.</div>
         </div>
         {roles.length === 0 ? (
-          <EmptyState title="No agent roles reported" description="Run agentbox skills install to write the planner, implementer, verifier, and reviewer roles." />
+          <EmptyState title="No agent roles reported" description="Run agentbox skills install to write the triage, planner, implementer, fixer, verifier, reviewer, and retro roles." />
         ) : (
           <Table>
             <THead><TR><TH className="w-[28%]">Role</TH><TH className="w-[14%]">Harness</TH><TH className="w-[14%]">State</TH><TH>Path</TH></TR></THead>

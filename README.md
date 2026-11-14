@@ -174,17 +174,20 @@ orchestrator skill also installs
 `verify-task.md` beside its `SKILL.md`, so an installed copy carries the
 templates it tells the orchestrator to use.
 
-The same install writes four harness agent roles in each harness's native
-format: `agentbox-planner`, `agentbox-implementer`, `agentbox-verifier`, and
-`agentbox-reviewer`. Codex reads `~/.codex/agents/<role>.toml`, Claude Code
+The same install writes seven harness agent roles in each harness's native
+format: `agentbox-triage`, `agentbox-planner`, `agentbox-implementer`,
+`agentbox-fixer`, `agentbox-verifier`, `agentbox-reviewer`, and
+`agentbox-retro`. Codex reads `~/.codex/agents/<role>.toml`, Claude Code
 reads `~/.claude/agents/<role>.md`, and OpenCode reads
 `~/.config/opencode/agents/<role>.md`. Roles are global-only; `--local` and
-`--dir` report them as skipped. The verifier and reviewer roles are read-only:
-Claude omits `Edit` and `Write`, OpenCode denies `edit`, and Codex carries the
-same rule as instruction text because its agent files cannot narrow write
-capabilities. Restart a harness session after installing so it scans the new
-agent files. `agentbox skills roles render <role> --harness codex --model M
---effort E` prints a per-issue copy without touching the installed files.
+`--dir` report them as skipped. The verifier and reviewer roles are read-only,
+and triage and retro also have no shell: Claude omits `Edit`, `Write`, and
+`Bash` as appropriate, OpenCode denies the `edit` and `shell` actions, and
+Codex carries the same rules as instruction text because its agent files
+cannot narrow write or shell capabilities. Restart a harness session after
+installing so it scans the new agent files. `agentbox skills roles render <role> --harness codex
+--model M --effort E` prints a per-issue copy without touching the installed
+files. The parent orchestrator is not installed as a subagent role.
 
 One canonical copy of each skill, including its shipped templates, is written
 to `~/.agents/skills` (or `./.agents/skills` with `--local`) and Claude and

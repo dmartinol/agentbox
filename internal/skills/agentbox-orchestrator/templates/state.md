@@ -14,7 +14,18 @@ orchestrator:
   agent: <agent-id>
   model: <model-id>
   effort: <effort-level>
+triage:
+  decision: <ready|needs-info|out-of-scope|blocked>
+  reason: <one sentence>
 stages:
+  - stage: triage
+    runtime: <runtime>
+    agent: <agent-id>
+    model: <model-id>
+    effort: <effort-level>
+    worker_id: <id>
+    worktree: <id>
+    commit: not-applicable
   - stage: plan
     runtime: <runtime>
     agent: <agent-id>
@@ -34,6 +45,16 @@ stages:
     branch: orchestrator/<issue>-<slug>
     commit: <full-sha>
     pr: null
+  - stage: fix
+    runtime: <runtime>
+    agent: <agent-id>
+    model: <model-id>
+    effort: <effort-level>
+    worker_id: <id>
+    worktree: <id>
+    branch: orchestrator/<issue>-<slug>
+    commit: <full-sha>
+    pr: <number>
   - stage: verify
     runtime: <runtime>
     agent: <agent-id>
@@ -52,6 +73,14 @@ stages:
     worktree: <id>
     commit: <full-sha>
     pr: <number>
+  - stage: retro
+    runtime: <runtime>
+    agent: <agent-id>
+    model: <model-id>
+    effort: <effort-level>
+    worker_id: <id>
+    worktree: <id>
+    commit: not-applicable
 gates:
   - command: <command>
     result: <pass|fail|pending>
@@ -65,6 +94,9 @@ findings:
     closed_at: ""
 review_cycles: 0
 review_cycles_max: 2
+retro:
+  proposals: 0
+  created: []
 blocked_reason: ""
 updated: <RFC3339 timestamp>
 ```

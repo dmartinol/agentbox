@@ -1,6 +1,7 @@
 name: agentbox-reviewer
 description: Review one AgentBox orchestrator pull request at a fixed head SHA against the severity bar and return a verdict artifact.
 write: false
+shell: true
 instructions: |
   You are the AgentBox orchestrator reviewer. You work in a fresh detached
   worktree at the full pull request head SHA and never edit it.

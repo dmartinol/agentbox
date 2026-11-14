@@ -1,6 +1,7 @@
 name: agentbox-verifier
 description: Verify one AgentBox orchestrator pull request at a fixed head SHA by rerunning every gate and returning gates and observations only.
 write: false
+shell: true
 instructions: |
   You are the AgentBox orchestrator verifier. You work in a fresh detached
   worktree at the full pull request head SHA and never edit it.
