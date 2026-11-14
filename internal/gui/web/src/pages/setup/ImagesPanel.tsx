@@ -7,6 +7,7 @@ import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
 import { Modal } from '../../components/ui/dialog';
+import { ConfirmDialog } from '../../components/ui/confirm';
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { LogDrawerState } from '../../components/LogDrawer';
@@ -23,12 +24,15 @@ export function ImagesPanel({
   const [registry, setRegistry] = useState<Registry>({ reference: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [actionError, setActionError] = useState<Error | null>(null);
   const [notice, setNotice] = useState('');
   const [buildOpen, setBuildOpen] = useState(false);
   const [buildForm, setBuildForm] = useState({ agent: 'codex', version: '' });
   const [task, setTask] = useState<GuiTask>();
   const [pullOpen, setPullOpen] = useState(false);
   const [pullRef, setPullRef] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<ImageArtifact>();
+  const [pruneOpen, setPruneOpen] = useState(false);
   const [busy, setBusy] = useState<string>();
 
   const load = async () => {
@@ -83,9 +87,55 @@ export function ImagesPanel({
     openLog({ title: `Build image · ${buildForm.agent}`, content: next.output, loading: true, taskId: next.id, taskStatus: next.status });
   };
 
+  const refresh = async () => {
+    setBusy('refresh');
+    try {
+      const next = await api.refreshImages();
+      setTask(next);
+      openLog({ title: 'Refresh all agents', content: next.output, loading: true, taskId: next.id, taskStatus: next.status });
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
+  const remove = async () => {
+    if (!deleteTarget) return;
+    setBusy('delete');
+    try {
+      await api.deleteImage(deleteTarget.reference);
+      setNotice(`Image ${deleteTarget.reference} deleted`);
+      setActionError(null);
+      setDeleteTarget(undefined);
+      await load();
+    } catch (err) {
+      setActionError(err as Error);
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
+  const prune = async () => {
+    setBusy('prune');
+    try {
+      const result = await api.pruneImages();
+      setNotice(result.removed.length ? `Removed ${result.removed.length} unused image(s)` : 'No unused images to remove');
+      setActionError(null);
+      setPruneOpen(false);
+      await load();
+    } catch (err) {
+      setActionError(err as Error);
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap justify-end gap-2">
+        <Button size="sm" variant="outline" loading={busy === 'refresh'} onClick={() => void refresh()}>{busy === 'refresh' ? 'Refreshing' : 'Refresh all agents'}</Button>
+        <Button size="sm" variant="outline" onClick={() => { setActionError(null); setPruneOpen(true); }}>Prune unused</Button>
         <Button size="sm" onClick={() => setBuildOpen(true)}>Build image</Button>
         <Button size="sm" variant="outline" onClick={() => setPullOpen(true)}>Pull image</Button>
       </div>
@@ -95,17 +145,26 @@ export function ImagesPanel({
         <EmptyState title="No local images" description="Build or pull an AgentBox agent image." />
       ) : (
         <Table>
-          <THead><TR><TH className="w-[38%]">Reference</TH><TH className="w-[12%]">Agent</TH><TH className="w-[12%]">Version</TH><TH className="w-[10%]">Recipe</TH><TH>Platform</TH></TR></THead>
+          <THead><TR><TH className="w-[34%]">Reference</TH><TH className="w-[10%]">Agent</TH><TH className="w-[10%]">Version</TH><TH className="w-[8%]">Recipe</TH><TH>Platform</TH><TH>Actions</TH></TR></THead>
           <TBody>
-            {images.map((image) => (
-              <TR key={image.reference}>
-                <TD className="truncate font-mono text-xs">{image.reference}</TD>
-                <TD>{image.agent}</TD>
-                <TD>{image.version}</TD>
-                <TD>r{image.recipe}</TD>
-                <TD>{image.os || 'linux'}/{image.arch || 'arm64'}</TD>
-              </TR>
-            ))}
+            {images.map((image) => {
+              const holders = image.used_by ?? [];
+              return (
+                <TR key={image.reference}>
+                  <TD className="truncate font-mono text-xs">{image.reference}</TD>
+                  <TD>{image.agent}</TD>
+                  <TD>{image.version}</TD>
+                  <TD>r{image.recipe}</TD>
+                  <TD>{image.os || 'linux'}/{image.arch || 'arm64'}</TD>
+                  <TD>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="ghost" disabled={holders.length > 0} title={holders.length ? `In use by ${holders.join(', ')}` : undefined} onClick={() => { setActionError(null); setDeleteTarget(image); }}>Delete</Button>
+                      {holders.length ? <span className="text-xs text-muted">{holders.join(', ')}</span> : null}
+                    </div>
+                  </TD>
+                </TR>
+              );
+            })}
           </TBody>
         </Table>
       )}
@@ -171,6 +230,35 @@ export function ImagesPanel({
       >
         <Field label="Remote reference" htmlFor="pull-reference" required><Input id="pull-reference" value={pullRef} onChange={(event) => setPullRef(event.target.value)} /></Field>
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(undefined)}
+        title={deleteTarget ? `Delete ${deleteTarget.reference}` : 'Delete image'}
+        confirmLabel="Delete"
+        busyLabel="Deleting"
+        busy={busy === 'delete'}
+        disabled={Boolean(deleteTarget?.used_by?.length)}
+        onConfirm={() => void remove()}
+      >
+        {actionError ? <Alert variant="danger" title="Unable to delete image">{actionError.message}</Alert> : null}
+        {deleteTarget?.used_by?.length ? (
+          <Alert variant="warning" title="Image is in use">Remove it from these holders first: {deleteTarget.used_by.join(', ')}</Alert>
+        ) : <p className="text-sm text-muted">Delete this local image? Profiles and active runs must not reference it.</p>}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={pruneOpen}
+        onOpenChange={setPruneOpen}
+        title="Prune unused images"
+        confirmLabel="Prune"
+        busyLabel="Pruning"
+        busy={busy === 'prune'}
+        onConfirm={() => void prune()}
+      >
+        {actionError ? <Alert variant="danger" title="Unable to prune images">{actionError.message}</Alert> : null}
+        <p className="text-sm text-muted">Delete every AgentBox image that no profile and no non-terminal run references.</p>
+      </ConfirmDialog>
     </div>
   );
 }

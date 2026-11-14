@@ -66,6 +66,7 @@ export interface ImageArtifact {
   os?: string;
   arch?: string;
   digest?: string;
+  used_by?: string[];
 }
 
 export interface Gateway {
