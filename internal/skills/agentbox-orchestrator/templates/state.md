@@ -56,10 +56,27 @@ gates:
   - command: <command>
     result: <pass|fail|pending>
     commit: <full-sha>
+findings:
+  - id: F1
+    severity: major
+    location: internal/app/run.go:42
+    status: open
+    opened_at: <full-sha>
+    closed_at: ""
 review_cycles: 0
+review_cycles_max: 2
 blocked_reason: ""
 updated: <RFC3339 timestamp>
 ```
+
+`findings[]` is the finding ledger. Every finding gets a stable `id` that the
+review verdict cites; `location` is a repository-relative `path:line`. `status`
+is `open`, `fixed`, `deferred #<issue>`, or `wontfix`. Gate 6 requires a status
+for every open id before a verdict is posted. A new finding gets a new id, and
+a `fixed` id cannot reopen without evidence at the current head. Severity
+disputes are settled by the orchestrator against the enumerated definitions in
+`verdict.md` and recorded here, so a finding cannot change class between
+cycles.
 
 Model and effort identifiers are allowed in this record. Credentials,
 environment-variable values, account identifiers, absolute host paths, private

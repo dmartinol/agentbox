@@ -22,7 +22,7 @@ import (
 // compared against the binary that wrote them.
 const VersionPlaceholder = "{{VERSION}}"
 
-//go:embed agentbox-cli/SKILL.md agentbox-api/SKILL.md agentbox-orchestrator/SKILL.md agentbox-orchestrator/templates/issue.md agentbox-orchestrator/templates/pr.md agentbox-orchestrator/templates/verdict.md agentbox-orchestrator/templates/state.md
+//go:embed agentbox-cli/SKILL.md agentbox-api/SKILL.md agentbox-orchestrator/SKILL.md agentbox-orchestrator/templates/issue.md agentbox-orchestrator/templates/pr.md agentbox-orchestrator/templates/verdict.md agentbox-orchestrator/templates/state.md agentbox-orchestrator/templates/review-task.md agentbox-orchestrator/templates/verify-task.md
 var embedded embed.FS
 
 // SkillFile is one file shipped with an embedded skill.
@@ -64,7 +64,7 @@ func newSkillSpec(name string, templates ...string) skillSpec {
 var specs = []skillSpec{
 	newSkillSpec("agentbox-cli"),
 	newSkillSpec("agentbox-api"),
-	newSkillSpec("agentbox-orchestrator", "issue", "pr", "verdict", "state"),
+	newSkillSpec("agentbox-orchestrator", "issue", "pr", "verdict", "state", "review-task", "verify-task"),
 }
 
 // names lists the embedded skills in a stable order.

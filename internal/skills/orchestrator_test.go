@@ -250,22 +250,153 @@ func TestOrchestratorSkillProvenance(t *testing.T) {
 	)
 }
 
-// TestOrchestratorSkillTemplates covers the four shipped templates and the
+// TestOrchestratorSkillTemplates covers the six shipped templates and the
 // explicit override precedence.
 func TestOrchestratorSkillTemplates(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
 		"## Templates",
-		"The skill ships four templates and installs them beside `SKILL.md`",
+		"The skill ships six templates and installs them beside `SKILL.md`",
 		"| `issue.md` |",
 		"| `pr.md` |",
 		"| `verdict.md` |",
 		"| `state.md` |",
+		"| `review-task.md` |",
+		"| `verify-task.md` |",
 		"Resolve a template from the first source that defines it",
 		"1. an explicit user instruction for this issue;",
 		"2. the repository's `.github/orchestrator/<kind>.md`;",
 		"3. the template shipped with this skill.",
 		"Never edit a repository's own templates",
+	)
+}
+
+// TestOrchestratorSkillSeverityBar pins the severity-to-action mapping that
+// bounds the review gate: minor and nit findings never block merge.
+func TestOrchestratorSkillSeverityBar(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"### Severity bar",
+		"Only `blocker` and `major` block merge",
+		"| `blocker` | Fails an acceptance criterion",
+		"| `major` | A reproducible defect in the behavior this pull request changes",
+		"| `minor` | A real issue with no merge risk",
+		"| `nit` | Style or preference",
+		"A `minor` or `nit` never blocks merge and is always deferred to a follow-up issue",
+		"`Required changes` contains only the smallest changes that remove the merge risk from open `blocker` and `major` findings",
+	)
+}
+
+// TestOrchestratorVerdictTemplateSeverityBar keeps the verdict artifact and
+// the skill in agreement about which severities can block a merge.
+func TestOrchestratorVerdictTemplateSeverityBar(t *testing.T) {
+	content, err := EmbeddedFile("agentbox-orchestrator", "verdict.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Join(strings.Fields(string(content)), " ")
+	wantAll(t, body,
+		"<approve|approve-with-follow-ups|request-changes|blocked>",
+		"Only `blocker` and `major` block merge",
+		"`minor` and `nit` never block merge and are always follow-ups",
+		"Mandatory for `approve-with-follow-ups`",
+		"List one group per deferred finding or finding group and the created issue that tracks it",
+		"the smallest changes that remove the merge risk from each open `blocker` or `major` finding",
+	)
+}
+
+// TestOrchestratorStateTemplateFindingLedger pins the six ledger fields so a
+// reviewer can carry finding identity across cycles.
+func TestOrchestratorStateTemplateFindingLedger(t *testing.T) {
+	content, err := EmbeddedFile("agentbox-orchestrator", "state.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(content)
+	start := strings.Index(body, "findings:")
+	end := strings.Index(body, "review_cycles:")
+	if start < 0 || end <= start {
+		t.Fatalf("state.md has no findings ledger block:\n%s", body)
+	}
+	wantAll(t, body[start:end],
+		"id:",
+		"severity:",
+		"location:",
+		"status:",
+		"opened_at:",
+		"closed_at:",
+	)
+}
+
+// TestOrchestratorSkillFollowUps pins the fourth verdict outcome and its
+// mandatory deferred-issue requirement.
+func TestOrchestratorSkillFollowUps(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"Accept `approve`, `approve-with-follow-ups`, `request-changes`, or `blocked`",
+		"`approve-with-follow-ups` requires the mandatory `Follow-ups` section and one created issue per deferred group before the verdict is posted",
+		"the merge then proceeds immediately",
+	)
+}
+
+// TestOrchestratorSkillDeltaReview pins cycle-scoped re-review so later cycles
+// inspect the delta instead of re-deriving the whole change.
+func TestOrchestratorSkillDeltaReview(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"Cycle 1 reviews the full pull request diff against the base",
+		"Cycle N>1 reviews only `prev_head..head`, the ledger status of every prior finding, and the gates",
+		"A reviewer must not re-derive the touched subsystem or review the full diff again",
+		"a new finding outside the reviewed range is allowed only at `blocker` severity",
+	)
+}
+
+// TestOrchestratorSkillFindingLedger pins per-finding identity across cycles
+// and the gate-6 ledger check before a verdict is posted.
+func TestOrchestratorSkillFindingLedger(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"`findings[]` is the finding ledger",
+		"Gate 6 requires a status for every open id before a verdict is posted",
+		"Require a ledger status for every open finding id before posting a verdict",
+		"a `fixed` id cannot reopen without evidence at the current head",
+		"Severity disputes are settled by the orchestrator against the enumerated definitions",
+	)
+}
+
+// TestOrchestratorSkillVerifyIsNotAReviewer keeps verify to gates and
+// observations and forbids promoting an observation into a requirement.
+func TestOrchestratorSkillVerifyIsNotAReviewer(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"returns only `gates` and `observations`",
+		"it never returns required changes, findings, or a verdict",
+		"it is not a second reviewer",
+		"MUST NOT forward a verifier observation to the reviewer as a requirement",
+		"observations enter the ledger only after the reviewer classifies them",
+	)
+}
+
+// TestOrchestratorSkillReviewCap pins the hard cap and its single exit
+// decision, so the flow cannot drift past the cycle limit.
+func TestOrchestratorSkillReviewCap(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"`review_cycles_max` (default 2) bounds request-changes cycles",
+		"At the cap the orchestrator dispatches no further fix cycle",
+		"it sets `blocked`, quotes the open ledger, and asks the maintainer exactly one decision",
+		"merge with follow-ups, authorize one more cycle, or stop",
+	)
+}
+
+// TestOrchestratorSkillReviewerDiversity pins first-pass diversity and same
+// selection for consecutive cycles.
+func TestOrchestratorSkillReviewerDiversity(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"use a different agent or model from the implementer for the *first* review pass only",
+		"Consecutive fix cycles keep the same reviewer selection",
+		"rotating models every cycle maximizes judgment variance instead of converging the review and is explicitly discouraged",
 	)
 }
 
@@ -296,7 +427,7 @@ func TestOrchestratorSkillStateSchema(t *testing.T) {
 // provenance.
 func TestOrchestratorTemplateFiles(t *testing.T) {
 	files := Files("agentbox-orchestrator")
-	wantNames := []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md"}
+	wantNames := []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md", "review-task.md", "verify-task.md"}
 	if len(files) != len(wantNames) {
 		t.Fatalf("files = %v", files)
 	}
@@ -318,10 +449,12 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 	}
 
 	headings := map[string][]string{
-		"issue.md":   {"## Summary", "## Current behavior", "## Proposed design", "## Acceptance criteria", "## Test plan", "## Risks", "## Out of scope", "## Related"},
-		"pr.md":      {"## Summary", "## Changes", "## Evidence", "Closes #<issue>", "## Risks", "## Provenance"},
-		"verdict.md": {"## Verdict", "## Findings", "## Evidence at commit", "## Required changes", "## Provenance"},
-		"state.md":   {"<!-- orchestrator-state -->", "schema: 2", "workflow_id:"},
+		"issue.md":       {"## Summary", "## Current behavior", "## Proposed design", "## Acceptance criteria", "## Test plan", "## Risks", "## Out of scope", "## Related"},
+		"pr.md":          {"## Summary", "## Changes", "## Evidence", "Closes #<issue>", "## Risks", "## Provenance"},
+		"verdict.md":     {"## Verdict", "## Severity bar", "## Review scope", "## Findings", "## Evidence at commit", "## Required changes", "## Follow-ups", "## Provenance"},
+		"state.md":       {"<!-- orchestrator-state -->", "schema: 2", "workflow_id:", "findings:", "review_cycles_max:"},
+		"review-task.md": {"## Role", "## Scope", "## Severity bar", "## Checklist", "## Output", "## Provenance"},
+		"verify-task.md": {"## Role", "## Scope", "## Output", "## Provenance"},
 	}
 	for file, wants := range headings {
 		content, err := EmbeddedFile("agentbox-orchestrator", file, "9.9.9")
@@ -446,7 +579,7 @@ func TestOrchestratorSkillInstallsAndLists(t *testing.T) {
 	if body := mustRead(t, canonical); InstalledVersion(body) != "1.0.0" {
 		t.Fatalf("orchestrator version = %s", InstalledVersion(body))
 	}
-	for _, template := range []string{"issue.md", "pr.md", "verdict.md", "state.md"} {
+	for _, template := range []string{"issue.md", "pr.md", "verdict.md", "state.md", "review-task.md", "verify-task.md"} {
 		if _, err := os.Stat(filepath.Join(dir, template)); err != nil {
 			t.Fatalf("%s is not installed beside SKILL.md: %v", template, err)
 		}
@@ -473,7 +606,7 @@ func TestOrchestratorSkillInstallsAndLists(t *testing.T) {
 		if stateOf(t, statuses, "agentbox-orchestrator", "agents").State != "current" {
 			t.Fatal("orchestrator not current after install")
 		}
-		if len(status.Files) != 4 {
+		if len(status.Files) != 6 {
 			t.Fatalf("template statuses = %+v", status.Files)
 		}
 		for _, file := range status.Files {

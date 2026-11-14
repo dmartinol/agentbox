@@ -28,7 +28,7 @@ Three skills are shipped:
 | --- | --- |
 | `agentbox-cli` | Starting, inspecting, attaching to, syncing, and deleting runs; project, profile, and policy basics; the blocked-host recovery path. |
 | `agentbox-api` | The local HTTP API at `http://127.0.0.1:8080/api/...` with `curl`, plus a map of the Fleet and Setup surfaces. |
-| `agentbox-orchestrator` | The issue-to-PR orchestrator flow: triage, a selected worker per stage with the agent, model, and effort it actually applied (`not-applicable` for AgentBox workers), isolated verify and review worktrees detached at the PR head, a capability-based forge matrix, provenance-marked comments and PRs, gated merge, and close, with a GitHub tracker adapter. It ships `issue.md`, `pr.md`, `verdict.md`, and `state.md` templates. |
+| `agentbox-orchestrator` | The issue-to-PR orchestrator flow: triage, a selected worker per stage with the agent, model, and effort it actually applied (`not-applicable` for AgentBox workers), isolated verify and review worktrees detached at the PR head, a capability-based forge matrix, provenance-marked comments and PRs, a severity-gated finding ledger with delta re-review and a bounded cycle cap, gated merge, and close, with a GitHub tracker adapter. It ships `issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`, and `verify-task.md` templates. |
 
 ## Layout: one canonical copy plus links
 {: #skills-layout }
@@ -38,7 +38,7 @@ ship several files, installed together as siblings:
 
 | Piece | Location |
 | --- | --- |
-| Canonical copy | `~/.agents/skills/<name>/` (or `./.agents/skills/<name>/` with `--local`), containing `SKILL.md` and any shipped templates such as `issue.md`, `pr.md`, `verdict.md`, and `state.md` |
+| Canonical copy | `~/.agents/skills/<name>/` (or `./.agents/skills/<name>/` with `--local`), containing `SKILL.md` and any shipped templates such as `issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`, and `verify-task.md` |
 | Claude link | `~/.claude/skills/<name>` → `../../.agents/skills/<name>` (or `./.claude/skills/<name>` with `--local`) |
 | OpenCode link | `~/.config/opencode/skills/<name>` → `../../../.agents/skills/<name>` (or `./.opencode/skills/<name>` with `--local`) |
 | Manifest | `~/.agents/skills/.agentbox-managed.json` (or `./.agents/skills/.agentbox-managed.json`) |
@@ -60,9 +60,9 @@ only touch paths recorded there, and every forced replacement or removal first
 moves the previous content into the timestamped backup directory at the same
 relative path.
 
-`agentbox-orchestrator` ships `issue.md`, `pr.md`, `verdict.md`, and
-`state.md` from `templates/` in the source tree and installs them beside its
-`SKILL.md`. The other skills remain single-file.
+`agentbox-orchestrator` ships `issue.md`, `pr.md`, `verdict.md`, `state.md`,
+`review-task.md`, and `verify-task.md` from `templates/` in the source tree and
+installs them beside its `SKILL.md`. The other skills remain single-file.
 
 ### Relationship to `npx skills`
 {: #skills-npx }

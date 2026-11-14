@@ -169,8 +169,9 @@ per-stage workers with the agent, model, and effort they actually applied
 verify and review worktrees detached at the PR head, provenance-marked
 comments and PRs, gated merge, and close, with a GitHub tracker adapter). The
 orchestrator skill also installs
-`issue.md`, `pr.md`, `verdict.md`, and `state.md` beside its `SKILL.md`, so an
-installed copy carries the templates it tells the orchestrator to use.
+`issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`, and
+`verify-task.md` beside its `SKILL.md`, so an installed copy carries the
+templates it tells the orchestrator to use.
 
 One canonical copy of each skill, including its shipped templates, is written
 to `~/.agents/skills` (or `./.agents/skills` with `--local`) and Claude and

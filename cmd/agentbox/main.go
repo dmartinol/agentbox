@@ -1031,9 +1031,9 @@ func skillsCmd(args []string) error {
 }
 
 // formatSkillStatusRow keeps installation and template rows aligned. The
-// target column fits the longest template label, "file:verdict.md".
+// target column fits the longest template label, "file:review-task.md".
 func formatSkillStatusRow(target, state, version, path string) string {
-	return fmt.Sprintf("  %-16s %-12s %-8s %s", target, state, version, path)
+	return fmt.Sprintf("  %-19s %-12s %-8s %s", target, state, version, path)
 }
 
 // printSkillsOutput renders lifecycle results as text or JSON and returns the
