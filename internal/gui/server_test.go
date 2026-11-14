@@ -1516,3 +1516,303 @@ func TestImageRefreshEndpointBuildsAllAgentsWithoutDeletingImages(t *testing.T) 
 		t.Fatal("refresh deleted an image")
 	}
 }
+
+type lifecycleRunner struct {
+	commands [][]string
+}
+
+func (r *lifecycleRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	r.commands = append(r.commands, append([]string{name}, args...))
+	switch {
+	case name == "openshell" && len(args) > 0 && args[0] == "gateway" && len(args) > 1 && args[1] == "list":
+		return []byte(`[{"name":"gateway-one","active":true,"endpoint":"https://gateway.example","type":"podman","auth":"bearer","source":"remote"}]`), nil
+	case name == "podman" && len(args) > 0 && args[0] == "images":
+		return []byte(`[]`), nil
+	case name == "openshell":
+		return []byte(`{}`), nil
+	default:
+		return []byte(`{}`), nil
+	}
+}
+
+func (r *lifecycleRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error {
+	return nil
+}
+
+func newLifecycleServer(t *testing.T, store app.Store, runner *lifecycleRunner) *httptest.Server {
+	t.Helper()
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(&app.App{Store: store, Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+	return httpServer
+}
+
+func lifecycleStore(t *testing.T) app.Store {
+	t.Helper()
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+func TestResourceListsExposeUsage(t *testing.T) {
+	store := lifecycleStore(t)
+	defaultPolicy, err := store.CreatePolicyConfiguration("profile-default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPolicy, err := store.CreatePolicyConfiguration("other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProject(app.Project{Version: 1, Name: "demo", Root: "/repo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProfile(app.Profile{Version: 1, Name: "profile-default", Agent: "codex", Image: "image", Mode: "standard", Provider: "provider", Policy: otherPolicy.Path, Approval: "prompted"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProfile(app.Profile{Version: 1, Name: "profile-second", Agent: "codex", Image: "image", Mode: "standard", Provider: "provider", Policy: otherPolicy.Path, Approval: "prompted"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(app.Run{ID: "run-live123", Name: "live-run", Project: "demo", ProfileName: "profile-default", Gateway: "gateway-one", Status: app.StatusWorking}); err != nil {
+		t.Fatal(err)
+	}
+	server := newLifecycleServer(t, store, &lifecycleRunner{})
+
+	var projects []struct {
+		Name   string   `json:"name"`
+		UsedBy []string `json:"used_by"`
+	}
+	if response := requestJSON(t, http.MethodGet, server.URL+"/api/projects", nil, &projects); response.StatusCode != http.StatusOK || !slices.Equal(projects[0].UsedBy, []string{"live-run"}) {
+		t.Fatalf("projects = %#v", projects)
+	}
+	var profiles []struct {
+		Name         string   `json:"name"`
+		UsedBy       []string `json:"used_by"`
+		LastForAgent bool     `json:"last_for_agent"`
+	}
+	if response := requestJSON(t, http.MethodGet, server.URL+"/api/profiles", nil, &profiles); response.StatusCode != http.StatusOK {
+		t.Fatalf("profiles status = %d", response.StatusCode)
+	}
+	if !slices.Equal(profiles[0].UsedBy, []string{"live-run"}) || profiles[0].LastForAgent {
+		t.Fatalf("profiles = %#v", profiles)
+	}
+	if profiles[1].LastForAgent {
+		t.Fatalf("second profile marked last: %#v", profiles)
+	}
+	var gateways []struct {
+		Name   string   `json:"name"`
+		UsedBy []string `json:"used_by"`
+	}
+	if response := requestJSON(t, http.MethodGet, server.URL+"/api/gateways", nil, &gateways); response.StatusCode != http.StatusOK || !slices.Equal(gateways[0].UsedBy, []string{"live-run"}) {
+		t.Fatalf("gateways = %#v", gateways)
+	}
+	var policies []struct {
+		Name       string   `json:"name"`
+		UsedBy     []string `json:"used_by"`
+		DefaultFor string   `json:"default_for"`
+	}
+	if response := requestJSON(t, http.MethodGet, server.URL+"/api/policies", nil, &policies); response.StatusCode != http.StatusOK {
+		t.Fatalf("policies status = %d", response.StatusCode)
+	}
+	if !slices.Equal(policies[0].UsedBy, []string{"profile-default", "profile-second"}) || policies[0].DefaultFor != "" {
+		t.Fatalf("other policy = %#v", policies[0])
+	}
+	if policies[1].Name != "profile-default" || policies[1].DefaultFor != "profile-default" {
+		t.Fatalf("default policy = %#v", policies[1])
+	}
+	if defaultPolicy.Name == "" {
+		t.Fatal("unreachable default policy assertion")
+	}
+}
+
+func TestProjectDeleteEndpoint(t *testing.T) {
+	store := lifecycleStore(t)
+	if err := store.SaveProject(app.Project{Version: 1, Name: "unused", Root: "/repo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProject(app.Project{Version: 1, Name: "held", Root: "/held"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(app.Run{ID: "run-held123", Name: "held-run", Project: "held", Status: app.StatusCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	server := newLifecycleServer(t, store, &lifecycleRunner{})
+
+	var deleted struct {
+		Deleted bool `json:"deleted"`
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/projects/unused/delete", nil, &deleted); response.StatusCode != http.StatusOK || !deleted.Deleted {
+		t.Fatalf("delete status=%d deleted=%v", response.StatusCode, deleted)
+	}
+	var conflict struct {
+		Error      string   `json:"error"`
+		Dependents []string `json:"dependents"`
+	}
+	response := requestJSON(t, http.MethodPost, server.URL+"/api/projects/held/delete", nil, &conflict)
+	if response.StatusCode != http.StatusConflict || !slices.Equal(conflict.Dependents, []string{"held-run"}) {
+		t.Fatalf("conflict status=%d body=%+v", response.StatusCode, conflict)
+	}
+	response = requestJSON(t, http.MethodPost, server.URL+"/api/projects/missing/delete", nil, &conflict)
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing status = %d", response.StatusCode)
+	}
+}
+
+func TestProfileDeleteEndpoint(t *testing.T) {
+	store := lifecycleStore(t)
+	policy, err := store.CreatePolicyConfiguration("policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"one", "two"} {
+		if err := store.SaveProfile(app.Profile{Version: 1, Name: name, Agent: "codex", Image: "image", Mode: "standard", Provider: "provider", Policy: policy.Path, Approval: "prompted"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.SaveRun(app.Run{ID: "run-live123", Name: "live-run", ProfileName: "one", Status: app.StatusWorking}); err != nil {
+		t.Fatal(err)
+	}
+	server := newLifecycleServer(t, store, &lifecycleRunner{})
+
+	var conflict struct {
+		Dependents []string `json:"dependents"`
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/profiles/one/delete", nil, &conflict); response.StatusCode != http.StatusConflict || !slices.Equal(conflict.Dependents, []string{"live-run"}) {
+		t.Fatalf("active status=%d body=%+v", response.StatusCode, conflict)
+	}
+	if err := store.SaveRun(app.Run{ID: "run-live123", Status: app.StatusCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	var deleted struct {
+		Deleted bool `json:"deleted"`
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/profiles/one/delete", nil, &deleted); response.StatusCode != http.StatusOK || !deleted.Deleted {
+		t.Fatalf("delete status=%d deleted=%v", response.StatusCode, deleted)
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/profiles/two/delete", nil, &conflict); response.StatusCode != http.StatusConflict {
+		t.Fatalf("last-agent status = %d", response.StatusCode)
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/profiles/missing/delete", nil, &conflict); response.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing status = %d", response.StatusCode)
+	}
+}
+
+func TestPolicyDeleteEndpoint(t *testing.T) {
+	store := lifecycleStore(t)
+	if _, err := store.CreatePolicyConfiguration("orphan"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreatePolicyConfiguration("held"); err != nil {
+		t.Fatal(err)
+	}
+	held, err := store.LoadPolicyConfiguration("held")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProfile(app.Profile{Version: 1, Name: "profile", Agent: "codex", Image: "image", Mode: "standard", Provider: "provider", Policy: held.Path, Approval: "prompted"}); err != nil {
+		t.Fatal(err)
+	}
+	liveRunPolicy, err := store.CreatePolicyConfiguration("run-live123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingRunPolicy, err := store.CreatePolicyConfiguration("run-pending123-pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(app.Run{ID: "run-live123", Name: "live-run", Policy: liveRunPolicy.Path}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(app.Run{ID: "run-pending123", Name: "pending-run", PendingPolicy: pendingRunPolicy.Path}); err != nil {
+		t.Fatal(err)
+	}
+	server := newLifecycleServer(t, store, &lifecycleRunner{})
+
+	var deleted struct {
+		Deleted bool `json:"deleted"`
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/policies/orphan/delete", nil, &deleted); response.StatusCode != http.StatusOK || !deleted.Deleted {
+		t.Fatalf("delete status=%d deleted=%v", response.StatusCode, deleted)
+	}
+	var conflict struct {
+		Dependents []string `json:"dependents"`
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/policies/held/delete", nil, &conflict); response.StatusCode != http.StatusConflict || !slices.Equal(conflict.Dependents, []string{"profile"}) {
+		t.Fatalf("conflict status=%d body=%+v", response.StatusCode, conflict)
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/policies/run-live123/delete", nil, &conflict); response.StatusCode != http.StatusConflict || !slices.Equal(conflict.Dependents, []string{"live-run"}) {
+		t.Fatalf("live run conflict status=%d body=%+v", response.StatusCode, conflict)
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/policies/run-pending123-pending/delete", nil, &conflict); response.StatusCode != http.StatusConflict || !slices.Equal(conflict.Dependents, []string{"pending-run"}) {
+		t.Fatalf("pending run conflict status=%d body=%+v", response.StatusCode, conflict)
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/policies/missing/delete", nil, &conflict); response.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing status = %d", response.StatusCode)
+	}
+}
+
+func TestGatewayDeleteEndpoint(t *testing.T) {
+	store := lifecycleStore(t)
+	if err := store.SaveRun(app.Run{ID: "run-live123", Name: "live-run", Gateway: "gateway-one", Status: app.StatusWorking}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &lifecycleRunner{}
+	server := newLifecycleServer(t, store, runner)
+
+	var conflict struct {
+		Dependents []string `json:"dependents"`
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/gateways/gateway-one/delete", nil, &conflict); response.StatusCode != http.StatusConflict || !slices.Equal(conflict.Dependents, []string{"live-run"}) {
+		t.Fatalf("conflict status=%d body=%+v", response.StatusCode, conflict)
+	}
+	if len(runner.commands) != 0 {
+		t.Fatalf("blocked request issued commands: %#v", runner.commands)
+	}
+	if err := store.SaveRun(app.Run{ID: "run-live123", Status: app.StatusCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	runner.commands = nil
+	var deleted struct {
+		Deleted bool `json:"deleted"`
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/gateways/gateway-one/delete", nil, &deleted); response.StatusCode != http.StatusOK || !deleted.Deleted {
+		t.Fatalf("delete status=%d deleted=%v", response.StatusCode, deleted)
+	}
+	if len(runner.commands) != 1 || !slices.Equal(runner.commands[0], []string{"openshell", "gateway", "remove", "gateway-one"}) {
+		t.Fatalf("commands = %#v", runner.commands)
+	}
+}
+
+func TestRegistryClearEndpoint(t *testing.T) {
+	store := lifecycleStore(t)
+	if err := store.SaveRegistry(app.Registry{Reference: "registry.example/team/agentbox"}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &lifecycleRunner{}
+	server := newLifecycleServer(t, store, runner)
+
+	for range 2 {
+		var cleared struct {
+			Cleared bool `json:"cleared"`
+		}
+		if response := requestJSON(t, http.MethodPost, server.URL+"/api/registry/clear", nil, &cleared); response.StatusCode != http.StatusOK || !cleared.Cleared {
+			t.Fatalf("clear status=%d cleared=%v", response.StatusCode, cleared.Cleared)
+		}
+	}
+	for _, command := range runner.commands {
+		if command[0] == "podman" {
+			t.Fatalf("registry clear issued Podman command: %#v", command)
+		}
+	}
+	if _, err := os.Stat(store.RegistryPath()); !os.IsNotExist(err) {
+		t.Fatalf("registry file still exists: %v", err)
+	}
+}

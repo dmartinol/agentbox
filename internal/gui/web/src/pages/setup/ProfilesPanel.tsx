@@ -3,6 +3,8 @@ import { api } from '../../api';
 import type { ImageArtifact, PolicyConfiguration, Profile, Provider } from '../../types';
 import { Alert } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
+import { ActionButton } from '../../components/ui/action';
+import { ConfirmDialog } from '../../components/ui/confirm';
 import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input, Select } from '../../components/ui/input';
@@ -84,6 +86,9 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
   const [editingProfile, setEditingProfile] = useState(false);
   const [form, setForm] = useState<Profile>(emptyProfile);
   const [formError, setFormError] = useState('');
+  const [deleteProfile, setDeleteProfile] = useState<Profile | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [useProviderSettings, setUseProviderSettings] = useState(true);
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -262,6 +267,23 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
     }
   };
 
+  const remove = async () => {
+    if (!deleteProfile) return;
+    setDeleteBusy(true);
+    setDeleteError('');
+    try {
+      await api.deleteProfile(deleteProfile.name);
+      setDeleteProfile(null);
+      setNotice(`Profile ${deleteProfile.name} deleted`);
+      await load();
+      onChanged?.();
+    } catch (err) {
+      setDeleteError((err as Error).message);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
@@ -282,7 +304,25 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
                 <TD>{profile.mode}</TD>
                 <TD className="truncate font-mono text-xs text-muted">{profile.model || '—'}</TD>
                 <TD className="truncate">{profile.provider}</TD>
-                <TD><Button size="xs" variant="ghost" onClick={() => openEdit(profile)}>Edit</Button></TD>
+                <TD>
+                  <div className="flex flex-wrap gap-1">
+                    <Button size="xs" variant="ghost" onClick={() => openEdit(profile)}>Edit</Button>
+                    <ActionButton
+                      size="xs"
+                      variant="ghost"
+                      disabledReason={
+                        profile.used_by?.length
+                          ? `Used by active runs: ${profile.used_by.join(', ')}`
+                          : profile.last_for_agent
+                            ? 'Last profile for its agent'
+                            : undefined
+                      }
+                      onClick={() => { setDeleteProfile(profile); setDeleteError(''); }}
+                    >
+                      Delete
+                    </ActionButton>
+                  </div>
+                </TD>
               </TR>
             ))}
           </TBody>
@@ -412,6 +452,26 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
           </Field>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deleteProfile)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteProfile(null);
+            setDeleteError('');
+          }
+        }}
+        title={deleteProfile ? `Delete ${deleteProfile.name}` : 'Delete profile'}
+        confirmLabel="Delete profile"
+        busyLabel="Deleting…"
+        busy={deleteBusy}
+        onConfirm={() => void remove()}
+      >
+        {deleteError ? <Alert variant="danger" title="Profile deletion failed" className="mb-3">{deleteError}</Alert> : null}
+        <p className="text-sm text-muted">
+          Remove only the profile YAML. Its policy, image, and run records are kept.
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }

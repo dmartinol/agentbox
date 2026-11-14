@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/dmartinol/agentbox/internal/skills"
@@ -217,6 +218,36 @@ func (a *App) ProviderList(ctx context.Context, gateway string) ([]byte, error) 
 
 func (a *App) GatewayList(ctx context.Context) ([]byte, error) {
 	return a.Runner.Output(ctx, "openshell", "gateway", "list", "-o", "json")
+}
+
+func (a *App) GatewayUsage() (map[string][]string, error) {
+	usage := make(map[string][]string)
+	runs, err := a.Store.ListRuns()
+	if err != nil {
+		return nil, err
+	}
+	for _, run := range runs {
+		if run.Gateway == "" || terminalRunStatus(run.Status) {
+			continue
+		}
+		usage[run.Gateway] = append(usage[run.Gateway], runDisplayName(run))
+	}
+	for gateway := range usage {
+		sort.Strings(usage[gateway])
+	}
+	return usage, nil
+}
+
+func (a *App) GatewayRemove(ctx context.Context, name string) error {
+	usage, err := a.GatewayUsage()
+	if err != nil {
+		return err
+	}
+	if dependents := usage[name]; len(dependents) > 0 {
+		return &ConflictError{Resource: "gateway", Name: name, Reason: "non-terminal runs use it", Dependents: dependents}
+	}
+	_, err = a.Runner.Output(ctx, "openshell", "gateway", "remove", name)
+	return err
 }
 
 func (a *App) GatewayInfo(ctx context.Context, name string) ([]byte, error) {

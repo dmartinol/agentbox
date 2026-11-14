@@ -370,7 +370,9 @@ describe('provider management', () => {
     const usedRow = (await screen.findByText('model-gateway')).closest('tr');
     if (!usedRow) throw new Error('provider row missing');
     expect(within(usedRow).getByText('codex-default')).toBeInTheDocument();
-    expect(within(usedRow).getByRole('button', { name: 'Delete' })).toBeDisabled();
+    const button = within(usedRow).getByRole('button', { name: 'Delete' });
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(within(usedRow).getByText('Delete dependent profiles first')).toBeInTheDocument();
   });
 
   it('edits a single-credential provider', async () => {
@@ -402,8 +404,10 @@ describe('provider management', () => {
     const row = (await screen.findByText('OPENAI_API_KEY')).closest('tr');
     if (!row) throw new Error('provider row missing');
     expect(within(row).getByText('Built-in')).toBeInTheDocument();
-    expect(within(row).getByRole('button', { name: 'Edit' })).toBeDisabled();
-    expect(within(row).getByRole('button', { name: 'Delete' })).toBeDisabled();
+    expect(within(row).getByRole('button', { name: 'Edit' })).toHaveAttribute('aria-disabled', 'true');
+    expect(within(row).getByRole('button', { name: 'Delete' })).toHaveAttribute('aria-disabled', 'true');
+    expect(within(row).getByText('Built-in providers are managed automatically')).toBeInTheDocument();
+    expect(within(row).getByText('Built-in providers cannot be deleted')).toBeInTheDocument();
   });
 });
 
@@ -673,9 +677,9 @@ describe('image lifecycle', () => {
     const row = (await screen.findByText('localhost/openshell:codex-1.0.0-r3')).closest('tr');
     if (!row) throw new Error('image row missing');
     const button = within(row).getByRole('button', { name: 'Delete' });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAttribute('title', 'In use by profile codex-default');
-    expect(within(row).getByText('profile codex-default')).toBeInTheDocument();
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).toHaveAttribute('aria-describedby');
+    expect(within(row).getByText('In use by profile codex-default')).toBeInTheDocument();
   });
 
   it('prunes unused images after confirmation', async () => {
@@ -801,6 +805,8 @@ describe('mcp tools', () => {
     const row = (await screen.findByText('codex-work')).closest('tr');
     if (!row) throw new Error('entry row missing');
     await user.click(within(row).getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText(/Global and project MCP configuration is kept/i));
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
     expect(await screen.findByText('MCP tools entry codex-work deleted')).toBeInTheDocument();
   });
 });
@@ -907,6 +913,8 @@ describe('skills', () => {
     const row = (await screen.findByText('codex-skills')).closest('tr');
     if (!row) throw new Error('entry row missing');
     await user.click(within(row).getByRole('button', { name: 'Delete' }));
+    expect(await screen.findByText(/Host skills, plugins, and project files are kept/i));
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
     expect(await screen.findByText('Skills entry codex-skills deleted')).toBeInTheDocument();
   });
 });

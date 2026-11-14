@@ -103,6 +103,7 @@ type Run struct {
 	Created          time.Time `json:"created"`
 	Source           string    `json:"source"`
 	Project          string    `json:"project,omitempty"`
+	ProfileName      string    `json:"profile,omitempty"`
 	Worktree         string    `json:"worktree"`
 	WorktreeIsolated bool      `json:"worktree_isolated,omitempty"`
 	Branch           string    `json:"branch"`
@@ -267,6 +268,13 @@ func (s Store) LoadProfile(name string) (Profile, error) {
 		return Profile{}, err
 	}
 	return parseProfile(b, name)
+}
+
+func (s Store) DeleteProfile(name string) error {
+	if err := ensureResourceExists(s.ProfilePath(name), "profile", name); err != nil {
+		return err
+	}
+	return os.Remove(s.ProfilePath(name))
 }
 
 func parseProfile(b []byte, name string) (Profile, error) {
@@ -446,6 +454,23 @@ func (s Store) ListProjects() ([]Project, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+func (s Store) DeleteProject(name string) error {
+	if err := ensureResourceExists(s.ProjectPath(name), "project", name); err != nil {
+		return err
+	}
+	return os.Remove(s.ProjectPath(name))
+}
+
+func ensureResourceExists(path, resource, name string) error {
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return &NotFoundError{Resource: resource, Name: name}
+		}
+		return err
+	}
+	return nil
 }
 
 func (s Store) ProjectRoot(root string) (Project, bool, error) {

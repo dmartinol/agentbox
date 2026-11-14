@@ -7,6 +7,7 @@ import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input, Select } from '../../components/ui/input';
 import { Modal } from '../../components/ui/dialog';
+import { ConfirmDialog } from '../../components/ui/confirm';
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 
 const agents = ['claude', 'codex', 'opencode'];
@@ -22,6 +23,11 @@ export function McpPanel() {
   const [available, setAvailable] = useState<string[]>([]);
   const [selectedServers, setSelectedServers] = useState<string[]>([]);
   const [busy, setBusy] = useState<string>();
+  const [editing, setEditing] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<MCPTools | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = async () => {
     try {
@@ -50,6 +56,7 @@ export function McpPanel() {
   };
 
   const openCreate = async () => {
+    setEditing(false);
     setCreateForm({ name: '', agent: 'claude' });
     setSelectedServers([]);
     setAvailable([]);
@@ -63,6 +70,16 @@ export function McpPanel() {
     await loadServers(agent);
   };
 
+  const openEdit = async (entry: MCPTools) => {
+    setEditing(true);
+    setCreateForm({ name: entry.name, agent: entry.agent });
+    setSelectedServers(entry.servers ?? []);
+    setAvailable([]);
+    setFormError('');
+    setCreateOpen(true);
+    await loadServers(entry.agent);
+  };
+
   const toggleServer = (server: string) => {
     setSelectedServers((current) => current.includes(server) ? current.filter((item) => item !== server) : [...current, server]);
   };
@@ -72,25 +89,28 @@ export function McpPanel() {
     try {
       await api.createMCP({ version: 1, name: createForm.name.trim(), agent: createForm.agent, servers: selectedServers });
       setCreateOpen(false);
-      setNotice('MCP tools entry created');
+      setNotice(`MCP tools entry ${editing ? 'saved' : 'created'}`);
       await load();
     } catch (err) {
-      setError(err as Error);
+      setFormError((err as Error).message);
     } finally {
       setBusy(undefined);
     }
   };
 
-  const remove = async (name: string) => {
-    setBusy(name);
+  const remove = async () => {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    setDeleteError('');
     try {
-      await api.deleteMCP(name);
-      setNotice(`MCP tools entry ${name} deleted`);
+      await api.deleteMCP(deleteTarget.name);
+      setDeleteTarget(null);
+      setNotice(`MCP tools entry ${deleteTarget.name} deleted`);
       await load();
     } catch (err) {
-      setError(err as Error);
+      setDeleteError((err as Error).message);
     } finally {
-      setBusy(undefined);
+      setDeleteBusy(false);
     }
   };
 
@@ -111,7 +131,10 @@ export function McpPanel() {
                 <TD className="truncate">{entry.agent}</TD>
                 <TD className="truncate text-muted">{entry.servers.join(', ')}</TD>
                 <TD>
-                  <Button size="xs" variant="ghost" loading={busy === entry.name} onClick={() => void remove(entry.name)}>Delete</Button>
+                  <div className="flex flex-wrap gap-1">
+                    <Button size="xs" variant="ghost" onClick={() => void openEdit(entry)}>Edit</Button>
+                    <Button size="xs" variant="ghost" loading={busy === entry.name} onClick={() => { setDeleteTarget(entry); setDeleteError(''); }}>Delete</Button>
+                  </div>
                 </TD>
               </TR>
             ))}
@@ -131,9 +154,10 @@ export function McpPanel() {
         ) : null}
       </div>
 
-      <Modal open={createOpen} onOpenChange={setCreateOpen} title="Create MCP tools" footer={<><Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button><Button loading={busy === 'create'} disabled={!createForm.name.trim() || selectedServers.length === 0} onClick={() => void create()}>Create</Button></>}>
+      <Modal open={createOpen} onOpenChange={setCreateOpen} title={editing ? `Edit ${createForm.name}` : 'Create MCP tools'} footer={<><Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button><Button loading={busy === 'create'} disabled={!createForm.name.trim() || selectedServers.length === 0} onClick={() => void create()}>{editing ? 'Save' : 'Create'}</Button></>}>
         <div className="grid gap-3">
-          <Field label="Name" htmlFor="mcp-name" required><Input id="mcp-name" value={createForm.name} onChange={(event) => setCreateForm({ ...createForm, name: event.target.value })} /></Field>
+          {formError ? <div className="sm:col-span-2"><Alert variant="danger" title="Unable to save MCP tools">{formError}</Alert></div> : null}
+          <Field label="Name" htmlFor="mcp-name" required><Input id="mcp-name" readOnly={editing} value={createForm.name} onChange={(event) => setCreateForm({ ...createForm, name: event.target.value })} /></Field>
           <Field label="Agent" htmlFor="mcp-agent" required helper="Global MCP servers are configured per agent on this host.">
             <Select id="mcp-agent" value={createForm.agent} onChange={(event) => void changeAgent(event.target.value)}>
               {agents.map((agent) => <option key={agent} value={agent}>{agent}</option>)}
@@ -141,6 +165,15 @@ export function McpPanel() {
           </Field>
           <Field label="Servers" htmlFor="mcp-servers" required helper={available.length === 0 ? `No global ${createForm.agent} MCP servers found on this host; configure them with the agent first.` : 'Selected servers are copied into the run at start.'}>
             <div id="mcp-servers" className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+              {selectedServers.filter((server) => !available.includes(server)).length ? (
+                <div className="text-xs text-warning">Unavailable saved servers are shown below and can be removed from the entry.</div>
+              ) : null}
+              {selectedServers.filter((server) => !available.includes(server)).map((server) => (
+                <label key={`saved-${server}`} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked onChange={() => toggleServer(server)} className="size-3.5 accent-accent" />
+                  {server} <span className="text-xs text-muted">(unavailable)</span>
+                </label>
+              ))}
               {available.map((server) => (
                 <label key={server} className="flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={selectedServers.includes(server)} onChange={() => toggleServer(server)} className="size-3.5 accent-accent" />
@@ -151,6 +184,24 @@ export function McpPanel() {
           </Field>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+            setDeleteError('');
+          }
+        }}
+        title={deleteTarget ? `Delete ${deleteTarget.name}` : 'Delete MCP tools'}
+        confirmLabel="Delete"
+        busyLabel="Deleting"
+        busy={deleteBusy}
+        onConfirm={() => void remove()}
+      >
+        {deleteError ? <Alert variant="danger" title="MCP deletion failed" className="mb-3">{deleteError}</Alert> : null}
+        <p className="text-sm text-muted">Remove only this AgentBox selection. Global and project MCP configuration is kept.</p>
+      </ConfirmDialog>
     </div>
   );
 }

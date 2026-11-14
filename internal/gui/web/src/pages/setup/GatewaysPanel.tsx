@@ -4,6 +4,8 @@ import type { Gateway } from '../../types';
 import { Alert } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
+import { ActionButton } from '../../components/ui/action';
+import { ConfirmDialog } from '../../components/ui/confirm';
 import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
@@ -19,6 +21,9 @@ export function GatewaysPanel() {
   const [form, setForm] = useState({ url: 'https://localhost:17670', name: 'openshell' });
   const [info, setInfo] = useState<unknown>();
   const [busy, setBusy] = useState<string>();
+  const [deleteGateway, setDeleteGateway] = useState<Gateway | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = async () => {
     try {
@@ -46,6 +51,22 @@ export function GatewaysPanel() {
     }
   };
 
+  const remove = async () => {
+    if (!deleteGateway) return;
+    setDeleteBusy(true);
+    setDeleteError('');
+    try {
+      await api.deleteGateway(deleteGateway.name);
+      setDeleteGateway(null);
+      setNotice(`Gateway ${deleteGateway.name} removed locally`);
+      await load();
+    } catch (err) {
+      setDeleteError((err as Error).message);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex justify-end gap-2">
@@ -60,7 +81,7 @@ export function GatewaysPanel() {
         <EmptyState title="No gateways" description="Connect or start an OpenShell gateway." />
       ) : (
         <Table>
-          <THead><TR><TH className="w-[16%]">Name</TH><TH className="w-[12%]">Status</TH><TH className="w-[28%]">Endpoint</TH><TH className="w-[12%]">Type</TH><TH>Inspect</TH></TR></THead>
+          <THead><TR><TH className="w-[16%]">Name</TH><TH className="w-[12%]">Status</TH><TH className="w-[24%]">Endpoint</TH><TH className="w-[12%]">Type</TH><TH>Actions</TH></TR></THead>
           <TBody>
             {gateways.map((gateway) => (
               <TR key={gateway.name}>
@@ -68,7 +89,19 @@ export function GatewaysPanel() {
                 <TD><Badge tone={gateway.active ? 'success' : 'neutral'}>{gateway.active ? 'Active' : 'Inactive'}</Badge></TD>
                 <TD className="truncate font-mono text-xs text-muted">{gateway.endpoint}</TD>
                 <TD>{gateway.type}</TD>
-                <TD><Button size="xs" variant="ghost" loading={busy === `inspect:${gateway.name}`} onClick={() => void action(`inspect:${gateway.name}`, async () => setInfo(await api.gatewayInfo(gateway.name)), 'Gateway inspected')}>Inspect</Button></TD>
+                <TD>
+                  <div className="flex flex-wrap gap-1">
+                    <Button size="xs" variant="ghost" loading={busy === `inspect:${gateway.name}`} onClick={() => void action(`inspect:${gateway.name}`, async () => setInfo(await api.gatewayInfo(gateway.name)), 'Gateway inspected')}>Inspect</Button>
+                    <ActionButton
+                      size="xs"
+                      variant="ghost"
+                      disabledReason={gateway.used_by?.length ? `Used by active runs: ${gateway.used_by.join(', ')}` : undefined}
+                      onClick={() => { setDeleteGateway(gateway); setDeleteError(''); }}
+                    >
+                      Remove
+                    </ActionButton>
+                  </div>
+                </TD>
               </TR>
             ))}
           </TBody>
@@ -87,6 +120,26 @@ export function GatewaysPanel() {
           <Field label="Name" htmlFor="gateway-name" required><Input id="gateway-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></Field>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deleteGateway)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteGateway(null);
+            setDeleteError('');
+          }
+        }}
+        title={deleteGateway ? `Remove ${deleteGateway.name}` : 'Remove gateway'}
+        confirmLabel="Remove local registration"
+        busyLabel="Removing…"
+        busy={deleteBusy}
+        onConfirm={() => void remove()}
+      >
+        {deleteError ? <Alert variant="danger" title="Gateway removal failed" className="mb-3">{deleteError}</Alert> : null}
+        <p className="text-sm text-muted">
+          Remove the local OpenShell gateway registration only. The remote gateway, its sandboxes, and run records are kept.
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }

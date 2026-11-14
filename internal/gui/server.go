@@ -59,8 +59,10 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/projects", s.listProjects)
 	mux.HandleFunc("POST /api/projects", s.saveProject)
+	mux.HandleFunc("POST /api/projects/{name}/delete", s.deleteProject)
 	mux.HandleFunc("GET /api/profiles", s.listProfiles)
 	mux.HandleFunc("POST /api/profiles", s.saveProfile)
+	mux.HandleFunc("POST /api/profiles/{name}/delete", s.deleteProfile)
 	mux.HandleFunc("GET /api/providers", s.listProviders)
 	mux.HandleFunc("GET /api/providers/{name}/models", s.providerModels)
 	mux.HandleFunc("POST /api/providers", s.setupProvider)
@@ -79,11 +81,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/images/push", s.pushImage)
 	mux.HandleFunc("GET /api/registry", s.getRegistry)
 	mux.HandleFunc("POST /api/registry", s.saveRegistry)
+	mux.HandleFunc("POST /api/registry/clear", s.clearRegistry)
 	mux.HandleFunc("POST /api/registry/discover", s.discoverRegistry)
 
 	mux.HandleFunc("GET /api/gateways", s.listGateways)
 	mux.HandleFunc("POST /api/gateways/connect", s.connectGateway)
 	mux.HandleFunc("POST /api/gateways/start", s.startGateway)
+	mux.HandleFunc("POST /api/gateways/{name}/delete", s.deleteGateway)
 	mux.HandleFunc("GET /api/gateways/{name}/info", s.gatewayInfo)
 
 	mux.HandleFunc("GET /api/policies", s.listPolicies)
@@ -92,6 +96,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/policies/{name}", s.savePolicyContent)
 	mux.HandleFunc("POST /api/policies/{name}/host", s.addPolicyHost)
 	mux.HandleFunc("POST /api/policies/{name}/apply", s.applyPolicy)
+	mux.HandleFunc("POST /api/policies/{name}/delete", s.deletePolicy)
 
 	mux.HandleFunc("GET /api/mcps", s.listMCPs)
 	mux.HandleFunc("POST /api/mcps", s.createMCP)
@@ -142,6 +147,16 @@ func writeError(w http.ResponseWriter, err error) {
 	if errors.Is(err, context.Canceled) {
 		status = http.StatusRequestTimeout
 	}
+	var conflict *app.ConflictError
+	var missing *app.NotFoundError
+	if errors.As(err, &conflict) {
+		status = http.StatusConflict
+		writeJSON(w, status, map[string]any{"error": err.Error(), "dependents": conflict.Dependents})
+		return
+	}
+	if errors.As(err, &missing) {
+		status = http.StatusNotFound
+	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
@@ -155,12 +170,13 @@ func decode(w http.ResponseWriter, r *http.Request, value any) bool {
 }
 
 type gatewayRecord struct {
-	Name     string `json:"name"`
-	Active   bool   `json:"active"`
-	Endpoint string `json:"endpoint"`
-	Type     string `json:"type"`
-	Auth     string `json:"auth"`
-	Source   string `json:"source"`
+	Name     string   `json:"name"`
+	Active   bool     `json:"active"`
+	Endpoint string   `json:"endpoint"`
+	Type     string   `json:"type"`
+	Auth     string   `json:"auth"`
+	Source   string   `json:"source"`
+	UsedBy   []string `json:"used_by,omitempty"`
 }
 
 func (s *Server) gateways(ctx context.Context) ([]gatewayRecord, error) {
@@ -171,6 +187,13 @@ func (s *Server) gateways(ctx context.Context) ([]gatewayRecord, error) {
 	var rows []gatewayRecord
 	if err := json.Unmarshal(data, &rows); err != nil {
 		return nil, fmt.Errorf("invalid gateway JSON: %w", err)
+	}
+	usage, err := s.app.GatewayUsage()
+	if err != nil {
+		return nil, err
+	}
+	for index := range rows {
+		rows[index].UsedBy = usage[rows[index].Name]
 	}
 	return rows, nil
 }
@@ -188,8 +211,8 @@ type overviewResponse struct {
 	Summary  map[string]int      `json:"summary"`
 	Tree     []projectRunNode    `json:"tree"`
 	Runs     []app.Run           `json:"runs"`
-	Projects []app.Project       `json:"projects"`
-	Profiles []app.Profile       `json:"profiles"`
+	Projects []projectRecord     `json:"projects"`
+	Profiles []profileRecord     `json:"profiles"`
 	Images   []app.ImageArtifact `json:"images"`
 	Gateways []gatewayRecord     `json:"gateways"`
 	Doctor   []app.Check         `json:"doctor"`
@@ -202,12 +225,12 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	projects, err := s.app.Store.ListProjects()
+	projectRecords, err := s.projectsWithUsage()
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	profiles, err := s.app.Store.ListProfiles()
+	profileRecords, err := s.profilesWithUsage(r.Context())
 	if err != nil {
 		writeError(w, err)
 		return
@@ -223,13 +246,21 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	doctor := s.app.Doctor(ctx)
-	tree := newProjectRunTree(projects, runs)
+	rawProjects := make([]app.Project, 0, len(projectRecords))
+	for _, project := range projectRecords {
+		rawProjects = append(rawProjects, project.Project)
+	}
+	rawProfiles := make([]app.Profile, 0, len(profileRecords))
+	for _, profile := range profileRecords {
+		rawProfiles = append(rawProfiles, profile.Profile)
+	}
+	tree := newProjectRunTree(rawProjects, runs)
 	writeJSON(w, http.StatusOK, overviewResponse{
-		Summary:  newSummary(runs, images, gateways, profiles, projects),
+		Summary:  newSummary(runs, images, gateways, rawProfiles, rawProjects),
 		Tree:     tree,
 		Runs:     runs,
-		Projects: projects,
-		Profiles: profiles,
+		Projects: projectRecords,
+		Profiles: profileRecords,
 		Images:   images,
 		Gateways: gateways,
 		Doctor:   doctor,
@@ -592,8 +623,35 @@ type projectRequest struct {
 	Worktree *bool  `json:"worktree"`
 }
 
-func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
+type projectRecord struct {
+	app.Project
+	UsedBy []string `json:"used_by,omitempty"`
+}
+
+type profileRecord struct {
+	app.Profile
+	UsedBy       []string `json:"used_by,omitempty"`
+	LastForAgent bool     `json:"last_for_agent,omitempty"`
+}
+
+func (s *Server) projectsWithUsage() ([]projectRecord, error) {
 	projects, err := s.app.Store.ListProjects()
+	if err != nil {
+		return nil, err
+	}
+	usage, err := s.app.ProjectUsage()
+	if err != nil {
+		return nil, err
+	}
+	records := make([]projectRecord, 0, len(projects))
+	for _, project := range projects {
+		records = append(records, projectRecord{Project: project, UsedBy: usage[project.Name]})
+	}
+	return records, nil
+}
+
+func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
+	projects, err := s.projectsWithUsage()
 	if err != nil {
 		writeError(w, err)
 		return
@@ -618,25 +676,47 @@ func (s *Server) saveProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, project)
 }
 
-func (s *Server) listProfiles(w http.ResponseWriter, r *http.Request) {
-	profiles, err := s.app.Store.ListProfiles()
-	if err != nil {
+func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.DeleteProject(r.PathValue("name")); err != nil {
 		writeError(w, err)
 		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
+func (s *Server) profilesWithUsage(ctx context.Context) ([]profileRecord, error) {
+	profiles, err := s.app.Store.ListProfiles()
+	if err != nil {
+		return nil, err
 	}
 	for index, profile := range profiles {
 		next, changed, err := s.prepareProfilePolicy(profile)
 		if err != nil {
-			writeError(w, err)
-			return
+			return nil, err
 		}
 		if changed {
 			if err := s.app.Store.SaveProfile(next); err != nil {
-				writeError(w, err)
-				return
+				return nil, err
 			}
 			profiles[index] = next
 		}
+	}
+	usage, err := s.app.ProfileUsage()
+	if err != nil {
+		return nil, err
+	}
+	records := make([]profileRecord, 0, len(profiles))
+	for _, profile := range profiles {
+		records = append(records, profileRecord{Profile: profile, UsedBy: usage.UsedBy[profile.Name], LastForAgent: usage.LastForAgent[profile.Name]})
+	}
+	return records, nil
+}
+
+func (s *Server) listProfiles(w http.ResponseWriter, r *http.Request) {
+	profiles, err := s.profilesWithUsage(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, profiles)
 }
@@ -684,6 +764,14 @@ func (s *Server) saveProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, profile)
+}
+
+func (s *Server) deleteProfile(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.DeleteProfile(r.PathValue("name")); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
 }
 
 type providerRequest struct {
@@ -1122,13 +1210,7 @@ func (s *Server) deleteImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.app.ImageRemove(r.Context(), request.Reference); err != nil {
-		status := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "in use by") {
-			status = http.StatusConflict
-		} else if strings.Contains(err.Error(), "not found") {
-			status = http.StatusNotFound
-		}
-		writeJSON(w, status, map[string]string{"error": err.Error()})
+		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
@@ -1219,6 +1301,14 @@ func (s *Server) discoverRegistry(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, images)
 }
 
+func (s *Server) clearRegistry(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.ClearRegistry(); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"cleared": true})
+}
+
 func (s *Server) listGateways(w http.ResponseWriter, r *http.Request) {
 	gateways, err := s.gateways(r.Context())
 	if err != nil {
@@ -1253,6 +1343,14 @@ func (s *Server) startGateway(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]bool{"ok": true})
 }
 
+func (s *Server) deleteGateway(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.GatewayRemove(r.Context(), r.PathValue("name")); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
 func (s *Server) gatewayInfo(w http.ResponseWriter, r *http.Request) {
 	data, err := s.app.GatewayInfo(r.Context(), r.PathValue("name"))
 	if err != nil {
@@ -1274,6 +1372,14 @@ func (s *Server) listPolicies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, policies)
+}
+
+func (s *Server) deletePolicy(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.DeletePolicyConfiguration(r.PathValue("name")); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
 }
 
 type policyRequest struct {

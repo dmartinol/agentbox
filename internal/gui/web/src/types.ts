@@ -28,6 +28,7 @@ export interface Run {
   approval: string;
   status: RunStatus;
   status_detail?: string;
+  profile?: string;
   synced: boolean;
   policy: string;
   mcp?: string;
@@ -41,6 +42,7 @@ export interface Project {
   name: string;
   root: string;
   worktree?: boolean;
+  used_by?: string[];
 }
 
 export interface Profile {
@@ -56,6 +58,8 @@ export interface Profile {
   base_url?: string;
   api_key_env?: string;
   args?: string[];
+  used_by?: string[];
+  last_for_agent?: boolean;
 }
 
 export interface ImageArtifact {
@@ -76,6 +80,7 @@ export interface Gateway {
   type: string;
   auth: string;
   source: string;
+  used_by?: string[];
 }
 
 export interface Provider {
@@ -97,6 +102,7 @@ export interface PolicyConfiguration {
   name: string;
   path: string;
   used_by?: string[];
+  default_for?: string;
 }
 
 export interface MCPTools {

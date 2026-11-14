@@ -3,6 +3,7 @@ import { api } from '../../api';
 import type { GuiTask, ImageArtifact, Registry } from '../../types';
 import { Alert } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
+import { ActionButton } from '../../components/ui/action';
 import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
@@ -33,6 +34,9 @@ export function ImagesPanel({
   const [pullRef, setPullRef] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<ImageArtifact>();
   const [pruneOpen, setPruneOpen] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearError, setClearError] = useState('');
+  const [clearBusy, setClearBusy] = useState(false);
   const [busy, setBusy] = useState<string>();
 
   const load = async () => {
@@ -131,6 +135,22 @@ export function ImagesPanel({
     }
   };
 
+  const clearRegistry = async () => {
+    setClearBusy(true);
+    setClearError('');
+    try {
+      await api.clearRegistry();
+      setRegistry({ reference: '' });
+      setRegistryImages([]);
+      setClearOpen(false);
+      setNotice('Saved registry reference removed');
+    } catch (err) {
+      setClearError((err as Error).message);
+    } finally {
+      setClearBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap justify-end gap-2">
@@ -158,8 +178,14 @@ export function ImagesPanel({
                   <TD>{image.os || 'linux'}/{image.arch || 'arm64'}</TD>
                   <TD>
                     <div className="flex items-center gap-2">
-                      <Button size="sm" variant="ghost" disabled={holders.length > 0} title={holders.length ? `In use by ${holders.join(', ')}` : undefined} onClick={() => { setActionError(null); setDeleteTarget(image); }}>Delete</Button>
-                      {holders.length ? <span className="text-xs text-muted">{holders.join(', ')}</span> : null}
+                      <ActionButton
+                        size="sm"
+                        variant="ghost"
+                        disabledReason={holders.length ? `In use by ${holders.join(', ')}` : undefined}
+                        onClick={() => { setActionError(null); setDeleteTarget(image); }}
+                      >
+                        Delete
+                      </ActionButton>
                     </div>
                   </TD>
                 </TR>
@@ -184,6 +210,14 @@ export function ImagesPanel({
           >
             {busy === 'discover' ? 'Discovering' : 'Discover'}
           </Button>
+          <ActionButton
+            size="sm"
+            variant="outline"
+            disabledReason={registry.reference.trim() ? undefined : 'No saved registry reference'}
+            onClick={() => { setClearError(''); setClearOpen(true); }}
+          >
+            Clear
+          </ActionButton>
         </div>
         {registryImages.length > 0 ? (
           <Table className="mt-3">
@@ -244,7 +278,7 @@ export function ImagesPanel({
         {actionError ? <Alert variant="danger" title="Unable to delete image">{actionError.message}</Alert> : null}
         {deleteTarget?.used_by?.length ? (
           <Alert variant="warning" title="Image is in use">Remove it from these holders first: {deleteTarget.used_by.join(', ')}</Alert>
-        ) : <p className="text-sm text-muted">Delete this local image? Profiles and active runs must not reference it.</p>}
+        ) : <p className="text-sm text-muted">Delete this local image and its tags. Profile and run records are kept.</p>}
       </ConfirmDialog>
 
       <ConfirmDialog
@@ -258,6 +292,24 @@ export function ImagesPanel({
       >
         {actionError ? <Alert variant="danger" title="Unable to prune images">{actionError.message}</Alert> : null}
         <p className="text-sm text-muted">Delete every AgentBox image that no profile and no non-terminal run references.</p>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={clearOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setClearOpen(false);
+            setClearError('');
+          }
+        }}
+        title="Clear saved registry"
+        confirmLabel="Clear registry"
+        busyLabel="Clearing"
+        busy={clearBusy}
+        onConfirm={() => void clearRegistry()}
+      >
+        {clearError ? <Alert variant="danger" title="Unable to clear registry" className="mb-3">{clearError}</Alert> : null}
+        <p className="text-sm text-muted">Remove only the saved registry reference. Podman images and registry credentials are kept.</p>
       </ConfirmDialog>
     </div>
   );
