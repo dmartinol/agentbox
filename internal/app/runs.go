@@ -420,6 +420,9 @@ func (a *App) Attach(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	if err := a.waitForAttachSession(ctx, r, agentSessionName); err != nil {
+		return err
+	}
 	// The CLI attaches the user's real terminal, so the process streams
 	// straight through: OpenShell detects the local terminal and sizes the
 	// remote pty from it. Routing through the fixed-size pty bridge instead
@@ -444,6 +447,39 @@ func attachArgs(r Run, session string) []string {
 	return args
 }
 
+const (
+	attachSessionWait  = 30 * time.Second
+	attachPollInterval = 250 * time.Millisecond
+)
+
+// waitForAttachSession blocks until the tmux session exists. The GUI attaches
+// as soon as a run reports running, which is slightly before the sandbox
+// bootstrap creates the tmux session; without the wait the attach fails with
+// "no sessions" and the terminal stays dead.
+func (a *App) waitForAttachSession(ctx context.Context, r Run, session string) error {
+	deadline := time.Now().Add(attachSessionWait)
+	for {
+		_, err := a.sandboxExec(ctx, r, "tmux", "has-session", "-t", session)
+		if err == nil {
+			return nil
+		}
+		if strings.Contains(strings.ToLower(err.Error()), "sandbox not found") {
+			return err
+		}
+		if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", "test -f /workspace/finished"); err == nil {
+			return fmt.Errorf("session %q has ended", session)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("session %q did not start", session)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(attachPollInterval):
+		}
+	}
+}
+
 // AttachStream attaches the run's agent session.
 func (a *App) AttachStream(ctx context.Context, id string, in io.Reader, out, errOut io.Writer, size TerminalSize, resizes <-chan TerminalSize) error {
 	return a.AttachSessionStream(ctx, id, agentSessionName, in, out, errOut, size, resizes)
@@ -457,6 +493,9 @@ func (a *App) AttachSessionStream(ctx context.Context, id, session string, in io
 	}
 	r, err := a.Store.LoadRun(id)
 	if err != nil {
+		return err
+	}
+	if err := a.waitForAttachSession(ctx, r, session); err != nil {
 		return err
 	}
 	if !size.Valid() {
