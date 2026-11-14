@@ -86,6 +86,7 @@ func ParsePolicy(b []byte) (Policy, error) {
 	return p, nil
 }
 
+// DefaultPolicy returns the baseline policy for an agent sandbox.
 func DefaultPolicy() []byte {
 	return []byte("version: 1\nfilesystem_policy:\n  include_workdir: true\n  read_only:\n    - /usr\n    - /lib\n    - /etc\n    - /proc\n    - /dev/urandom\n  read_write:\n    - /workspace\n    - /tmp\n    - /var/tmp\n    - /dev/null\n    - /dev/pts\n    - /dev/ptmx\nlandlock:\n  compatibility: hard_requirement\nprocess:\n  run_as_user: sandbox\n  run_as_group: sandbox\nnetwork_policies: {}\n")
 }
@@ -428,6 +429,8 @@ func agentEgressBinaries(agent string) []string {
 		"/usr/local/bin/node",
 		"/usr/bin/git",
 		"/usr/lib/git-core/**",
+		"/usr/bin/curl",
+		"/usr/bin/git-lfs",
 	}
 }
 

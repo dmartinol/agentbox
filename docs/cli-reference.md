@@ -39,9 +39,9 @@ flag-based subcommands also accept `--help`.
 | [`settings`]({{ '/cli-reference/settings/' | relative_url }}) | Worktree root and branch prefix defaults. |
 | [`project`]({{ '/cli-reference/project/' | relative_url }}) | Register and inspect Git projects. |
 | [`profile`]({{ '/cli-reference/profile/' | relative_url }}) | Reusable agent, image, provider, and policy configuration. |
-| [`image`]({{ '/cli-reference/image/' | relative_url }}) | Build, inspect, push, and pull AgentBox images, and configure a registry. |
+| [`image`]({{ '/cli-reference/image/' | relative_url }}) | Build, inspect, refresh, remove, push, and pull AgentBox images, and configure a registry. |
 | [`gateway`]({{ '/cli-reference/gateway/' | relative_url }}) | List, inspect, connect, and start OpenShell gateways. |
-| [`provider`]({{ '/cli-reference/provider/' | relative_url }}) | Register an inference endpoint with OpenShell. |
+| [`provider`]({{ '/cli-reference/provider/' | relative_url }}) | Register inference providers with OpenShell. |
 | [`policy`]({{ '/cli-reference/policy/' | relative_url }}) | Inspect or edit the sandbox policy for an existing run. |
 | [`mcp`]({{ '/cli-reference/mcp/' | relative_url }}) | Select global MCP servers by name for an agent's runs. |
 | [`skill`]({{ '/cli-reference/skill/' | relative_url }}) | Select host skills and plugin bundles for an agent's runs. |

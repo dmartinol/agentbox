@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,7 +44,7 @@ func TestPrepareAgentGeneratesIsolatedConfigForEachAgentMode(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				for _, want := range []string{"HOME=/workspace/state/home", "XDG_CONFIG_HOME=/workspace/state/config", "XDG_DATA_HOME=/workspace/state/data", "TMPDIR=/tmp", "print", "hello"} {
+				for _, want := range []string{"HOME=/workspace/state/home", "XDG_CONFIG_HOME=/workspace/state/config", "XDG_DATA_HOME=/workspace/state/data", "print", "hello"} {
 					if !strings.Contains(string(script), want) {
 						t.Errorf("script lacks %q:\n%s", want, script)
 					}
@@ -173,7 +174,7 @@ func TestAgentScriptUsesUTF8Locale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"export LANG=C.UTF-8", "export LC_ALL=C.UTF-8"} {
+	for _, want := range []string{"export LANG=C.UTF-8", "export LC_ALL=C.UTF-8", "export TMPDIR=/tmp"} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("agent script lacks %q:\n%s", want, script)
 		}
@@ -507,5 +508,37 @@ func TestActivityScriptReportsQuestionsAsWaitingForInput(t *testing.T) {
 	h.hook("PreToolUse", "working", "running a tool", trap)
 	if got := h.current(); got != "working/running a tool" {
 		t.Fatalf("text inside tool_input was read as the tool name: %q", got)
+	}
+}
+
+func TestPrepareAgentNeverWritesGitCredentials(t *testing.T) {
+	for _, agent := range []string{"codex", "claude", "opencode"} {
+		t.Run(agent, func(t *testing.T) {
+			store := Store{Base: t.TempDir()}
+			app := App{Store: store}
+			dir, err := app.PrepareAgent(context.Background(), Run{ID: "run-unit123"}, testProfile(agent, "standard", "prompted"), "", nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "home", ".gitconfig")); !os.IsNotExist(err) {
+				t.Fatalf("run config has a gitconfig: %v", err)
+			}
+			err = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+				if err != nil || entry.IsDir() {
+					return err
+				}
+				body, readErr := os.ReadFile(path)
+				if readErr != nil {
+					return readErr
+				}
+				if strings.Contains(string(body), "git-credential") {
+					return fmt.Errorf("%s configures a git credential helper", path)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

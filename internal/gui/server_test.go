@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -327,11 +328,13 @@ func TestRunAttachWebSocket(t *testing.T) {
 	if string(message) != "attach terminal output" {
 		t.Fatalf("terminal output = %q", message)
 	}
-	if len(runner.commands) != 2 {
+	// The attach waits for the tmux session before streaming, so the last two
+	// recorded commands are the attach itself and its initial size.
+	if len(runner.commands) < 2 {
 		t.Fatalf("attach commands = %#v", runner.commands)
 	}
-	attach := runner.commands[0]
-	size := runner.commands[1]
+	attach := runner.commands[len(runner.commands)-2]
+	size := runner.commands[len(runner.commands)-1]
 	if !slices.Contains(size, "100") || !slices.Contains(size, "30") {
 		t.Fatalf("terminal size = %#v", size)
 	}
@@ -807,7 +810,7 @@ func TestImageBuildEndpointStartsCapturedTask(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !strings.Contains(task.Output, "simulated build output") || !strings.Contains(task.Output, "localhost/openshell:codex-0.167.0-r3") {
+	if !strings.Contains(task.Output, "simulated build output") || !strings.Contains(task.Output, "localhost/openshell:codex-0.167.0-r4") {
 		t.Fatalf("build task output = %q", task.Output)
 	}
 }
@@ -1333,5 +1336,166 @@ func TestSkillsEndpointsEmitArraysForMissingSelections(t *testing.T) {
 	}, &created)
 	if response.StatusCode != http.StatusCreated || created.Skills == nil || created.Plugins == nil {
 		t.Fatalf("skill-only create: status=%d entry=%+v", response.StatusCode, created)
+	}
+}
+
+func TestImageLifecycleEndpointsGuardHolders(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProfile(app.Profile{
+		Version: 1, Name: "codex-default", Agent: "codex", Image: "quay.io/team/openshell:codex-0.167.0-r4",
+		Mode: "standard", Provider: "openai", Policy: "/tmp/unit-policy.yaml", Approval: "prompted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runner := testRunner()
+	runner.images = `[
+			{"Id":"image-held","Names":["localhost/openshell:codex-0.167.0-r4","quay.io/team/openshell:codex-0.167.0-r4"],"Digest":"sha256:held","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"0.167.0","agentbox.recipe":"4"}},
+		{"Id":"image-free","Names":["localhost/openshell:opencode-2.0.0-r4"],"Digest":"sha256:free","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"opencode","agentbox.version":"2.0.0","agentbox.recipe":"4"}}
+	]`
+	server, err := New(&app.App{Store: store, Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	var images []struct {
+		Reference string   `json:"reference"`
+		UsedBy    []string `json:"used_by"`
+	}
+	response := requestJSON(t, http.MethodGet, httpServer.URL+"/api/images", nil, &images)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("list status = %d", response.StatusCode)
+	}
+	used := map[string][]string{}
+	for _, image := range images {
+		used[image.Reference] = image.UsedBy
+	}
+	if !slices.Equal(used["localhost/openshell:codex-0.167.0-r4"], []string{"profile codex-default"}) {
+		t.Fatalf("held image usage = %#v", used)
+	}
+	if len(used["localhost/openshell:opencode-2.0.0-r4"]) != 0 {
+		t.Fatalf("free image usage = %#v", used)
+	}
+
+	response = requestJSON(t, http.MethodPost, httpServer.URL+"/api/images/delete", map[string]string{"reference": "localhost/openshell:codex-0.167.0-r4"}, nil)
+	if response.StatusCode != http.StatusConflict {
+		t.Fatalf("held delete status = %d; want conflict", response.StatusCode)
+	}
+	response = requestJSON(t, http.MethodPost, httpServer.URL+"/api/images/delete", map[string]string{"reference": "localhost/openshell:opencode-2.0.0-r4"}, nil)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("free delete status = %d", response.StatusCode)
+	}
+	response = requestJSON(t, http.MethodPost, httpServer.URL+"/api/images/delete", map[string]string{"reference": "localhost/openshell:missing-1.0.0-r4"}, nil)
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing delete status = %d; want not found", response.StatusCode)
+	}
+	var pruned struct {
+		Removed []string `json:"removed"`
+	}
+	response = requestJSON(t, http.MethodPost, httpServer.URL+"/api/images/prune", nil, &pruned)
+	if response.StatusCode != http.StatusOK || !slices.Contains(pruned.Removed, "localhost/openshell:opencode-2.0.0-r4") {
+		t.Fatalf("prune status = %d removed = %#v", response.StatusCode, pruned.Removed)
+	}
+}
+
+type imageRefreshRunner struct {
+	mutex   sync.Mutex
+	outputs [][]string
+	streams [][]string
+}
+
+func (r *imageRefreshRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.outputs = append(r.outputs, append([]string{name}, args...))
+	if name == "npm" {
+		versions := map[string]string{
+			"@openai/codex":             "0.167.0",
+			"@anthropic-ai/claude-code": "2.1.321",
+			"@opencode/cli":             "2.2.6",
+		}
+		version, ok := versions[args[1]]
+		if !ok {
+			return nil, fmt.Errorf("unexpected package %q", args[1])
+		}
+		return []byte(`"` + version + `"` + "\n"), nil
+	}
+	if name != "podman" || len(args) < 2 || args[0] != "image" || args[1] != "inspect" {
+		return nil, fmt.Errorf("unexpected output command: %s %v", name, args)
+	}
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "docker.io/library/node:22-bookworm-slim") {
+		return []byte("sha256:base\n"), nil
+	}
+	for _, agent := range []string{"codex", "claude", "opencode"} {
+		if strings.Contains(joined, agent+"-") {
+			return []byte("sha256:" + agent + "-id sha256:" + agent + "-digest\n"), nil
+		}
+	}
+	return nil, fmt.Errorf("unexpected image inspection: %v", args)
+}
+
+func (r *imageRefreshRunner) Stream(_ context.Context, _ io.Reader, _, _ io.Writer, name string, args ...string) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.streams = append(r.streams, append([]string{name}, args...))
+	return nil
+}
+
+func (r *imageRefreshRunner) commandContains(want string) bool {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	commands := append(append([][]string(nil), r.outputs...), r.streams...)
+	for _, command := range commands {
+		if slices.Contains(command, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestImageRefreshEndpointBuildsAllAgentsWithoutDeletingImages(t *testing.T) {
+	runner := &imageRefreshRunner{}
+	server, err := New(&app.App{Store: app.Store{Base: t.TempDir()}, Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	var started Task
+	response := requestJSON(t, http.MethodPost, httpServer.URL+"/api/images/refresh", nil, &started)
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("refresh status = %d; want accepted", response.StatusCode)
+	}
+	var task Task
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		requestJSON(t, http.MethodGet, httpServer.URL+"/api/tasks/"+started.ID, nil, &task)
+		if task.Status != "running" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if task.Status != "succeeded" {
+		t.Fatalf("refresh task = %#v", task)
+	}
+	for _, tag := range []string{
+		"localhost/openshell:codex-0.167.0-r4",
+		"localhost/openshell:claude-2.1.321-r4",
+		"localhost/openshell:opencode-2.2.6-r4",
+	} {
+		if !strings.Contains(task.Output, "Built image: "+tag+"\n") {
+			t.Fatalf("refresh output does not include %q:\n%s", tag, task.Output)
+		}
+		if !runner.commandContains(tag) {
+			t.Fatalf("refresh did not build %q", tag)
+		}
+	}
+	if runner.commandContains("rm") {
+		t.Fatal("refresh deleted an image")
 	}
 }

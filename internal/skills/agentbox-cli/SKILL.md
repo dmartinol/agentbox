@@ -76,6 +76,12 @@ inference endpoint with OpenShell. Direct `openai` and `anthropic` providers use
 profile mode `standard`; OpenAI/Anthropic-compatible gateways use mode `gateway`
 and require an exact model ID.
 
+Recipe `r4` images ship a local-work toolset: `curl`, `jq`, `rg`, `unzip`,
+`less`, `git-lfs`, and `ps`. They deliberately omit `gh` and `openssh-client`.
+AgentBox adds no forge credential, no git credential helper, and no generated
+`.gitconfig`, so do not paste a token into a profile or prompt. Sandboxes have
+no forge reachability unless the run policy is edited to allow those hosts.
+
 ## Observe a run
 
 ```sh
@@ -99,6 +105,19 @@ agentbox agent delete RUN_ID      # requires a synced run and a clean review
 `sync` refuses to overwrite a worktree that changed since the last sync. Review
 the diff before merging. `delete` refuses active or unsynced runs unless you
 pass `--discard`; it removes the sandbox, worktree, and run branch.
+
+## Manage images
+
+```sh
+agentbox image list               # local images and recipe revisions
+agentbox image build AGENT        # build the latest release at recipe r4
+agentbox image rm REF             # delete one image; refuses profiles/active runs
+agentbox image prune              # delete images nothing references
+```
+
+Refreshing at newer harness versions creates new tags; it never rewrites a
+profile's `image` field. `image rm` and `image prune` name any holder that
+blocks deletion.
 
 ## Recover from a sandbox host block
 

@@ -239,7 +239,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if err := os.WriteFile(bootPath, bootstrap, 0700); err != nil {
 		return failRun(err)
 	}
-	args := []string{"sandbox", "create", "--name", r.Sandbox, "--from", p.Image, "--provider", p.Provider, "--policy", r.Policy, "--detach", "--no-auto-providers", "--approval-mode", "manual", "--label", "agentbox-run=" + id, "--gateway", opt.Gateway, "--", "/bin/sh", "-c", "while [ ! -f /workspace/ready ]; do sleep 1; done; exec /bin/sh /workspace/state/bootstrap.sh"}
+	args := sandboxCreateArgs(r, p, opt.Gateway)
 	if _, err := a.Runner.Output(ctx, "openshell", args...); err != nil {
 		return failRun(err)
 	}
@@ -278,6 +278,12 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 		return r, err
 	}
 	return updated, nil
+}
+
+func sandboxCreateArgs(r Run, p Profile, gateway string) []string {
+	args := []string{"sandbox", "create", "--name", r.Sandbox, "--from", p.Image, "--provider", p.Provider}
+	args = append(args, "--policy", r.Policy, "--detach", "--no-auto-providers", "--approval-mode", "manual", "--label", "agentbox-run="+r.ID, "--gateway", gateway, "--", "/bin/sh", "-c", "while [ ! -f /workspace/ready ]; do sleep 1; done; exec /bin/sh /workspace/state/bootstrap.sh")
+	return args
 }
 
 func (a *App) VerifyEffectivePolicy(ctx context.Context, r Run, p Profile) error {
@@ -414,6 +420,9 @@ func (a *App) Attach(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	if err := a.waitForAttachSession(ctx, r, agentSessionName); err != nil {
+		return err
+	}
 	// The CLI attaches the user's real terminal, so the process streams
 	// straight through: OpenShell detects the local terminal and sizes the
 	// remote pty from it. Routing through the fixed-size pty bridge instead
@@ -438,6 +447,58 @@ func attachArgs(r Run, session string) []string {
 	return args
 }
 
+const (
+	attachSessionWait  = 30 * time.Second
+	attachPollInterval = 250 * time.Millisecond
+)
+
+// waitForAttachSession blocks until the tmux session exists. The GUI attaches
+// as soon as a run reports running, which is slightly before the sandbox
+// bootstrap creates the tmux session; without the wait the attach fails with
+// "no sessions" and the terminal stays dead.
+func (a *App) waitForAttachSession(ctx context.Context, r Run, session string) error {
+	if r.Status != StatusCreating && !r.Status.IsAttachable() {
+		detail := r.StatusDetail
+		if detail != "" {
+			detail = ": " + detail
+		}
+		return fmt.Errorf("run %s is %s%s; attach requires a live sandbox", r.ID, r.Status.Label(), detail)
+	}
+	deadline := time.Now().Add(attachSessionWait)
+	for {
+		_, err := a.sandboxExec(ctx, r, "tmux", "has-session", "-t", session)
+		if err == nil {
+			return nil
+		}
+		if !sessionMissing(err) {
+			return err
+		}
+		output, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", "if test -f /workspace/finished; then printf ended; fi")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(string(output)) == "ended" {
+			return fmt.Errorf("session %q has ended", session)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("session %q did not start", session)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(attachPollInterval):
+		}
+	}
+}
+
+func sessionMissing(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "no sessions") ||
+		strings.Contains(message, "no such session") ||
+		strings.Contains(message, "session not found") ||
+		strings.Contains(message, "no server running")
+}
+
 // AttachStream attaches the run's agent session.
 func (a *App) AttachStream(ctx context.Context, id string, in io.Reader, out, errOut io.Writer, size TerminalSize, resizes <-chan TerminalSize) error {
 	return a.AttachSessionStream(ctx, id, agentSessionName, in, out, errOut, size, resizes)
@@ -451,6 +512,9 @@ func (a *App) AttachSessionStream(ctx context.Context, id, session string, in io
 	}
 	r, err := a.Store.LoadRun(id)
 	if err != nil {
+		return err
+	}
+	if err := a.waitForAttachSession(ctx, r, session); err != nil {
 		return err
 	}
 	if !size.Valid() {

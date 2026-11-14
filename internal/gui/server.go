@@ -70,6 +70,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/images", s.listImages)
 	mux.HandleFunc("POST /api/images/version", s.imageVersion)
 	mux.HandleFunc("POST /api/images/build", s.buildImage)
+	mux.HandleFunc("POST /api/images/refresh", s.refreshImages)
+	mux.HandleFunc("POST /api/images/delete", s.deleteImage)
+	mux.HandleFunc("POST /api/images/prune", s.pruneImages)
 	mux.HandleFunc("GET /api/tasks/{id}", s.getTask)
 	mux.HandleFunc("POST /api/tasks/{id}/stop", s.stopTask)
 	mux.HandleFunc("POST /api/images/pull", s.pullImage)
@@ -1028,7 +1031,25 @@ func (s *Server) listImages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, images)
+	usage, err := s.app.ImageUsage()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	type imageRecord struct {
+		app.ImageArtifact
+		UsedBy []string `json:"used_by,omitempty"`
+	}
+	records := make([]imageRecord, 0, len(images))
+	for _, image := range images {
+		holders := append([]string(nil), usage[image.Reference]...)
+		for _, reference := range image.References {
+			holders = append(holders, usage[reference]...)
+		}
+		sort.Strings(holders)
+		records = append(records, imageRecord{ImageArtifact: image, UsedBy: holders})
+	}
+	writeJSON(w, http.StatusOK, records)
 }
 
 type imageRequest struct {
@@ -1069,6 +1090,56 @@ func (s *Server) buildImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, task)
+}
+
+func (s *Server) refreshImages(w http.ResponseWriter, r *http.Request) {
+	task, err := s.tasks.start("image-refresh", func(ctx context.Context, output io.Writer) error {
+		for _, agent := range []string{"codex", "claude", "opencode"} {
+			version, err := s.app.ImageVersion(ctx, agent)
+			if err != nil {
+				return fmt.Errorf("%s version lookup: %w", agent, err)
+			}
+			_, _ = fmt.Fprintf(output, "Refreshing %s to %s\n", agent, version)
+			record, err := s.app.ImageBuildWithOutput(ctx, agent, version, false, output, output)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(output, "Built image: %s\n", record.Tag)
+		}
+		return nil
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, task)
+}
+
+func (s *Server) deleteImage(w http.ResponseWriter, r *http.Request) {
+	var request imageRequest
+	if !decode(w, r, &request) {
+		return
+	}
+	if err := s.app.ImageRemove(r.Context(), request.Reference); err != nil {
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "in use by") {
+			status = http.StatusConflict
+		} else if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
+func (s *Server) pruneImages(w http.ResponseWriter, r *http.Request) {
+	removed, err := s.app.ImagePrune(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string][]string{"removed": removed})
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {

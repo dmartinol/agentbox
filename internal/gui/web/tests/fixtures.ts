@@ -143,7 +143,7 @@ export const overview: Overview = {
   profiles: [{ version: 1, name: 'codex-default', agent: 'codex', image: 'localhost/openshell:codex-1.0.0-r3', mode: 'gateway', model: 'model-x', provider: 'model-gateway', base_url: 'https://models.example.test/v1', api_key_env: 'UNIT_MODEL_KEY', policy: '/policies/default.yaml', approval: 'unattended' }],
   images: [
     { reference: 'localhost/openshell:opencode-2.0.0-r3', agent: 'opencode', version: '2.0.0', recipe: 3, os: 'linux', arch: 'arm64' },
-    { reference: 'localhost/openshell:codex-1.0.0-r3', agent: 'codex', version: '1.0.0', recipe: 3, os: 'linux', arch: 'arm64' },
+    { reference: 'localhost/openshell:codex-1.0.0-r3', agent: 'codex', version: '1.0.0', recipe: 3, os: 'linux', arch: 'arm64', used_by: ['profile codex-default'] },
     { reference: 'localhost/openshell:codex-0.9.0-r3', agent: 'codex', version: '0.9.0', recipe: 3, os: 'linux', arch: 'arm64' }
   ],
   gateways: [{ name: 'openshell', active: true, endpoint: 'https://localhost:17670', type: 'podman', auth: 'bearer', source: 'local' }],

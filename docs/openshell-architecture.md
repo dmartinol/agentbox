@@ -25,15 +25,17 @@ Those are attached or copied when a run starts.
 AgentBox builds one local image per agent version:
 
 ```text
-localhost/openshell:codex-0.167.0-r3
-localhost/openshell:claude-2.1.321-r3
-localhost/openshell:opencode-2.2.6-r3
+localhost/openshell:codex-0.167.0-r4
+localhost/openshell:claude-2.1.321-r4
+localhost/openshell:opencode-2.2.6-r4
 ```
 
-The `r3` suffix identifies the image recipe. The image contains:
+The `r4` suffix identifies the image recipe. The image contains:
 
 - the agent CLI binary;
 - Node.js and required runtime dependencies;
+- a fixed local-work toolset: `git`, `tmux`, `ca-certificates`, `curl`, `jq`,
+  `ripgrep` (`rg`), `unzip`, `less`, `git-lfs`, and `procps` (`ps`);
 - OpenShell-compatible filesystem paths;
 - OCI labels describing the agent, version, and recipe.
 
@@ -47,6 +49,23 @@ The image does not contain:
 - project source code.
 
 This makes one image reusable across providers, profiles, projects, and runs.
+
+The recipe revision, not per-package version pinning, is the reproducibility
+boundary. Rebuilding an agent at a newer harness version writes a new tag with
+the same recipe revision; it never rewrites an existing profile. Use **Refresh
+all agents** in Setup → Images (or `agentbox image build`) to create fresh tags
+at the latest releases.
+
+### Image lifecycle
+
+`agentbox image rm REF` deletes the whole local AgentBox image identified by
+`REF`, including every repository tag or alias attached to that image ID.
+`agentbox image prune` deletes every local AgentBox image that no profile and no
+non-terminal run references through any of its aliases, and reclaims superseded
+dangling images that carry the `agentbox=true` label by image ID. Both refuse
+images with holders and name them. Deleting an image that a profile still names
+leaves that profile in place; a later run fails at start with the actionable
+`image unavailable locally` error. Nothing rewrites `Profile.Image` automatically.
 
 ## Provider layer
 
@@ -82,6 +101,10 @@ At sandbox creation, AgentBox passes the provider name:
 openshell sandbox create --provider <provider-name> ...
 ```
 
+Exactly one `--provider` flag is passed. A second provider would register a
+second credential reference, so the sandbox create command is asserted to carry
+a single provider.
+
 OpenShell uses that registration to inject the credential reference and enforce
 network access to the provider endpoint.
 
@@ -101,6 +124,15 @@ a gateway when the provider list is loaded and before starting a run that
 references one. If the matching credential environment is absent, the provider
 is reported as unregistered rather than created. Built-in providers cannot use
 a custom name and cannot be edited or deleted through AgentBox.
+
+Images ship a local-work toolset (git, git-lfs, curl, jq, ripgrep, unzip, less,
+procps) and deliberately omit `gh` and `openssh-client`. AgentBox therefore adds
+no forge credential, no git credential helper, and no generated `.gitconfig` to a
+run: repository work inside a sandbox uses plain `git` over the run policy, and a
+sandbox has no forge reachability unless the policy is edited to allow it.
+Forge-capable repository access is deferred to #19.
+Custom policies written by earlier builds may still list forge hosts; remove
+those rules with `agentbox policy edit` to restore the default.
 
 ## Profile layer
 
@@ -163,21 +195,26 @@ configuration.
 
 Network rules are binary-scoped. A host rule added by AgentBox therefore
 allows the agent launcher together with `/usr/local/bin/node`, `/usr/bin/git`,
-and `/usr/lib/git-core/**`. The supported agents are Node applications, so
-listing only the launcher path would miss the process that opens the socket;
-git reaches HTTPS through a separate helper binary.
+`/usr/lib/git-core/**`, `/usr/bin/curl`, and `/usr/bin/git-lfs`.
+The supported agents are Node applications, so listing only the launcher path
+would miss the process that opens the socket; git reaches HTTPS through a
+separate helper binary.
+
+The default policy grants write access to `/workspace`, `/tmp`, and
+`/var/tmp`.
 
 ## Run startup sequence
 
 A run is created as follows:
 
 1. Load the AgentBox profile.
-2. Validate image, provider, model, policy, and approval settings.
+2. Validate image, provider, model, policy, and approval settings, then decide
+   whether the provider is registered with the gateway.
 3. Create an isolated Git worktree or reserve a direct checkout.
 4. Save the run record.
 5. Create a source Git bundle.
 6. Generate run-specific agent configuration on the host.
-7. Create the sandbox from the selected image, provider, and policy.
+7. Create the sandbox from the selected image, inference provider, and policy.
 8. Upload the source bundle.
 9. Upload and extract the configuration archive into `/workspace/state`.
 10. Clone the source bundle into `/workspace/project`.
@@ -349,13 +386,16 @@ tab is a view over one run.
   than by a background terminal.
 - While a tab reattaches, the GUI shows the cached tail of
   `/workspace/state/agent.log`, so the surface is never blank.
+- An attach issued while the sandbox bootstrap is still creating the tmux
+  session waits for that session (up to 30 seconds) instead of failing with
+  `no sessions`, and it fails immediately once `/workspace/finished` exists.
 - Runs that cannot attach (Completed, Stopped, Failed, Unreachable) open a
   read-only log snapshot instead of a terminal.
 - Shell tabs start a separate tmux session (`shell-N`) in the same sandbox
   and policy, at `/workspace/project`, with the same `HOME`, `XDG_*`,
-  `CODEX_HOME`, and `CLAUDE_CONFIG_DIR` environment as the agent. Shells
-  never share the `agent` session, so their terminal sizes cannot fight and
-  the agent log stays untouched.
+  `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and `TMPDIR` environment as the agent.
+  Shells never share the `agent` session, so their terminal sizes cannot
+  fight and the agent log stays untouched.
 - Closing a shell tab stops its tmux session. Closing the workspace only
   detaches; it does not finish the run.
 
