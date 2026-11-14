@@ -402,3 +402,43 @@ func TestDeletePolicyLifecycleGuards(t *testing.T) {
 		t.Fatalf("orphan default after profile removal = %v", err)
 	}
 }
+
+func TestDeletePolicyConfigurationRunGuards(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	live, err := store.CreatePolicyConfiguration("run-live123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := store.CreatePolicyConfiguration("run-pending123-pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(Run{ID: "run-live123", Name: "live-run", Policy: live.Path}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(Run{ID: "run-pending123", Name: "pending-run", PendingPolicy: pending.Path}); err != nil {
+		t.Fatal(err)
+	}
+	app := App{Store: store, Runner: &fakeRunner{}}
+
+	cases := map[string][]string{
+		"run-live123":            {"live-run"},
+		"run-pending123-pending": {"pending-run"},
+	}
+	for name, expected := range cases {
+		err := app.DeletePolicyConfiguration(name)
+		var conflict *ConflictError
+		if err == nil || !errors.As(err, &conflict) || conflict.Reason != "runs reference it" || !slices.Equal(conflict.Dependents, expected) {
+			t.Fatalf("%s run guard = %v", name, err)
+		}
+	}
+	if _, err := os.Stat(live.Path); err != nil {
+		t.Fatalf("live run policy removed: %v", err)
+	}
+	if _, err := os.Stat(pending.Path); err != nil {
+		t.Fatalf("pending run policy removed: %v", err)
+	}
+}

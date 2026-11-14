@@ -245,6 +245,20 @@ func (a *App) DeletePolicyConfiguration(name string) error {
 	if err != nil {
 		return err
 	}
+	runs, err := a.Store.ListRuns()
+	if err != nil {
+		return err
+	}
+	var runDependents []string
+	for _, run := range runs {
+		if run.Policy == path || run.PendingPolicy == path {
+			runDependents = append(runDependents, runDisplayName(run))
+		}
+	}
+	if len(runDependents) > 0 {
+		sort.Strings(runDependents)
+		return &ConflictError{Resource: "policy", Name: name, Reason: "runs reference it", Dependents: runDependents}
+	}
 	profiles, err := a.Store.ListProfiles()
 	if err != nil {
 		return err

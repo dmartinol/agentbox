@@ -1720,6 +1720,20 @@ func TestPolicyDeleteEndpoint(t *testing.T) {
 	if err := store.SaveProfile(app.Profile{Version: 1, Name: "profile", Agent: "codex", Image: "image", Mode: "standard", Provider: "provider", Policy: held.Path, Approval: "prompted"}); err != nil {
 		t.Fatal(err)
 	}
+	liveRunPolicy, err := store.CreatePolicyConfiguration("run-live123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingRunPolicy, err := store.CreatePolicyConfiguration("run-pending123-pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(app.Run{ID: "run-live123", Name: "live-run", Policy: liveRunPolicy.Path}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(app.Run{ID: "run-pending123", Name: "pending-run", PendingPolicy: pendingRunPolicy.Path}); err != nil {
+		t.Fatal(err)
+	}
 	server := newLifecycleServer(t, store, &lifecycleRunner{})
 
 	var deleted struct {
@@ -1733,6 +1747,12 @@ func TestPolicyDeleteEndpoint(t *testing.T) {
 	}
 	if response := requestJSON(t, http.MethodPost, server.URL+"/api/policies/held/delete", nil, &conflict); response.StatusCode != http.StatusConflict || !slices.Equal(conflict.Dependents, []string{"profile"}) {
 		t.Fatalf("conflict status=%d body=%+v", response.StatusCode, conflict)
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/policies/run-live123/delete", nil, &conflict); response.StatusCode != http.StatusConflict || !slices.Equal(conflict.Dependents, []string{"live-run"}) {
+		t.Fatalf("live run conflict status=%d body=%+v", response.StatusCode, conflict)
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/policies/run-pending123-pending/delete", nil, &conflict); response.StatusCode != http.StatusConflict || !slices.Equal(conflict.Dependents, []string{"pending-run"}) {
+		t.Fatalf("pending run conflict status=%d body=%+v", response.StatusCode, conflict)
 	}
 	if response := requestJSON(t, http.MethodPost, server.URL+"/api/policies/missing/delete", nil, &conflict); response.StatusCode != http.StatusNotFound {
 		t.Fatalf("missing status = %d", response.StatusCode)
