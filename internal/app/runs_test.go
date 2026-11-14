@@ -286,7 +286,7 @@ func TestAttachSessionWaitsForTmuxSession(t *testing.T) {
 			}
 			return nil, nil
 		}
-		return nil, errors.New("missing")
+		return nil, nil
 	}}
 	app := App{Store: store, Runner: runner}
 	if err := app.AttachSessionStream(context.Background(), run.ID, "agent", strings.NewReader(""), io.Discard, io.Discard, DefaultTerminalSize, nil); err != nil {
@@ -313,7 +313,7 @@ func TestAttachSessionFailsFastWhenAgentEnded(t *testing.T) {
 		if commandHasArg(call, "has-session") {
 			return nil, errors.New("no sessions")
 		}
-		return nil, nil
+		return []byte("ended"), nil
 	}}
 	app := App{Store: store, Runner: runner}
 	err := app.AttachSessionStream(context.Background(), run.ID, "agent", strings.NewReader(""), io.Discard, io.Discard, DefaultTerminalSize, nil)
@@ -322,5 +322,51 @@ func TestAttachSessionFailsFastWhenAgentEnded(t *testing.T) {
 	}
 	if len(runner.streams) != 0 {
 		t.Fatalf("attach stream issued for an ended session: %#v", runner.streams)
+	}
+}
+
+func TestAttachSessionFailsFastForTerminalRun(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	run := Run{ID: "run-unit123", Sandbox: "sandbox-unit123", Status: StatusCompleted}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	app := App{Store: store, Runner: runner}
+	err := app.AttachSessionStream(context.Background(), run.ID, "agent", strings.NewReader(""), io.Discard, io.Discard, DefaultTerminalSize, nil)
+	if err == nil || !strings.Contains(err.Error(), "Completed") {
+		t.Fatalf("attach error = %v; want terminal-run error", err)
+	}
+	if len(runner.outputs) != 0 || len(runner.streams) != 0 {
+		t.Fatalf("commands issued for terminal run: outputs=%#v streams=%#v", runner.outputs, runner.streams)
+	}
+}
+
+func TestAttachSessionPreservesProbeError(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	run := Run{ID: "run-unit123", Sandbox: "sandbox-unit123", Status: StatusWorking}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	probeError := errors.New("gateway unavailable: connection refused")
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if commandHasArg(call, "has-session") {
+			return nil, probeError
+		}
+		return nil, errors.New("marker probe unexpectedly issued")
+	}}
+	app := App{Store: store, Runner: runner}
+	err := app.AttachSessionStream(context.Background(), run.ID, "agent", strings.NewReader(""), io.Discard, io.Discard, DefaultTerminalSize, nil)
+	if !errors.Is(err, probeError) {
+		t.Fatalf("attach error = %v; want original probe error", err)
+	}
+	if len(runner.streams) != 0 {
+		t.Fatalf("attach stream issued after probe failure: %#v", runner.streams)
 	}
 }

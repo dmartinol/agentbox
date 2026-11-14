@@ -457,16 +457,27 @@ const (
 // bootstrap creates the tmux session; without the wait the attach fails with
 // "no sessions" and the terminal stays dead.
 func (a *App) waitForAttachSession(ctx context.Context, r Run, session string) error {
+	if r.Status != StatusCreating && !r.Status.IsAttachable() {
+		detail := r.StatusDetail
+		if detail != "" {
+			detail = ": " + detail
+		}
+		return fmt.Errorf("run %s is %s%s; attach requires a live sandbox", r.ID, r.Status.Label(), detail)
+	}
 	deadline := time.Now().Add(attachSessionWait)
 	for {
 		_, err := a.sandboxExec(ctx, r, "tmux", "has-session", "-t", session)
 		if err == nil {
 			return nil
 		}
-		if strings.Contains(strings.ToLower(err.Error()), "sandbox not found") {
+		if !sessionMissing(err) {
 			return err
 		}
-		if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", "test -f /workspace/finished"); err == nil {
+		output, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", "if test -f /workspace/finished; then printf ended; fi")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(string(output)) == "ended" {
 			return fmt.Errorf("session %q has ended", session)
 		}
 		if time.Now().After(deadline) {
@@ -478,6 +489,14 @@ func (a *App) waitForAttachSession(ctx context.Context, r Run, session string) e
 		case <-time.After(attachPollInterval):
 		}
 	}
+}
+
+func sessionMissing(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "no sessions") ||
+		strings.Contains(message, "no such session") ||
+		strings.Contains(message, "session not found") ||
+		strings.Contains(message, "no server running")
 }
 
 // AttachStream attaches the run's agent session.

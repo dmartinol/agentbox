@@ -118,15 +118,16 @@ Podman's existing registry login.
 ## rm
 {: #image-rm }
 
-Delete one local AgentBox image.
+Delete one local AgentBox image, including every alias attached to its image ID.
 
 ```text
 agentbox image rm LOCAL_IMAGE
 ```
 
-The reference must name a local AgentBox image. Images referenced by a profile
-or by a non-terminal run are refused, and the error names every holder. Delete
-or retarget those profiles and finish those runs first.
+The reference may name any alias of a local AgentBox image. Images referenced
+by a profile or a non-terminal run through any alias are refused, and the error
+names every holder. Delete or retarget those profiles and finish those runs
+first.
 
 ## prune
 {: #image-prune }
@@ -138,11 +139,11 @@ dangling images.
 agentbox image prune
 ```
 
-An image is kept when a profile's `image` field names it or a non-terminal run
-was created from it. Dangling images are removed only when they carry the
-`agentbox=true` label, and they are deleted by image ID. Prune prints each
-removed reference or image ID, the total number removed, or a notice when there
-is nothing to remove. It removes nothing else and has no force flag.
+An image is kept when a profile's `image` field names any of its aliases or a
+non-terminal run was created from it. Dangling images are removed only when they
+carry the `agentbox=true` label, and they are deleted by image ID. Prune prints
+each removed reference or image ID, the total number removed, or a notice when
+there is nothing to remove. It removes nothing else and has no force flag.
 
 ## registry show
 {: #image-registry-show }

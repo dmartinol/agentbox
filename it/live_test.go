@@ -212,13 +212,13 @@ func TestLiveImageRecipes(t *testing.T) {
 			if label("agent") != agent {
 				continue
 			}
-			if label("recipe") == "3" && label("version") != "" && label("base-digest") != "" && image.Digest != "" {
+			if label("recipe") == app.CurrentImageRecipe() && label("version") != "" && label("base-digest") != "" && image.Digest != "" {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Fatalf("no r3 %s image with version, base digest, and image digest found", agent)
+			t.Fatalf("no r%s %s image with version, base digest, and image digest found", app.CurrentImageRecipe(), agent)
 		}
 		var proposed struct {
 			Agent    string `json:"agent"`

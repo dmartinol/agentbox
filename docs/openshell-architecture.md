@@ -58,13 +58,14 @@ at the latest releases.
 
 ### Image lifecycle
 
-`agentbox image rm REF` deletes one local AgentBox image. `agentbox image prune`
-deletes every local AgentBox image that no profile and no non-terminal run
-references, and reclaims superseded dangling images that carry the
-`agentbox=true` label by image ID. Both refuse named images with holders and
-name them. Deleting an image that a profile still names leaves that profile in
-place; a later run fails at start with the actionable `image unavailable
-locally` error. Nothing rewrites `Profile.Image` automatically.
+`agentbox image rm REF` deletes the whole local AgentBox image identified by
+`REF`, including every repository tag or alias attached to that image ID.
+`agentbox image prune` deletes every local AgentBox image that no profile and no
+non-terminal run references through any of its aliases, and reclaims superseded
+dangling images that carry the `agentbox=true` label by image ID. Both refuse
+images with holders and name them. Deleting an image that a profile still names
+leaves that profile in place; a later run fails at start with the actionable
+`image unavailable locally` error. Nothing rewrites `Profile.Image` automatically.
 
 ## Provider layer
 
