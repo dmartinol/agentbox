@@ -253,10 +253,17 @@ func TestImageRemoveAndPruneRespectProfileAndActiveRunHolders(t *testing.T) {
 	if err := store.SaveRun(Run{ID: "run-active", Name: "active-run", Image: runImage, Status: "running"}); err != nil {
 		t.Fatal(err)
 	}
+	terminalImage := "localhost/openshell:opencode-1.0.0-r4"
+	for _, status := range []string{"finished", "stopped", "completed", "exited", "failed", "canceled"} {
+		if err := store.SaveRun(Run{ID: "run-" + status, Name: "run-" + status, Image: terminalImage, Status: status}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	raw := []byte(`[
 		{"Id":"image-free","Names":["` + freeImage + `"],"Digest":"sha256:free","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"opencode","agentbox.version":"2.0.0","agentbox.recipe":"4"}},
 		{"Id":"image-profile","Names":["` + profileImage + `"],"Digest":"sha256:profile","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"1.0.0","agentbox.recipe":"4"}},
 		{"Id":"image-run","Names":["` + runImage + `"],"Digest":"sha256:run","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"claude","agentbox.version":"1.0.0","agentbox.recipe":"4"}}
+		,{"Id":"image-terminal","Names":["` + terminalImage + `"],"Digest":"sha256:terminal","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"opencode","agentbox.version":"1.0.0","agentbox.recipe":"4"}}
 	]`)
 	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
 		if call.name == "podman" && len(call.args) > 0 && call.args[0] == "images" {
@@ -279,13 +286,28 @@ func TestImageRemoveAndPruneRespectProfileAndActiveRunHolders(t *testing.T) {
 	if len(usage[freeImage]) != 0 || len(usage[profileImage]) != 1 || len(usage[runImage]) != 1 {
 		t.Fatalf("usage = %#v", usage)
 	}
+	if len(usage[terminalImage]) != 0 {
+		t.Fatalf("terminal failed/canceled runs should not hold image %s: %#v", terminalImage, usage[terminalImage])
+	}
 
 	removed, err := app.ImagePrune(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(removed) != 1 || removed[0] != freeImage {
-		t.Fatalf("pruned = %#v; want only %s", removed, freeImage)
+	if len(removed) != 2 {
+		t.Fatalf("pruned = %#v; want exactly two images", removed)
+	}
+	for _, reference := range []string{freeImage, terminalImage} {
+		found := false
+		for _, got := range removed {
+			if got == reference {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("pruned = %#v; want %s", removed, reference)
+		}
 	}
 	if err := app.ImageRemove(context.Background(), freeImage); err != nil {
 		t.Fatalf("unreferenced removal failed: %v", err)

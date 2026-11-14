@@ -364,6 +364,7 @@ Images ship a local-work toolset (`git`, `git-lfs`, `curl`, `jq`, `ripgrep`,
 helper, or a generated `.gitconfig` to a run, and a sandbox has no forge
 reachability unless the run policy is edited to allow those hosts. Use plain
 `git` inside the sandbox, or run forge tooling on the host and sync the result.
+Forge-capable repository access is deferred to [issue #19](https://github.com/dmartinol/agentbox/issues/19).
 
 EnMaaS uses one key but more than one API authentication dialect. Create two
 provider configurations with the same `ENMAAS_KEY` credential reference when

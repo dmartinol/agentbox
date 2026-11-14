@@ -24,6 +24,7 @@ export function ImagesPanel({
   const [registry, setRegistry] = useState<Registry>({ reference: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [actionError, setActionError] = useState<Error | null>(null);
   const [notice, setNotice] = useState('');
   const [buildOpen, setBuildOpen] = useState(false);
   const [buildForm, setBuildForm] = useState({ agent: 'codex', version: '' });
@@ -105,10 +106,11 @@ export function ImagesPanel({
     try {
       await api.deleteImage(deleteTarget.reference);
       setNotice(`Image ${deleteTarget.reference} deleted`);
+      setActionError(null);
       setDeleteTarget(undefined);
       await load();
     } catch (err) {
-      setError(err as Error);
+      setActionError(err as Error);
     } finally {
       setBusy(undefined);
     }
@@ -119,10 +121,11 @@ export function ImagesPanel({
     try {
       const result = await api.pruneImages();
       setNotice(result.removed.length ? `Removed ${result.removed.length} unused image(s)` : 'No unused images to remove');
+      setActionError(null);
       setPruneOpen(false);
       await load();
     } catch (err) {
-      setError(err as Error);
+      setActionError(err as Error);
     } finally {
       setBusy(undefined);
     }
@@ -132,7 +135,7 @@ export function ImagesPanel({
     <div className="space-y-3">
       <div className="flex flex-wrap justify-end gap-2">
         <Button size="sm" variant="outline" loading={busy === 'refresh'} onClick={() => void refresh()}>{busy === 'refresh' ? 'Refreshing' : 'Refresh all agents'}</Button>
-        <Button size="sm" variant="outline" onClick={() => setPruneOpen(true)}>Prune unused</Button>
+        <Button size="sm" variant="outline" onClick={() => { setActionError(null); setPruneOpen(true); }}>Prune unused</Button>
         <Button size="sm" onClick={() => setBuildOpen(true)}>Build image</Button>
         <Button size="sm" variant="outline" onClick={() => setPullOpen(true)}>Pull image</Button>
       </div>
@@ -155,7 +158,7 @@ export function ImagesPanel({
                   <TD>{image.os || 'linux'}/{image.arch || 'arm64'}</TD>
                   <TD>
                     <div className="flex items-center gap-2">
-                      <Button size="sm" variant="ghost" disabled={holders.length > 0} title={holders.length ? `In use by ${holders.join(', ')}` : undefined} onClick={() => setDeleteTarget(image)}>Delete</Button>
+                      <Button size="sm" variant="ghost" disabled={holders.length > 0} title={holders.length ? `In use by ${holders.join(', ')}` : undefined} onClick={() => { setActionError(null); setDeleteTarget(image); }}>Delete</Button>
                       {holders.length ? <span className="text-xs text-muted">{holders.join(', ')}</span> : null}
                     </div>
                   </TD>
@@ -238,6 +241,7 @@ export function ImagesPanel({
         disabled={Boolean(deleteTarget?.used_by?.length)}
         onConfirm={() => void remove()}
       >
+        {actionError ? <Alert variant="danger" title="Unable to delete image">{actionError.message}</Alert> : null}
         {deleteTarget?.used_by?.length ? (
           <Alert variant="warning" title="Image is in use">Remove it from these holders first: {deleteTarget.used_by.join(', ')}</Alert>
         ) : <p className="text-sm text-muted">Delete this local image? Profiles and active runs must not reference it.</p>}
@@ -252,6 +256,7 @@ export function ImagesPanel({
         busy={busy === 'prune'}
         onConfirm={() => void prune()}
       >
+        {actionError ? <Alert variant="danger" title="Unable to prune images">{actionError.message}</Alert> : null}
         <p className="text-sm text-muted">Delete every AgentBox image that no profile and no non-terminal run references.</p>
       </ConfirmDialog>
     </div>

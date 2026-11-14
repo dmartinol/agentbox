@@ -689,6 +689,36 @@ describe('image lifecycle', () => {
     expect(await screen.findByText('Removed 1 unused image(s)')).toBeInTheDocument();
   });
 
+  it('shows delete failures inside the delete dialog', async () => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/images/delete': { mockStatus: 409, body: { error: 'image "localhost/openshell:codex-0.9.0-r3" is in use by run late-holder (running)' } }
+    });
+    const user = await openImages();
+    const row = (await screen.findByText('localhost/openshell:codex-0.9.0-r3')).closest('tr');
+    if (!row) throw new Error('image row missing');
+    await user.click(within(row).getByRole('button', { name: 'Delete' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Unable to delete image');
+    expect(within(dialog).getByText(/run late-holder \(running\)/i)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Delete' })).toBeEnabled();
+  });
+
+  it('shows prune failures inside the prune dialog', async () => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/images/prune': { mockStatus: 500, body: { error: 'remove "localhost/openshell:codex-0.9.0-r3": container engine unavailable; start Podman and retry' } }
+    });
+    const user = await openImages();
+    await user.click(await screen.findByRole('button', { name: 'Prune unused' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Prune' }));
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('Unable to prune images');
+    expect(within(dialog).getByText(/container engine unavailable; start Podman and retry/i)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Prune' })).toBeEnabled();
+  });
+
   it('streams refresh-all progress in the log drawer', async () => {
     mockRoutes({
       ...defaultRoutes(),
@@ -697,6 +727,9 @@ describe('image lifecycle', () => {
     });
     const user = await openImages();
     await user.click(await screen.findByRole('button', { name: 'Refresh all agents' }));
+    expect(await screen.findAllByText('Refresh all agents')).toHaveLength(2);
+    expect(await screen.findAllByText('Running').then((elements) => elements.length)).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
     expect(await screen.findByText(/Refreshing codex to 1.0.0/i)).toBeInTheDocument();
     expect(await screen.findByText(/Built image: localhost\/openshell:codex-1.0.0-r4/i)).toBeInTheDocument();
   });
