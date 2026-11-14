@@ -33,7 +33,7 @@ func findResult(results []Result, action string) *Result {
 func actionsOf(results []Result, skill string) []string {
 	var out []string
 	for _, result := range results {
-		if result.Skill == skill {
+		if result.Kind != "role" && result.Skill == skill {
 			out = append(out, result.Target+"/"+result.Action)
 		}
 	}

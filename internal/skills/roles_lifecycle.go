@@ -37,7 +37,7 @@ func (l layout) rolePath(harness, role string) string {
 func skippedRoleResults(detail string) []Result {
 	out := make([]Result, 0, len(roleOrder))
 	for _, name := range roleOrder {
-		out = append(out, Result{Skill: name, Target: "roles", Action: "skipped", Detail: detail})
+		out = append(out, Result{Skill: name, Kind: "role", Target: "roles", Action: "skipped", Detail: detail})
 	}
 	return out
 }
@@ -77,6 +77,7 @@ func installRoles(l layout, agents []string, manifest *Manifest, opts Options, m
 			path := l.rolePath(harness, name)
 			tracked, trackedFile := record.File(harness)
 			res, ours, err := ensureRoleFile(name, harness, path, content, tracked, trackedFile, opts, mode, bk)
+			res.Kind = "role"
 			res.Detail = roleDetail(res.Detail, harness, role)
 			results = append(results, res)
 			if err != nil {
@@ -181,7 +182,7 @@ func replaceRolePath(res Result, path string, content []byte, _ ManifestRoleFile
 // roleDetail appends the Codex capability limitations to a result, so the
 // install output never implies enforcement the harness cannot provide.
 func roleDetail(detail, harness string, role Role) string {
-	for _, note := range []string{RoleWriteLimitation(harness, role), RoleShellLimitation(harness, role)} {
+	for _, note := range []string{RoleWriteLimitation(harness, role), RoleShellLimitation(harness, role), RoleDispatchLimitation(harness, role)} {
 		if note == "" {
 			continue
 		}
@@ -210,6 +211,7 @@ func removeRoles(l layout, agents []string, full bool, manifest *Manifest, opts 
 				continue
 			}
 			res, gone, err := removeRoleFile(name, harness, file, opts, bk)
+			res.Kind = "role"
 			results = append(results, res)
 			if err != nil {
 				failures = append(failures, err)

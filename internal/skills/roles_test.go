@@ -62,6 +62,7 @@ func TestEmbeddedRolesAreComplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
+		"agentbox-orchestrator",
 		"agentbox-triage",
 		"agentbox-planner",
 		"agentbox-implementer",
@@ -178,6 +179,9 @@ func TestRenderClaudeAndOpenCodeRoles(t *testing.T) {
 	if deniesAction(fm, "shell") {
 		t.Fatalf("read-only opencode role denies its gate shell: %+v", fm)
 	}
+	if !deniesAction(fm, "subagent") {
+		t.Fatalf("stage opencode role can start another coordination layer: %+v", fm)
+	}
 
 	writable := Role{Name: "agentbox-implementer", Description: "Implement.", Instructions: "Implement it.", Write: true, Shell: true}
 	claude, err = RenderRole(writable, "claude", "", "", "1.0.0")
@@ -192,8 +196,12 @@ func TestRenderClaudeAndOpenCodeRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := frontMatterOf(t, string(openCode))["permissions"]; ok {
-		t.Fatalf("writable opencode role carries edit permissions: %s", openCode)
+	fm = frontMatterOf(t, string(openCode))
+	if deniesAction(fm, "edit") || deniesAction(fm, "shell") {
+		t.Fatalf("writable opencode role lost a capability: %+v", fm["permissions"])
+	}
+	if !deniesAction(fm, "subagent") {
+		t.Fatalf("stage opencode role can start another coordination layer: %+v", fm["permissions"])
 	}
 }
 
@@ -220,7 +228,7 @@ func TestRenderShellLessRoleRemovesShellAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	fm := frontMatterOf(t, string(openCode))
-	if !deniesAction(fm, "edit") || !deniesAction(fm, "shell") {
+	if !deniesAction(fm, "edit") || !deniesAction(fm, "shell") || !deniesAction(fm, "subagent") {
 		t.Fatalf("shell-less opencode role permissions = %+v", fm["permissions"])
 	}
 
@@ -236,6 +244,56 @@ func TestRenderShellLessRoleRemovesShellAccess(t *testing.T) {
 	}
 	if RoleShellLimitation("claude", role) != "" || RoleShellLimitation("codex", Role{Shell: true}) != "" {
 		t.Fatal("shell limitation is reported where the harness enforces it")
+	}
+}
+
+// TestRenderControllerRole pins the orchestrator controller capabilities:
+// no source edits, a shell for dispatch and forge commands, child-agent
+// dispatch, and explicit top-level selection in OpenCode.
+func TestRenderControllerRole(t *testing.T) {
+	role, err := RoleByName("agentbox-orchestrator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if role.Write || !role.Shell || !role.Dispatch || !role.TopLevel {
+		t.Fatalf("orchestrator capabilities = %+v", role)
+	}
+
+	claude, err := RenderRole(role, "claude", "", "", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, _ := frontMatterOf(t, string(claude))["tools"].(string)
+	for _, want := range []string{"Read", "Bash", "Agent"} {
+		if !strings.Contains(tools, want) {
+			t.Fatalf("orchestrator claude tools lack %s: %q", want, tools)
+		}
+	}
+	if strings.Contains(tools, "Edit") || strings.Contains(tools, "Write") {
+		t.Fatalf("orchestrator claude role can edit source: %q", tools)
+	}
+
+	openCode, err := RenderRole(role, "opencode", "", "", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm := frontMatterOf(t, string(openCode))
+	if fm["mode"] != "primary" {
+		t.Fatalf("orchestrator opencode mode = %v", fm["mode"])
+	}
+	if !deniesAction(fm, "edit") || deniesAction(fm, "shell") || deniesAction(fm, "subagent") {
+		t.Fatalf("orchestrator opencode permissions = %+v", fm["permissions"])
+	}
+
+	codex, err := RenderRole(role, "codex", "", "", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(codex), "never launch another copy of this role") {
+		t.Fatalf("orchestrator codex role lacks the single-controller rule: %s", codex)
+	}
+	if RoleDispatchLimitation("codex", role) == "" {
+		t.Fatal("codex dispatch limitation is not reported")
 	}
 }
 
@@ -305,9 +363,23 @@ func TestEmbeddedRoleContracts(t *testing.T) {
 		"`related`",
 	)
 
-	if ValidRoleName("agentbox-orchestrator") {
-		t.Fatal("a separate orchestrator subagent role is installed")
+	orchestrator, err := RoleByName("agentbox-orchestrator")
+	if err != nil {
+		t.Fatal(err)
 	}
+	if orchestrator.Write || !orchestrator.Shell || !orchestrator.Dispatch || !orchestrator.TopLevel {
+		t.Fatalf("orchestrator capabilities = %+v", orchestrator)
+	}
+	wantAll(t, flat(orchestrator.Instructions),
+		"`agentbox-orchestrator` skill first",
+		"only source of truth",
+		"Never triage, plan, implement, fix, verify, review, or run retro inline",
+		"Never launch another `agentbox-orchestrator`",
+		"explicit user assignment",
+		"or hand the workflow to another coordination layer",
+		"stop and report the exact missing capability",
+		"does not start a second orchestrator",
+	)
 }
 
 // TestInstallWritesRolesForEveryHarness covers the main lifecycle contract:

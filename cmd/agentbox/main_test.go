@@ -174,7 +174,7 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 		t.Fatalf("role statuses = %d", roles)
 	}
 	for _, status := range statuses {
-		if status.Name != "agentbox-orchestrator" {
+		if status.Kind == "role" || status.Name != "agentbox-orchestrator" {
 			continue
 		}
 		if len(status.Files) != 6 {
@@ -225,6 +225,15 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 	}
 	if !strings.Contains(output, "orchestrator-state") || !strings.Contains(output, "agentbox agent start") {
 		t.Fatalf("shown orchestrator skill lacks the flow content: %s", output[:200])
+	}
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "show", "--role", "agentbox-orchestrator"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "name: agentbox-orchestrator") || !strings.Contains(output, "dispatch: true") {
+		t.Fatalf("shown orchestrator role lacks its canonical definition: %s", output[:200])
 	}
 }
 
@@ -839,8 +848,11 @@ func TestSkillsInstallJSONReportsOneRoleRowPerHarness(t *testing.T) {
 	}
 	count := 0
 	for _, result := range results {
-		if skills.ValidRoleName(result.Skill) {
+		if result.Kind == "role" {
 			count++
+			if !skills.ValidRoleName(result.Skill) {
+				t.Fatalf("role row has an unknown role name: %+v", result)
+			}
 			if result.Target != "claude" && result.Target != "codex" && result.Target != "opencode" {
 				t.Fatalf("role row target = %+v", result)
 			}

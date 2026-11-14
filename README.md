@@ -174,20 +174,37 @@ orchestrator skill also installs
 `verify-task.md` beside its `SKILL.md`, so an installed copy carries the
 templates it tells the orchestrator to use.
 
-The same install writes seven harness agent roles in each harness's native
-format: `agentbox-triage`, `agentbox-planner`, `agentbox-implementer`,
-`agentbox-fixer`, `agentbox-verifier`, `agentbox-reviewer`, and
-`agentbox-retro`. Codex reads `~/.codex/agents/<role>.toml`, Claude Code
-reads `~/.claude/agents/<role>.md`, and OpenCode reads
+The same install writes eight harness agent roles in each harness's native
+format: the `agentbox-orchestrator` controller plus `agentbox-triage`,
+`agentbox-planner`, `agentbox-implementer`, `agentbox-fixer`,
+`agentbox-verifier`, `agentbox-reviewer`, and `agentbox-retro`. The
+controller follows the installed orchestrator skill and dispatches the stage
+roles; it never performs stage work inline. Codex reads
+`~/.codex/agents/<role>.toml`, Claude Code reads
+`~/.claude/agents/<role>.md`, and OpenCode reads
 `~/.config/opencode/agents/<role>.md`. Roles are global-only; `--local` and
-`--dir` report them as skipped. The verifier and reviewer roles are read-only,
-and triage and retro also have no shell: Claude omits `Edit`, `Write`, and
-`Bash` as appropriate, OpenCode denies the `edit` and `shell` actions, and
-Codex carries the same rules as instruction text because its agent files
-cannot narrow write or shell capabilities. Restart a harness session after
-installing so it scans the new agent files. `agentbox skills roles render <role> --harness codex
+`--dir` report them as skipped.
+
+The orchestrator, verifier, and reviewer roles are read-only, and triage and
+retro also have no shell. The orchestrator keeps a shell and child-agent
+dispatch so it can run tracker and forge commands and launch the stage roles.
+Claude omits `Edit` and `Write` as appropriate and adds `Agent` only for the
+controller; OpenCode denies `edit` and `shell` where required, denies
+`subagent` for stage roles, and renders the controller as a primary agent.
+Codex carries the write and shell rules, and the controller's
+single-orchestrator rule, as instruction text because its agent files cannot
+narrow those capabilities. Restart a harness
+session after installing so it scans the new agent files. `agentbox skills roles render <role> --harness codex
 --model M --effort E` prints a per-issue copy without touching the installed
-files. The parent orchestrator is not installed as a subagent role.
+files.
+
+Assign the controller explicitly; it never starts itself. Start Claude with
+`claude --agent agentbox-orchestrator`, select `agentbox-orchestrator` as the
+OpenCode primary agent, or ask a Codex session to use the
+`agentbox-orchestrator` custom agent. Orca's `worker-start --agent` still
+takes only a runtime ID, so the installed skill documents the supported
+in-session assignment path for each Orca-started harness and the Claude
+limitation.
 
 One canonical copy of each skill, including its shipped templates, is written
 to `~/.agents/skills` (or `./.agents/skills` with `--local`) and Claude and

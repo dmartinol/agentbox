@@ -83,7 +83,8 @@ func TestOrchestratorSkillRoleBoundary(t *testing.T) {
 		"Task orchestration (mandatory):** dispatch triage and every stage's worker",
 		"Git and forge management (optional, capability-driven):**",
 		"MUST NOT triage, plan, implement, fix, verify, review, or run retro inline",
-		"The orchestrator remains the parent controller and is not itself an installed agent role",
+		"`agentbox-orchestrator` role that loads this skill as its source of truth",
+		"never dispatches a second orchestrator",
 		"If it starts doing stage work, it stops and dispatches a worker",
 		"A resumed run redispatches the stage; it never continues a previous worker's session",
 	)
@@ -564,6 +565,9 @@ func TestOrchestratorSkillInstallsAndLists(t *testing.T) {
 	}
 	var seen bool
 	for _, result := range results {
+		if result.Kind == "role" {
+			continue
+		}
 		if result.Skill != "agentbox-orchestrator" {
 			continue
 		}
@@ -648,7 +652,7 @@ func TestOrchestratorSkillUsesShippedRoles(t *testing.T) {
 			t.Fatalf("skill does not name shipped role %q", role)
 		}
 	}
-	referenced := regexp.MustCompile(`agentbox-(?:triage|planner|implementer|fixer|verifier|reviewer|retro)[a-z-]*`).FindAllString(body, -1)
+	referenced := regexp.MustCompile(`agentbox-(?:orchestrator|triage|planner|implementer|fixer|verifier|reviewer|retro)[a-z-]*`).FindAllString(body, -1)
 	if len(referenced) == 0 {
 		t.Fatal("skill does not reference any agent role")
 	}
@@ -686,7 +690,7 @@ func TestOrchestratorSkillDispatchesTriageFixerRetro(t *testing.T) {
 		"`agentbox-triage`",
 		"`agentbox-fixer`",
 		"`agentbox-retro`",
-		"The orchestrator remains the parent controller and is not itself an installed agent role",
+		"explicitly assign the flow to a harness agent",
 		"needs-info",
 		"out-of-scope",
 		"tracker-blind",
@@ -703,7 +707,32 @@ func TestOrchestratorSkillDispatchesTriageFixerRetro(t *testing.T) {
 		"Retro never calls the tracker",
 		"never claims a cross-run pattern",
 	)
-	if ValidRoleName("agentbox-orchestrator") {
-		t.Fatal("the parent orchestrator must not be an installed subagent role")
+	if !ValidRoleName("agentbox-orchestrator") {
+		t.Fatal("the orchestrator controller role is not installed")
 	}
+}
+
+// TestOrchestratorSkillDocumentsRoleAssignment pins the exact assignment path
+// for each supported harness and the Orca limitation. Orca selects a runtime,
+// never the custom role name.
+func TestOrchestratorSkillDocumentsRoleAssignment(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"## Harness agent roles",
+		"~/.codex/agents/agentbox-orchestrator.toml",
+		"~/.claude/agents/agentbox-orchestrator.md",
+		"~/.config/opencode/agents/agentbox-orchestrator.md",
+		"claude --agent agentbox-orchestrator",
+		"opencode run --agent agentbox-orchestrator",
+		"Ask the top-level session to use the `agentbox-orchestrator` custom agent",
+		"Codex runs custom agents as subagents and has no top-level `--agent` switch",
+		"`orca orchestration worker-start --agent <id>` selects only the host runtime",
+		"never pass `agentbox-orchestrator` there",
+		"an Orca-started session cannot select the role",
+		"Start Claude directly with `--agent agentbox-orchestrator` outside Orca",
+		"harness limitation, not a reason to add an Orca-specific role flag",
+		"a shell-based source write remains instruction-only",
+		"never starts itself",
+		"never dispatches another `agentbox-orchestrator`",
+	)
 }
