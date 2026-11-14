@@ -131,15 +131,18 @@ or retarget those profiles and finish those runs first.
 ## prune
 {: #image-prune }
 
-Delete every local AgentBox image that nothing references.
+Delete every local AgentBox image that nothing references, including superseded
+dangling images.
 
 ```text
 agentbox image prune
 ```
 
 An image is kept when a profile's `image` field names it or a non-terminal run
-was created from it. Prune prints each removed reference, or a notice when
-there is nothing to remove. It removes nothing else and has no force flag.
+was created from it. Dangling images are removed only when they carry the
+`agentbox=true` label, and they are deleted by image ID. Prune prints each
+removed reference or image ID, the total number removed, or a notice when there
+is nothing to remove. It removes nothing else and has no force flag.
 
 ## registry show
 {: #image-registry-show }

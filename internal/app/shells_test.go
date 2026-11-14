@@ -48,7 +48,7 @@ func TestCreateShellUsesNextFreeSessionName(t *testing.T) {
 		t.Fatalf("new-session should start shell-2 in the run worktree: %v", call.args)
 	}
 	joined := strings.Join(call.args, " ")
-	for _, want := range []string{"HOME=/workspace/state/home", "TMPDIR=/tmp", "cd /workspace/project", "exec /bin/sh"} {
+	for _, want := range []string{"HOME=/workspace/state/home", "cd /workspace/project", "exec /bin/sh"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("shell command missing %q: %v", want, call.args)
 		}

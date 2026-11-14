@@ -5,19 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 )
 
 type ImageArtifact struct {
-	Reference string `json:"reference"`
-	Agent     string `json:"agent"`
-	Version   string `json:"version"`
-	Recipe    int    `json:"recipe"`
-	OS        string `json:"os,omitempty"`
-	Arch      string `json:"arch,omitempty"`
-	Digest    string `json:"digest,omitempty"`
+	Reference  string   `json:"reference"`
+	Agent      string   `json:"agent"`
+	Version    string   `json:"version"`
+	Recipe     int      `json:"recipe"`
+	OS         string   `json:"os,omitempty"`
+	Arch       string   `json:"arch,omitempty"`
+	Digest     string   `json:"digest,omitempty"`
+	References []string `json:"-"`
 }
 
 var remoteImageTag = regexp.MustCompile(`^(claude|codex|opencode)-(.+)-r([0-9]+)(?:-([a-z0-9]+)-([a-z0-9]+))?$`)
@@ -58,6 +60,10 @@ func (a *App) LocalImages(ctx context.Context) ([]ImageArtifact, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseLocalImages(data)
+}
+
+func parseLocalImages(data []byte) ([]ImageArtifact, error) {
 	var records []struct {
 		ID     string            `json:"Id"`
 		Names  []string          `json:"Names"`
@@ -83,13 +89,14 @@ func (a *App) LocalImages(ctx context.Context) ([]ImageArtifact, error) {
 			continue
 		}
 		artifact := ImageArtifact{
-			Reference: preferredImageReference(record.Names, label("agent"), label("version"), recipe),
-			Agent:     label("agent"),
-			Version:   label("version"),
-			Recipe:    recipe,
-			OS:        record.OS,
-			Arch:      record.Arch,
-			Digest:    record.Digest,
+			Reference:  preferredImageReference(record.Names, label("agent"), label("version"), recipe),
+			References: record.Names,
+			Agent:      label("agent"),
+			Version:    label("version"),
+			Recipe:     recipe,
+			OS:         record.OS,
+			Arch:       record.Arch,
+			Digest:     record.Digest,
 		}
 		if artifact.Agent == "" || artifact.Version == "" || artifact.Reference == "" {
 			continue
@@ -129,12 +136,16 @@ func preferredImageReference(names []string, agent, version string, recipe int) 
 }
 
 func (a *App) LocalImage(ctx context.Context, reference string) (ImageArtifact, error) {
-	images, err := a.LocalImages(ctx)
+	data, err := a.ImageList(ctx)
+	if err != nil {
+		return ImageArtifact{}, err
+	}
+	images, err := parseLocalImages(data)
 	if err != nil {
 		return ImageArtifact{}, err
 	}
 	for _, image := range images {
-		if image.Reference == reference {
+		if image.Reference == reference || slices.Contains(image.References, reference) {
 			return image, nil
 		}
 	}
@@ -169,7 +180,7 @@ func (a *App) ImageUsage() (map[string][]string, error) {
 		if run.Name != "" {
 			name = run.Name
 		}
-		usage[run.Image] = append(usage[run.Image], "run "+name+" ("+run.Status+")")
+		usage[run.Image] = append(usage[run.Image], "run "+name+" ("+string(run.Status)+")")
 	}
 	for reference := range usage {
 		sort.Strings(usage[reference])
@@ -177,9 +188,9 @@ func (a *App) ImageUsage() (map[string][]string, error) {
 	return usage, nil
 }
 
-func terminalRunStatus(status string) bool {
+func terminalRunStatus(status RunStatus) bool {
 	switch status {
-	case "finished", "stopped", "completed", "exited", "failed", "canceled":
+	case StatusFailed, StatusStopped, StatusCompleted:
 		return true
 	}
 	return false
@@ -196,17 +207,30 @@ func (a *App) ImageRemove(ctx context.Context, reference string) error {
 	if err != nil {
 		return err
 	}
-	if holders := usage[image.Reference]; len(holders) > 0 {
-		return fmt.Errorf("image %q is in use by %s", image.Reference, strings.Join(holders, ", "))
+	var holders []string
+	for _, imageReference := range image.References {
+		holders = append(holders, usage[imageReference]...)
+	}
+	if len(holders) > 0 {
+		sort.Strings(holders)
+		return fmt.Errorf("image %q is in use by %s", reference, strings.Join(holders, ", "))
 	}
 	_, err = a.Runner.Output(ctx, "podman", "image", "rm", image.Reference)
 	return err
 }
 
-// ImagePrune deletes every local AgentBox image that no profile and no
-// non-terminal run references.
+// ImagePrune deletes named AgentBox images that no profile and no non-terminal
+// run references, plus dangling images explicitly labeled as AgentBox images.
 func (a *App) ImagePrune(ctx context.Context) ([]string, error) {
-	images, err := a.LocalImages(ctx)
+	data, err := a.ImageList(ctx)
+	if err != nil {
+		return nil, err
+	}
+	images, err := parseLocalImages(data)
+	if err != nil {
+		return nil, err
+	}
+	dangling, err := danglingAgentBoxImageIDs(data)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +240,7 @@ func (a *App) ImagePrune(ctx context.Context) ([]string, error) {
 	}
 	removed := make([]string, 0, len(images))
 	for _, image := range images {
-		if len(usage[image.Reference]) > 0 {
+		if imageIsUsed(image, usage) {
 			continue
 		}
 		if _, err := a.Runner.Output(ctx, "podman", "image", "rm", image.Reference); err != nil {
@@ -224,5 +248,38 @@ func (a *App) ImagePrune(ctx context.Context) ([]string, error) {
 		}
 		removed = append(removed, image.Reference)
 	}
+	for _, imageID := range dangling {
+		if _, err := a.Runner.Output(ctx, "podman", "image", "rm", imageID); err != nil {
+			return removed, fmt.Errorf("remove %q: %w", imageID, err)
+		}
+		removed = append(removed, imageID)
+	}
 	return removed, nil
+}
+
+func danglingAgentBoxImageIDs(data []byte) ([]string, error) {
+	var records []struct {
+		ID     string            `json:"Id"`
+		Names  []string          `json:"Names"`
+		Labels map[string]string `json:"Labels"`
+	}
+	if err := json.Unmarshal(data, &records); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0)
+	for _, record := range records {
+		if record.ID != "" && len(record.Names) == 0 && record.Labels["agentbox"] == "true" {
+			ids = append(ids, record.ID)
+		}
+	}
+	return ids, nil
+}
+
+func imageIsUsed(image ImageArtifact, usage map[string][]string) bool {
+	for _, reference := range image.References {
+		if len(usage[reference]) > 0 {
+			return true
+		}
+	}
+	return false
 }

@@ -74,6 +74,37 @@ func (*appfakeRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, s
 	return nil
 }
 
+type pruneOutputRunner struct{}
+
+func (pruneOutputRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	if name == "podman" && len(args) > 0 && args[0] == "images" {
+		return []byte(`[
+			{"Id":"image-free","Names":["localhost/openshell:codex-1.0.0-r4"],"Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"1.0.0","agentbox.recipe":"4"}},
+			{"Id":"image-dangling","Names":[],"Labels":{"agentbox":"true","agentbox.agent":"claude","agentbox.version":"2.0.0","agentbox.recipe":"4"}},
+			{"Id":"image-other","Names":[],"Labels":{}}
+		]`), nil
+	}
+	return nil, nil
+}
+
+func (pruneOutputRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error {
+	return nil
+}
+
+func TestImagePruneOutputCountsNamedAndDanglingImages(t *testing.T) {
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: pruneOutputRunner{}}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"image", "prune"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Removed 2 AgentBox image(s):\nlocalhost/openshell:codex-1.0.0-r4\nimage-dangling"
+	if output != want {
+		t.Fatalf("prune output = %q; want %q", output, want)
+	}
+}
+
 func TestVersionOutputIsParseable(t *testing.T) {
 	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
 	output, err := captureStdout(t, func() error { return dispatch(context.Background(), a, []string{"--version"}) })

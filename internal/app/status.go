@@ -108,6 +108,8 @@ func NormalizeRunStatus(raw, detail string) (RunStatus, string) {
 		return StatusReady, detail
 	case "finished":
 		return StatusCompleted, detail
+	case "exited", "canceled":
+		return StatusStopped, detail
 	case "error":
 		return StatusFailed, firstDetail(detail, "sandbox reported an error")
 	case "create-failed":

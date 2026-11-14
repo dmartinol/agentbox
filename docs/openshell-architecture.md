@@ -60,10 +60,11 @@ at the latest releases.
 
 `agentbox image rm REF` deletes one local AgentBox image. `agentbox image prune`
 deletes every local AgentBox image that no profile and no non-terminal run
-references. Both refuse images with holders and name them. Deleting an image
-that a profile still names leaves that profile in place; a later run fails at
-start with the actionable `image unavailable locally` error. Nothing rewrites
-`Profile.Image` automatically.
+references, and reclaims superseded dangling images that carry the
+`agentbox=true` label by image ID. Both refuse named images with holders and
+name them. Deleting an image that a profile still names leaves that profile in
+place; a later run fails at start with the actionable `image unavailable
+locally` error. Nothing rewrites `Profile.Image` automatically.
 
 ## Provider layer
 
@@ -198,13 +199,8 @@ The supported agents are Node applications, so listing only the launcher path
 would miss the process that opens the socket; git reaches HTTPS through a
 separate helper binary.
 
-The default policy grants write access to `/workspace`, `/tmp`, and `/var/tmp`.
-`/var/tmp` is required because the images ship it as a world-writable directory
-and SQLite, which backs the Codex, Claude, and OpenCode state stores, selects it
-ahead of `/tmp` when `TMPDIR` is unset. Under Landlock a read-only `/var/tmp`
-fails with `SQLITE_CANTOPEN` (code 14), which Codex reports as a damaged local
-database rather than a permission error. Policies created before this rule was
-added must be updated, or the agent recreates that policy from the profile.
+The default policy grants write access to `/workspace`, `/tmp`, and
+`/var/tmp`.
 
 ## Run startup sequence
 
@@ -264,12 +260,6 @@ Agent-specific files include:
 /workspace/state/session.sh
 /workspace/state/bootstrap.sh
 ```
-
-Codex's `config.toml` always marks `/workspace/project` as trusted
-(`[projects."/workspace/project"] trust_level = "trusted"`). Without it Codex
-asks for folder trust on the first start, which stalls unattended runs. The
-cloned worktree is the user's own repository and the OpenShell sandbox remains
-the isolation boundary.
 
 This configuration is copied at startup. Editing an AgentBox profile does not
 retroactively change an already-running sandbox. Start a new run to use updated
