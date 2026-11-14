@@ -21,6 +21,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/dmartinol/agentbox/internal/app"
+	"github.com/dmartinol/agentbox/internal/skills"
 )
 
 type guiRunner struct {
@@ -1306,6 +1307,22 @@ func TestSkillsEndpointsManageEntriesAndDiscovery(t *testing.T) {
 	response = requestJSON(t, http.MethodGet, server.URL+"/api/skills", nil, &entries)
 	if response.StatusCode != http.StatusOK || len(entries) != 0 {
 		t.Fatalf("list after delete: status=%d entries=%+v", response.StatusCode, entries)
+	}
+
+	t.Setenv("HOME", t.TempDir())
+	var status []skills.Status
+	response = requestJSON(t, http.MethodGet, server.URL+"/api/skills/status", nil, &status)
+	if response.StatusCode != http.StatusOK || len(status) != len(skills.Names())+len(skills.RoleNames()) {
+		t.Fatalf("status: code=%d status=%+v", response.StatusCode, status)
+	}
+	roles := 0
+	for _, entry := range status {
+		if entry.Kind == "role" {
+			roles++
+		}
+	}
+	if roles != len(skills.RoleNames()) {
+		t.Fatalf("role statuses = %d", roles)
 	}
 }
 

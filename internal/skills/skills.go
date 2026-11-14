@@ -1,9 +1,11 @@
-// Package skills embeds AgentBox's own usage skills and manages their
-// lifecycle on the host. Every skill is version-matched to the running
-// binary and installed as one canonical directory under ~/.agents/skills
-// (or ./.agents/skills with --local), containing SKILL.md and any templates
-// the skill ships. Harnesses that do not read that shared root receive a
-// relative symlink; nothing is ever written into ~/.codex/skills.
+// Package skills embeds AgentBox's own usage skills and harness agent roles
+// and manages their lifecycle on the host. Every artifact is version-matched
+// to the running binary. A skill is installed as one canonical directory under
+// ~/.agents/skills (or ./.agents/skills with --local), containing SKILL.md and
+// any templates the skill ships; harnesses that do not read that shared root
+// receive a relative symlink, and nothing is ever written into
+// ~/.codex/skills. A role is rendered into each harness's native agent
+// directory and is global-only.
 package skills
 
 import (

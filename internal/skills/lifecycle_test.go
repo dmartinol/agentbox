@@ -211,6 +211,9 @@ func TestInstallDirOverrideWritesPlainCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, result := range results {
+		if result.Target == "roles" {
+			continue
+		}
 		if result.Path != filepath.Join(dir, result.Skill, result.File) {
 			t.Fatalf("path = %s", result.Path)
 		}

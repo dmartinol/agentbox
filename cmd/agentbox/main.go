@@ -124,7 +124,7 @@ func usage() {
 	fmt.Println("  policy show|edit")
 	fmt.Println("  mcp list|show|create|delete|servers")
 	fmt.Println("  skill list|show|create|delete|available")
-	fmt.Println("  skills install|update|remove|list|show")
+	fmt.Println("  skills install|update|remove|list|show|roles")
 	fmt.Println("  agent start|list|show|attach|logs|stop|sync|diff|delete")
 	fmt.Println("  gui [--address host:port]")
 }
@@ -911,7 +911,7 @@ func splitList(value string) []string {
 
 func skillsCmd(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("skills install|update|remove|list|show required")
+		return fmt.Errorf("skills install|update|remove|list|show|roles required")
 	}
 	switch args[0] {
 	case "install":
@@ -923,6 +923,7 @@ func skillsCmd(args []string) error {
 		dir := f.String("dir", "", "write plain copies under this directory (no links or manifest)")
 		force := f.Bool("force", false, "replace modified copies and foreign destinations, backing up first")
 		dry := f.Bool("dry-run", false, "report the planned changes without touching the filesystem")
+		skipRoles := f.Bool("skip-roles", false, "install only the usage skills, not the harness agent roles")
 		jsonOut := f.Bool("json", false, "JSON output")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
@@ -933,6 +934,7 @@ func skillsCmd(args []string) error {
 		results, err := skills.Install(skills.Options{
 			Agents: splitList(*agent), Target: strings.TrimSpace(*target), All: *all,
 			Local: *local, Dir: *dir, Force: *force, DryRun: *dry, Version: binaryVersion(),
+			SkipRoles: *skipRoles,
 		})
 		return printSkillsOutput(results, err, *jsonOut)
 	case "update":
@@ -942,13 +944,14 @@ func skillsCmd(args []string) error {
 		local := f.Bool("local", false, "update the project-scoped ./.agents/skills root")
 		force := f.Bool("force", false, "replace modified copies, backing up first")
 		dry := f.Bool("dry-run", false, "report the planned changes without touching the filesystem")
+		skipRoles := f.Bool("skip-roles", false, "update only the usage skills, not the harness agent roles")
 		jsonOut := f.Bool("json", false, "JSON output")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
 		results, err := skills.Update(skills.Options{
 			Agents: splitList(*agent), All: *all, Local: *local,
-			Force: *force, DryRun: *dry, Version: binaryVersion(),
+			Force: *force, DryRun: *dry, Version: binaryVersion(), SkipRoles: *skipRoles,
 		})
 		return printSkillsOutput(results, err, *jsonOut)
 	case "remove":
@@ -958,13 +961,14 @@ func skillsCmd(args []string) error {
 		local := f.Bool("local", false, "remove from the project-scoped ./.agents/skills root")
 		force := f.Bool("force", false, "remove modified copies, backing up first")
 		dry := f.Bool("dry-run", false, "report the planned removals without touching the filesystem")
+		skipRoles := f.Bool("skip-roles", false, "remove only the usage skills, not the harness agent roles")
 		jsonOut := f.Bool("json", false, "JSON output")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
 		results, err := skills.Remove(skills.Options{
 			Agents: splitList(*agent), All: *all, Local: *local,
-			Force: *force, DryRun: *dry, Version: binaryVersion(),
+			Force: *force, DryRun: *dry, Version: binaryVersion(), SkipRoles: *skipRoles,
 		})
 		return printSkillsOutput(results, err, *jsonOut)
 	case "list":
@@ -974,15 +978,25 @@ func skillsCmd(args []string) error {
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
-		statuses, err := skills.List(skills.ListOptions{Version: binaryVersion(), Local: *local})
+		options := skills.ListOptions{Version: binaryVersion(), Local: *local}
+		statuses, err := skills.List(options)
 		if err != nil {
 			return err
 		}
+		roles, err := skills.ListRoles(options)
+		if err != nil {
+			return err
+		}
+		statuses = append(statuses, roles...)
 		if *jsonOut {
 			return app.PrintJSON(statuses)
 		}
 		for _, status := range statuses {
-			fmt.Printf("%s %s\n", status.Name, status.Version)
+			kind := ""
+			if status.Kind == "role" {
+				kind = " (role)"
+			}
+			fmt.Printf("%s %s%s\n", status.Name, status.Version, kind)
 			if len(status.Installations) == 0 {
 				fmt.Println("  home directory unavailable; no installed copies checked")
 				continue
@@ -1008,6 +1022,26 @@ func skillsCmd(args []string) error {
 		if err := need(f.Args(), 1); err != nil {
 			return err
 		}
+		if skills.ValidRoleName(f.Args()[0]) {
+			role, err := skills.RoleByName(f.Args()[0])
+			if err != nil {
+				return err
+			}
+			raw, err := skills.RoleYAML(f.Args()[0])
+			if err != nil {
+				return err
+			}
+			if *jsonOut {
+				return app.PrintJSON(struct {
+					Name        string `json:"name"`
+					Kind        string `json:"kind"`
+					Description string `json:"description"`
+					Content     string `json:"content"`
+				}{Name: role.Name, Kind: "role", Description: role.Description, Content: string(raw)})
+			}
+			_, err = os.Stdout.Write(raw)
+			return err
+		}
 		content, err := skills.Embedded(f.Args()[0], binaryVersion())
 		if err != nil {
 			return err
@@ -1023,6 +1057,39 @@ func skillsCmd(args []string) error {
 				Description string `json:"description"`
 				Content     string `json:"content"`
 			}{Name: fm.Name, Version: fm.Version, Description: fm.Description, Content: string(content)})
+		}
+		_, err = os.Stdout.Write(content)
+		return err
+	case "roles":
+		if len(args) < 2 || args[1] != "render" {
+			return fmt.Errorf("skills roles render <role> --harness claude|codex|opencode required")
+		}
+		f := flags("skills roles render")
+		harness := f.String("harness", "", "harness format to render (claude, codex, or opencode)")
+		model := f.String("model", "", "model override for this rendering only")
+		effort := f.String("effort", "", "reasoning-effort override for this rendering only")
+		rest := append([]string(nil), args[2:]...)
+		// Accept the documented <role> before the flags; the flag package
+		// stops at the first positional argument, so move it after them.
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			rest = append(rest[1:], rest[0])
+		}
+		if err := f.Parse(rest); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		if strings.TrimSpace(*harness) == "" {
+			return fmt.Errorf("--harness is required")
+		}
+		role, err := skills.RoleByName(f.Args()[0])
+		if err != nil {
+			return err
+		}
+		content, err := skills.RenderRole(role, strings.TrimSpace(*harness), strings.TrimSpace(*model), strings.TrimSpace(*effort), binaryVersion())
+		if err != nil {
+			return err
 		}
 		_, err = os.Stdout.Write(content)
 		return err

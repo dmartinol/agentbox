@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/dmartinol/agentbox/internal/skills"
 )
 
 // Skills is a named selection of standalone host skills and whole plugin
@@ -71,6 +73,21 @@ func (s Skills) Validate() error {
 		seen[plugin] = struct{}{}
 	}
 	return nil
+}
+
+// SkillsStatus reports the installed usage skills and harness agent roles on
+// this host. It is read-only and never returns file contents.
+func (a *App) SkillsStatus() ([]skills.Status, error) {
+	options := skills.ListOptions{Version: a.Version}
+	installedSkills, err := skills.List(options)
+	if err != nil {
+		return nil, err
+	}
+	roles, err := skills.ListRoles(options)
+	if err != nil {
+		return nil, err
+	}
+	return append(installedSkills, roles...), nil
 }
 
 // SkillInfo is one host skill exposed for selection. Body contents are never

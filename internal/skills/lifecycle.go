@@ -40,8 +40,11 @@ type Options struct {
 	Force bool
 	// DryRun reports the planned actions without touching the filesystem.
 	DryRun bool
-	// Version is written into the skill front matter.
+	// Version is written into the skill front matter and the role manifest.
 	Version string
+	// SkipRoles installs, updates, or removes only the usage skills and leaves
+	// the harness agent roles untouched.
+	SkipRoles bool
 	// Home overrides the user home directory used to resolve destinations.
 	Home string
 }
@@ -267,7 +270,20 @@ func runLifecycle(opts Options, mode lifecycleMode) ([]Result, error) {
 			}
 		}
 	}
-	if !opts.DryRun && (manifestExisted || len(manifest.Skills) > 0) {
+	if !opts.SkipRoles {
+		if opts.Local {
+			// Agent roles are global-only, so a project-scoped install reports
+			// them as skipped and writes no agent file.
+			results = append(results, skippedRoleResults(rolesLocalSkip)...)
+		} else {
+			roleResults, roleErr := installRoles(l, agents, manifest, opts, mode, bk)
+			results = append(results, roleResults...)
+			if roleErr != nil {
+				failures = append(failures, roleErr)
+			}
+		}
+	}
+	if !opts.DryRun && (manifestExisted || len(manifest.Skills) > 0 || len(manifest.Roles) > 0) {
 		if err := saveManifest(l.root(), manifest); err != nil {
 			failures = append(failures, fmt.Errorf("write manifest: %w", err))
 		}
@@ -769,8 +785,8 @@ func Remove(opts Options) ([]Result, error) {
 		return nil, err
 	}
 	manifest := loadManifest(l.root())
-	if len(manifest.Skills) == 0 {
-		return nil, fmt.Errorf("no managed skills recorded in %s; nothing to remove", manifestPath(l.root()))
+	if len(manifest.Skills) == 0 && len(manifest.Roles) == 0 {
+		return nil, fmt.Errorf("no managed skills or roles recorded in %s; nothing to remove", manifestPath(l.root()))
 	}
 	bk := newBackupSet(l)
 	var results []Result
@@ -821,8 +837,19 @@ func Remove(opts Options) ([]Result, error) {
 			}
 		}
 	}
+	if !opts.SkipRoles {
+		if opts.Local {
+			results = append(results, skippedRoleResults(rolesUpdateSkip)...)
+		} else {
+			roleResults, roleErr := removeRoles(l, filter, full, manifest, opts, bk)
+			results = append(results, roleResults...)
+			if roleErr != nil {
+				failures = append(failures, roleErr)
+			}
+		}
+	}
 	if !opts.DryRun {
-		if len(manifest.Skills) == 0 {
+		if len(manifest.Skills) == 0 && len(manifest.Roles) == 0 {
 			if err := os.Remove(manifestPath(l.root())); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				failures = append(failures, fmt.Errorf("remove manifest: %w", err))
 			}
@@ -1007,6 +1034,9 @@ func installDir(opts Options) ([]Result, error) {
 				failures = append(failures, err)
 			}
 		}
+	}
+	if !opts.SkipRoles {
+		results = append(results, skippedRoleResults(rolesDirSkip)...)
 	}
 	return results, errors.Join(failures...)
 }

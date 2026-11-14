@@ -69,11 +69,19 @@ func (a *App) skillChecks() []Check {
 			problems = append(problems, fmt.Sprintf("embedded skill %q has invalid front matter (%v); upgrade AgentBox", name, err))
 		}
 	}
+	if err := skills.ValidateRoles(); err != nil {
+		problems = append(problems, fmt.Sprintf("embedded agent roles: %v; upgrade AgentBox", err))
+	}
 	statuses, err := skills.List(skills.ListOptions{Version: a.Version})
 	if err != nil {
 		return []Check{{Name: "skills", Detail: err.Error()}}
 	}
+	roles, err := skills.ListRoles(skills.ListOptions{Version: a.Version})
+	if err != nil {
+		return []Check{{Name: "skills", Detail: err.Error()}}
+	}
 	installed := 0
+	installedRoles := 0
 	var (
 		stale, staleWithoutSkill           []string
 		modified, modifiedWithoutSkill     []string
@@ -142,6 +150,20 @@ func (a *App) skillChecks() []Check {
 			}
 		}
 	}
+	for _, status := range roles {
+		for _, installation := range status.Installations {
+			switch installation.State {
+			case "current":
+				installedRoles++
+			case "stale":
+				stale = append(stale, installation.Path)
+			case "modified":
+				modified = append(modified, installation.Path)
+			case "unreadable":
+				unreadableCanonical = append(unreadableCanonical, installation.Path)
+			}
+		}
+	}
 	// A template without its canonical SKILL.md cannot be repaired by update:
 	// update reports the skill as not installed and changes nothing. Install
 	// creates the missing SKILL.md first, so those templates are grouped under
@@ -170,8 +192,11 @@ func (a *App) skillChecks() []Check {
 	if len(problems) > 0 {
 		return []Check{{Name: "skills", Detail: strings.Join(problems, "; ")}}
 	}
-	if installed == 0 {
+	if installed == 0 && installedRoles == 0 {
 		return []Check{{Name: "skills", OK: true, Detail: "no installed usage skills"}}
+	}
+	if installedRoles > 0 {
+		return []Check{{Name: "skills", OK: true, Detail: fmt.Sprintf("%d skills and %d agent roles installed, up to date", installed, installedRoles)}}
 	}
 	return []Check{{Name: "skills", OK: true, Detail: fmt.Sprintf("%d installed, up to date", installed)}}
 }

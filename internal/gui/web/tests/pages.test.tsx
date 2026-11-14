@@ -6,7 +6,7 @@ import { ProvidersPanel } from '../src/pages/setup/ProvidersPanel';
 import { ProfilesPanel } from '../src/pages/setup/ProfilesPanel';
 import { McpPanel } from '../src/pages/setup/McpPanel';
 import { SkillsPanel } from '../src/pages/setup/SkillsPanel';
-import { mcps, overview, providers, runs, skillEntries } from './fixtures';
+import { mcps, overview, providers, runs, skillEntries, skillStatus } from './fixtures';
 
 const xtermHooks = vi.hoisted(() => ({
   resize: undefined as undefined | ((size: { cols: number; rows: number }) => void)
@@ -64,6 +64,7 @@ function defaultRoutes(): Record<string, unknown> {
     'GET /api/overview': overview,
     'GET /api/mcps': mcps,
     'GET /api/skills': skillEntries,
+    'GET /api/skills/status': skillStatus,
     'GET /api/doctor': overview.doctor,
     'GET /api/runs': runs,
     'GET /api/profiles': overview.profiles,
@@ -675,6 +676,7 @@ describe('mcp tools', () => {
     mockRoutes({
       'GET /api/mcps': mcps,
     'GET /api/skills': skillEntries,
+    'GET /api/skills/status': skillStatus,
       'GET /api/mcps/local': [{ project: 'demo', root: '/repo', files: ['.mcp.json'] }]
     });
     render(<McpPanel />);
@@ -713,6 +715,7 @@ describe('mcp tools', () => {
     mockRoutes({
       'GET /api/mcps': mcps,
     'GET /api/skills': skillEntries,
+    'GET /api/skills/status': skillStatus,
       'GET /api/mcps/local': [],
       'POST /api/mcps/codex-work/delete': { deleted: true }
     });
@@ -759,7 +762,8 @@ describe('mcp start selection', () => {
 describe('skills', () => {
   it('lists entries and explains plugin delivery limits', async () => {
     mockRoutes({
-      'GET /api/skills': skillEntries
+      'GET /api/skills': skillEntries,
+      'GET /api/skills/status': skillStatus
     });
     render(<SkillsPanel />);
     expect(await screen.findByText('codex-skills')).toBeInTheDocument();
@@ -775,6 +779,7 @@ describe('skills', () => {
       const url = input.toString();
       const method = init?.method ?? 'GET';
       if (url === '/api/skills' && method === 'GET') return jsonResponse(created ? [created] : []);
+      if (url === '/api/skills/status' && method === 'GET') return jsonResponse(skillStatus);
       if (url === '/api/skills/available?agent=claude' && method === 'GET') {
         return jsonResponse({
           agent: 'claude',
@@ -802,9 +807,22 @@ describe('skills', () => {
     expect(await screen.findByText('claude-work')).toBeInTheDocument();
   });
 
+  it('shows installed agent roles and their states', async () => {
+    mockRoutes({
+      'GET /api/skills': skillEntries,
+      'GET /api/skills/status': skillStatus
+    });
+    render(<SkillsPanel />);
+    expect(await screen.findByText('Agent roles')).toBeInTheDocument();
+    expect(screen.getAllByText('agentbox-planner').length).toBeGreaterThan(0);
+    expect(screen.getByText('stale')).toBeInTheDocument();
+    expect(screen.getByText('missing')).toBeInTheDocument();
+  });
+
   it('deletes an entry', async () => {
     mockRoutes({
       'GET /api/skills': skillEntries,
+    'GET /api/skills/status': skillStatus,
       'POST /api/skills/codex-skills/delete': { deleted: true }
     });
     const user = userEvent.setup();

@@ -100,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/skills", s.createSkills)
 	mux.HandleFunc("POST /api/skills/{name}/delete", s.deleteSkills)
 	mux.HandleFunc("GET /api/skills/available", s.availableSkills)
+	mux.HandleFunc("GET /api/skills/status", s.skillsStatus)
 
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("POST /api/settings", s.saveSettings)
@@ -1372,6 +1373,15 @@ func (s *Server) deleteSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
+func (s *Server) skillsStatus(w http.ResponseWriter, r *http.Request) {
+	status, err := s.app.SkillsStatus()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (s *Server) availableSkills(w http.ResponseWriter, r *http.Request) {

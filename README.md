@@ -156,7 +156,8 @@ discover the CLI and HTTP API without reading this repository:
 ```sh
 ./agentbox skills install                 # canonical copy + links for detected harnesses
 ./agentbox skills install --agent claude,opencode
-./agentbox skills install --local         # ./.agents/skills for this project
+./agentbox skills install --local         # ./.agents/skills for this project (skills only; roles are global)
+./agentbox skills install --skip-roles    # usage skills only
 ./agentbox skills list
 ./agentbox skills update                  # refresh after upgrading AgentBox
 ./agentbox skills remove
@@ -173,6 +174,18 @@ orchestrator skill also installs
 `verify-task.md` beside its `SKILL.md`, so an installed copy carries the
 templates it tells the orchestrator to use.
 
+The same install writes four harness agent roles in each harness's native
+format: `agentbox-planner`, `agentbox-implementer`, `agentbox-verifier`, and
+`agentbox-reviewer`. Codex reads `~/.codex/agents/<role>.toml`, Claude Code
+reads `~/.claude/agents/<role>.md`, and OpenCode reads
+`~/.config/opencode/agents/<role>.md`. Roles are global-only; `--local` and
+`--dir` report them as skipped. The verifier and reviewer roles are read-only:
+Claude omits `Edit` and `Write`, OpenCode denies `edit`, and Codex carries the
+same rule as instruction text because its agent files cannot narrow write
+capabilities. Restart a harness session after installing so it scans the new
+agent files. `agentbox skills roles render <role> --harness codex --model M
+--effort E` prints a per-issue copy without touching the installed files.
+
 One canonical copy of each skill, including its shipped templates, is written
 to `~/.agents/skills` (or `./.agents/skills` with `--local`) and Claude and
 OpenCode receive relative symlinks into it.
@@ -183,8 +196,8 @@ shared `.agents/skills` layout, so they appear in `npx skills list` as
 `npx skills update`) and remove them with `agentbox skills remove` or
 `npx skills remove`. AgentBox records what it owns in
 `~/.agents/skills/.agentbox-managed.json`, including one path and hash per
-managed file, and every forced replacement or removal first moves the previous
-copy to
+managed file and a `roles` section for the harness agent files, and every
+forced replacement or removal first moves the previous copy to
 `~/.agents/.agentbox-skill-backups/<timestamp>/`.
 
 Discover the latest supported Codex version:

@@ -5,6 +5,7 @@ import type {
   AvailableSkills,
   LocalMCPFiles,
   MCPTools,
+  SkillStatus,
   SkillsEntry,
   Overview,
   PolicyConfiguration,
@@ -92,6 +93,7 @@ export const api = {
   createSkills: (entry: SkillsEntry) => post<SkillsEntry>('/api/skills', entry),
   deleteSkills: (name: string) => post<{ deleted: true }>(`/api/skills/${encodeURIComponent(name)}/delete`),
   availableSkills: (agent: string) => request<AvailableSkills>(`/api/skills/available?agent=${encodeURIComponent(agent)}`),
+  skillsStatus: () => request<SkillStatus[]>('/api/skills/status'),
 
   settings: () => request<Settings>('/api/settings'),
   saveSettings: (settings: Settings) => post<Settings>('/api/settings', settings),

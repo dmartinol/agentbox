@@ -39,7 +39,10 @@ type Installation struct {
 // Status combines the embedded version of a skill with the copies found on
 // disk.
 type Status struct {
-	Name          string         `json:"name"`
+	Name string `json:"name"`
+	// Kind is "skill" for an embedded usage skill or "role" for a harness
+	// agent definition.
+	Kind          string         `json:"kind,omitempty"`
 	Version       string         `json:"version"`
 	Installations []Installation `json:"installations"`
 	// Files reports the state of every shipped template beside SKILL.md.
@@ -84,7 +87,7 @@ func List(opts ListOptions) ([]Status, error) {
 		if err != nil {
 			return nil, err
 		}
-		status := Status{Name: name, Version: InstalledVersion(content), Installations: []Installation{}}
+		status := Status{Name: name, Kind: "skill", Version: InstalledVersion(content), Installations: []Installation{}}
 		if !resolved {
 			out = append(out, status)
 			continue
