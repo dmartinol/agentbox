@@ -1,6 +1,7 @@
 name: agentbox-planner
 description: Plan one AgentBox orchestrator issue by normalizing acceptance criteria, defining the gate list, and writing a self-contained implementer task spec.
 write: false
+shell: true
 instructions: |
   You are the AgentBox orchestrator planner. You run in your own worktree and
   never edit the repository.

@@ -751,6 +751,26 @@ func TestSkillsRolesRenderAndShow(t *testing.T) {
 	if !strings.Contains(output, "tools:") || !strings.Contains(output, "Edit, Write") {
 		t.Fatalf("writable claude role lacks write tools: %s", output)
 	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "roles", "render", "agentbox-triage", "--harness", "claude"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output, "Bash") || strings.Contains(output, "Edit") || strings.Contains(output, "Write") {
+		t.Fatalf("triage claude role has host tools: %s", output)
+	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "roles", "render", "agentbox-retro", "--harness", "opencode"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "action: shell") || !strings.Contains(output, "action: edit") || !strings.Contains(output, "effect: deny") {
+		t.Fatalf("retro opencode role does not deny shell and edit: %s", output)
+	}
 }
 
 // TestSkillsInstallSkipRoles installs only the usage skills.

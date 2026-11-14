@@ -25,6 +25,7 @@ type Role struct {
 	Description  string               `yaml:"description"`
 	Instructions string               `yaml:"instructions"`
 	Write        bool                 `yaml:"write"`
+	Shell        bool                 `yaml:"shell"`
 	Steps        int                  `yaml:"steps,omitempty"`
 	Models       map[string]RoleModel `yaml:"models,omitempty"`
 }
@@ -39,10 +40,13 @@ type RoleModel struct {
 
 // roleOrder is the stable order roles are installed and reported in.
 var roleOrder = []string{
+	"agentbox-triage",
 	"agentbox-planner",
 	"agentbox-implementer",
+	"agentbox-fixer",
 	"agentbox-verifier",
 	"agentbox-reviewer",
+	"agentbox-retro",
 }
 
 // RoleNames returns the embedded role names in a stable order.
@@ -162,6 +166,11 @@ func RenderRole(role Role, harness, model, effort, version string) ([]byte, erro
 // output repeats the limitation instead of implying enforcement.
 const codexReadOnlyRule = "This role is read-only: do not create, edit, move, or delete files. Codex agent files cannot narrow sandbox or approval settings, so this restriction is instruction-only."
 
+// codexNoShellRule is rendered into the Codex developer instructions because
+// Codex agent files cannot remove shell access. Triage and retro use it so they
+// cannot reach the tracker or forge through `gh` or `git`.
+const codexNoShellRule = "This role has no shell access: do not run commands, including `git` and `gh`. Codex agent files cannot remove shell access, so this restriction is instruction-only."
+
 func renderCodexRole(role Role, model, effort, version string) []byte {
 	var b strings.Builder
 	writeTOMLString(&b, "name", role.Name)
@@ -175,6 +184,9 @@ func renderCodexRole(role Role, model, effort, version string) []byte {
 	instructions := role.Instructions
 	if !role.Write {
 		instructions = strings.TrimRight(instructions, "\n") + "\n\n" + codexReadOnlyRule + "\n"
+	}
+	if !role.Shell {
+		instructions = strings.TrimRight(instructions, "\n") + "\n\n" + codexNoShellRule + "\n"
 	}
 	writeTOMLString(&b, "developer_instructions", instructions)
 	b.WriteString("# agentbox-role: " + effectiveVersion(version) + "\n")
@@ -195,7 +207,10 @@ func renderClaudeRole(role Role, model, version string) []byte {
 	b.WriteString("---\n")
 	writeYAMLString(&b, "name", role.Name)
 	writeYAMLString(&b, "description", role.Description)
-	tools := "Read, Grep, Glob, Bash"
+	tools := "Read, Grep, Glob"
+	if role.Shell {
+		tools += ", Bash"
+	}
 	if role.Write {
 		tools += ", Edit, Write"
 	}
@@ -223,8 +238,16 @@ func renderOpenCodeRole(role Role, model, version string) []byte {
 	if role.Steps > 0 {
 		fmt.Fprintf(&b, "steps: %d\n", role.Steps)
 	}
-	if !role.Write {
-		b.WriteString("permissions:\n  edit: deny\n")
+	// OpenCode V2 agent permissions are an ordered rule list. Denying `edit`
+	// covers the write tools, and denying `shell` removes command execution.
+	if !role.Write || !role.Shell {
+		b.WriteString("permissions:\n")
+		if !role.Write {
+			b.WriteString("  - action: edit\n    resource: \"*\"\n    effect: deny\n")
+		}
+		if !role.Shell {
+			b.WriteString("  - action: shell\n    resource: \"*\"\n    effect: deny\n")
+		}
 	}
 	b.WriteString("---\n\n")
 	b.WriteString(role.Instructions)
@@ -251,4 +274,13 @@ func RoleWriteLimitation(harness string, role Role) string {
 		return ""
 	}
 	return "Codex agent files cannot enforce write: false; the read-only rule is instruction text"
+}
+
+// RoleShellLimitation describes how a harness represents shell: false. Codex
+// cannot enforce the restriction; the others remove or deny the shell tool.
+func RoleShellLimitation(harness string, role Role) string {
+	if role.Shell || harness != "codex" {
+		return ""
+	}
+	return "Codex agent files cannot enforce shell: false; the no-shell rule is instruction text"
 }

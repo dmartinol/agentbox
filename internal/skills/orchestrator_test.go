@@ -80,9 +80,10 @@ func TestOrchestratorSkillRoleBoundary(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
 		"## Role boundary (MUST)",
-		"Task orchestration (mandatory):** triage, select and dispatch every stage's worker",
+		"Task orchestration (mandatory):** dispatch triage and every stage's worker",
 		"Git and forge management (optional, capability-driven):**",
-		"MUST NOT plan, implement, verify, or review inline",
+		"MUST NOT triage, plan, implement, fix, verify, review, or run retro inline",
+		"The orchestrator remains the parent controller and is not itself an installed agent role",
 		"If it starts doing stage work, it stops and dispatches a worker",
 		"A resumed run redispatches the stage; it never continues a previous worker's session",
 	)
@@ -98,10 +99,13 @@ func TestOrchestratorSkillSelection(t *testing.T) {
 		"Ask once during triage",
 		"Confirm an inherited default explicitly before recording it",
 		"| Orchestrator | runtime (`orca`, `agentbox`, or `harness`), agent, model, effort |",
+		"| Triage worker | runtime, agent, model, effort |",
 		"| Plan worker | runtime, agent, model, effort |",
 		"| Implement worker | runtime, agent, model, effort |",
+		"| Fix worker | runtime, agent, model, effort |",
 		"| Verify worker | runtime, agent, model, effort |",
 		"| Review worker | runtime, agent, model, effort |",
+		"| Retro worker | runtime, agent, model, effort |",
 		"The orchestrator cannot switch its own model from inside the turn",
 		"sets `blocked` with the exact reason",
 		"Never fall back to a default, a cheaper model, or a different agent",
@@ -120,17 +124,19 @@ func TestOrchestratorSkillStageDispatch(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
 		"## Stage ownership and isolation",
-		"| triage | orchestrator |",
+		"| triage | worker of the selected type, tracker-blind | its own new worktree | none; it returns a disposition artifact |",
 		"| plan | worker of the selected type | its own new worktree |",
 		"| implement | worker of the selected type, branch `orchestrator/<issue>-<slug>` |",
+		"| fix | worker of the selected type, existing issue branch |",
 		"| verify | fresh worker | fresh detached worktree at the full pull request head SHA |",
 		"| review | fresh worker | fresh detached worktree at the full pull request head SHA |",
+		"| retro | fresh worker, tracker-blind | its own new worktree |",
 		"| merge / close | orchestrator |",
-		"Every stage except triage and merge/close runs in its own selected worker/worktree",
-		"Plan, implement, verify, and review are never performed by the orchestrator turn",
+		"Every stage except merge/close runs in a worker",
+		"Triage, plan, implement, fix, verify, review, and retro are never performed by the orchestrator turn",
 		"fresh detached worktree created at the full 40-character pull request head SHA",
 		"must not share the implementer's worktree and must not see uncommitted state",
-		"A fix cycle dispatches a new implementer and then a new reviewer at the new head",
+		"The fix cycle is a distinct stage. Dispatch `agentbox-fixer`, not a new implementer",
 		"A rebase or force-push invalidates prior verification and review evidence",
 	)
 }
@@ -197,7 +203,7 @@ func TestOrchestratorSkillHarnessVerifyAndReviewUseDetachedWorktree(t *testing.T
 func TestOrchestratorSkillGateDispatchRule(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
-		"Gates 2, 3, 4, and 6 each dispatch a worker",
+		"Gates 1, 2, 3, 4, 6, 7, and 10 each dispatch a worker",
 		"gate 5, pull request creation, is performed by the host implementer or the orchestrator",
 		"No stage work runs inline",
 	)
@@ -642,7 +648,7 @@ func TestOrchestratorSkillUsesShippedRoles(t *testing.T) {
 			t.Fatalf("skill does not name shipped role %q", role)
 		}
 	}
-	referenced := regexp.MustCompile(`agentbox-(?:planner|implementer|verifier|reviewer)[a-z-]*`).FindAllString(body, -1)
+	referenced := regexp.MustCompile(`agentbox-(?:triage|planner|implementer|fixer|verifier|reviewer|retro)[a-z-]*`).FindAllString(body, -1)
 	if len(referenced) == 0 {
 		t.Fatal("skill does not reference any agent role")
 	}
@@ -668,4 +674,36 @@ func TestOrchestratorSkillChecksRoleAvailabilityAtTriage(t *testing.T) {
 		"restart the harness session after `agentbox skills install`",
 		"harness agent definition",
 	)
+}
+
+// TestOrchestratorSkillDispatchesTriageFixerRetro pins the stage contract added
+// for tracker-blind triage, the dedicated fix cycle, and the post-terminal
+// retro. The orchestrator stays the parent controller and performs every
+// tracker mutation itself.
+func TestOrchestratorSkillDispatchesTriageFixerRetro(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"`agentbox-triage`",
+		"`agentbox-fixer`",
+		"`agentbox-retro`",
+		"The orchestrator remains the parent controller and is not itself an installed agent role",
+		"needs-info",
+		"out-of-scope",
+		"tracker-blind",
+		"The orchestrator rechecks current tracker state and applies every label and state change itself",
+		"Dispatch `agentbox-fixer`, not a new implementer",
+		"only the accepted open `blocker` and `major` findings",
+		"push that commit only to the existing pull request branch",
+		"Deferred `minor` and `nit` findings are not fixer work",
+		"review_cycles_max",
+		"post-terminal",
+		"Skip retro when triage",
+		"zero or more candidate follow-up issue definitions",
+		"Deduplicate and scope-check every proposal",
+		"Retro never calls the tracker",
+		"never claims a cross-run pattern",
+	)
+	if ValidRoleName("agentbox-orchestrator") {
+		t.Fatal("the parent orchestrator must not be an installed subagent role")
+	}
 }

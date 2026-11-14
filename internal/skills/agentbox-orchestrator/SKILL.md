@@ -1,6 +1,6 @@
 ---
 name: agentbox-orchestrator
-description: "Drive one tracker issue end to end: triage, dispatch plan, implement, verify, and review to isolated workers with recorded agent, model, and effort, enforce gates, post provenance-marked PRs and verdicts, and own merge and close. Use when asked to take an issue to a merged pull request with the orchestrator flow."
+description: "Drive one tracker issue end to end: dispatch tracker-blind triage, plan, implement, fix, verify, and review to isolated workers, run a post-terminal retro, record agent, model, and effort, enforce gates, post provenance-marked PRs and verdicts, and own merge and close. Use when asked to take an issue to a merged pull request with the orchestrator flow."
 version: "{{VERSION}}"
 ---
 
@@ -16,20 +16,22 @@ code or tooling on its own.
 
 The orchestrator owns exactly two things:
 
-- **Task orchestration (mandatory):** triage, select and dispatch every
-  stage's worker, record provenance, enforce gates, deadlines, and fix-cycle
-  limits, and own merge and close.
+- **Task orchestration (mandatory):** dispatch triage and every stage's
+  worker, validate every returned artifact, record provenance, enforce gates,
+  deadlines, and fix-cycle limits, dispatch the post-terminal retro, and own
+  merge and close.
 - **Git and forge management (optional, capability-driven):** only the writes
   a selected worker cannot perform itself — sync, push, pull request
   creation, comment and label posting, and the state comment. If every
   selected worker type can do these, the orchestrator performs no git
   management at all.
 
-The orchestrator MUST NOT plan, implement, verify, or review inline. If it
-starts doing stage work, it stops and dispatches a worker. Planning a task
-spec for a worker, reading a returned artifact, and checking forge state are
-orchestration, not stage work. A resumed run redispatches the stage; it never
-continues a previous worker's session.
+The orchestrator remains the parent controller and is not itself an installed
+agent role. It MUST NOT triage, plan, implement, fix, verify, review, or run
+retro inline. If it starts doing stage work, it stops and dispatches a worker.
+Assembling a context packet for a worker, reading a returned artifact, and
+checking tracker or forge state are orchestration, not stage work. A resumed
+run redispatches the stage; it never continues a previous worker's session.
 
 ## Ground rules
 
@@ -51,10 +53,13 @@ before recording it; a default is never applied silently.
 | Selection | Asked for | Default |
 | --- | --- | --- |
 | Orchestrator | runtime (`orca`, `agentbox`, or `harness`), agent, model, effort | ask; inherited runtime defaults are confirmed |
+| Triage worker | runtime, agent, model, effort | inherits the orchestrator's choice after confirmation |
 | Plan worker | runtime, agent, model, effort | inherits the orchestrator's choice after confirmation |
 | Implement worker | runtime, agent, model, effort | inherits the plan selection after confirmation |
+| Fix worker | runtime, agent, model, effort | inherits the implement selection after confirmation |
 | Verify worker | runtime, agent, model, effort | a different agent or model from the implementer when one is available |
 | Review worker | runtime, agent, model, effort | a different agent or model from the implementer when one is available |
+| Retro worker | runtime, agent, model, effort | inherits the orchestrator's choice after confirmation |
 
 Rules:
 
@@ -86,22 +91,26 @@ Never record an effort that was not applied.
 
 | Stage | Runs in | Worktree | Forge writes |
 | --- | --- | --- | --- |
-| triage | orchestrator | not applicable | none |
+| triage | worker of the selected type, tracker-blind | its own new worktree | none; it returns a disposition artifact |
 | plan | worker of the selected type | its own new worktree | none |
 | implement | worker of the selected type, branch `orchestrator/<issue>-<slug>` | its own new worktree | see the forge capability matrix |
+| fix | worker of the selected type, existing issue branch | its own worktree at the current pull request head | push only to the existing pull request branch; no PR creation, no tracker |
 | verify | fresh worker | fresh detached worktree at the full pull request head SHA | none |
 | review | fresh worker | fresh detached worktree at the full pull request head SHA | none; it returns a verdict artifact |
+| retro | fresh worker, tracker-blind | its own new worktree | none; it returns zero or more issue drafts |
 | merge / close | orchestrator | not applicable | orchestrator |
 
-Every stage except triage and merge/close runs in its own selected
-worker/worktree. Plan, implement, verify, and review are never performed by
+Every stage except merge/close runs in a worker; the orchestrator turn only
+assembles context packets, validates returned artifacts, and performs the
+tracker, publication, merge, and close writes the selected worker cannot.
+Triage, plan, implement, fix, verify, review, and retro are never performed by
 the orchestrator turn.
 
 - Verify and review each start from a fresh detached worktree created at the
   full 40-character pull request head SHA. They must not share the
   implementer's worktree and must not see uncommitted state; a verdict about a
   working tree that is not the pushed head is invalid.
-- A fix cycle dispatches a new implementer and then a new reviewer at the new
+- A fix cycle dispatches a fresh fixer and then a fresh reviewer at the new
   head. Previous approvals carry forward only when the diff is unaffected.
 - Cycle 1 reviews the full pull request diff against the base. Cycle N>1
   reviews only `prev_head..head`, the ledger status of every prior finding, and
@@ -110,6 +119,13 @@ the orchestrator turn.
   `blocker` severity.
 - A rebase or force-push invalidates prior verification and review evidence
   and restarts both stages at the new head.
+- The fix cycle is a distinct stage. Dispatch `agentbox-fixer`, not a new
+  implementer, with only the accepted `blocker` and `major` findings and their
+  ledger ids. The fixer must not expand scope or add requirements.
+- Triage and retro are tracker-blind and have no shell: they never mutate the
+  tracker, forge, or repository. Only the orchestrator applies their results.
+- Retro is post-terminal. It runs once after merge/close for a workflow that
+  reached implementation and never blocks either.
 
 ## Forge capability matrix
 
@@ -132,6 +148,11 @@ Applying the matrix:
 - **Host implementer:** it may commit, push, and open the pull request itself.
   The orchestrator still validates the returned head SHA before review; a push
   somewhere other than `orchestrator/<issue>-<slug>` is a blocked outcome.
+- **Fix stage:** the fixer may commit on the existing issue branch and, when it
+  is a host worker, push that commit only to the existing pull request branch.
+  A sandbox fixer leaves the commit local; the orchestrator syncs and pushes
+  it. The fixer never opens a pull request, merges, closes, or accesses the
+  tracker. The orchestrator remains the only PR creator and tracker writer.
 - **Every worker type:** merge, close, the state comment, and review verdicts
   remain orchestrator-authored. A reviewer returns its verdict artifact; the
   orchestrator posts it, so a verdict has one writer and one provenance path.
@@ -143,6 +164,8 @@ Applying the matrix:
 A worker owns only local work inside its own isolated checkout: read, edit,
 run gates, and commit on its branch. It returns one result the orchestrator
 consumes: branch name, HEAD SHA, changed paths, gate output, and any blockers.
+A fixer result additionally lists every addressed finding id with evidence at
+the returned commit and any unresolved finding.
 Its forge capability is exactly the row for its worker type in the matrix
 above; a worker that needs a write it lacks reports that instead of attempting
 it.
@@ -256,10 +279,14 @@ issue: 35
 state: in-review
 labels: [orchestrator:in-review]
 orchestrator: {runtime: orca, agent: codex, model: <model-id>, effort: <effort-level>}
+triage: {decision: ready, reason: <one sentence>}
 stages:
+  - {stage: triage, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-6, worktree: issue-35-triage, commit: not-applicable}
   - {stage: implement, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-7, worktree: issue-35-implement, branch: orchestrator/35-example-slug, commit: <full-sha>, pr: 42}
+  - {stage: fix, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-8, worktree: issue-35-fix, branch: orchestrator/35-example-slug, commit: <full-sha>, pr: 42}
   - {stage: verify, runtime: orca, agent: codex, model: <model-id>, effort: medium, worker_id: worker-9, worktree: issue-35-verify, commit: <full-sha>, pr: 42}
   - {stage: review, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-10, worktree: issue-35-review, commit: <full-sha>, pr: 42}
+  - {stage: retro, runtime: orca, agent: codex, model: <model-id>, effort: medium, worker_id: worker-11, worktree: issue-35-retro, commit: not-applicable}
 gates:
   - {command: make test, result: pending, commit: <full-sha>}
 findings:
@@ -267,6 +294,7 @@ findings:
   - {id: F2, severity: minor, location: internal/app/run.go:88, status: "deferred #52", opened_at: <full-sha>, closed_at: <full-sha>}
 review_cycles: 0
 review_cycles_max: 2
+retro: {proposals: 0, created: []}
 blocked_reason: ""
 updated: 2026-11-13T08:00:00Z
 ```
@@ -292,21 +320,31 @@ record a requested effort that the worker did not apply.
 ## Workflow gates
 
 Advance one gate at a time; record the result in the state record before
-moving on. Gates 2, 3, 4, and 6 each dispatch a worker; gate 5, pull request
-creation, is performed by the host implementer or the orchestrator. No stage
-work runs inline.
+moving on. Gates 1, 2, 3, 4, 6, 7, and 10 each dispatch a worker; gate 5, pull
+request creation, is performed by the host implementer or the orchestrator. No
+stage work runs inline.
 
-1. **Triage.** Search for duplicate open issues, check eligibility (in scope
-   for this repository, actionable, one issue), and run environment sanity
-   (`gh auth status`, `git`, and the selected orchestrator and worker tools).
-   Ask once for the orchestrator and per-stage selections, confirm inherited
-   defaults, create the `workflow_id`, and write the state record. Accept to
-   `ready`, reject with a comment and close, or set `blocked`.
+1. **Triage.** Ask once for the orchestrator and per-stage selections, confirm
+   inherited defaults, create the `workflow_id`, and write the state record.
+   Gather a tracker-blind triage snapshot: issue title, body, labels, and
+   relevant comments; repository scope and policy; relevant duplicate-search
+   results; and environment sanity (`gh auth status`, `git`, and the selected
+   orchestrator and worker tools). Dispatch `agentbox-triage` with that
+   snapshot; it returns a structured disposition and never calls the tracker
+   or forge.
    - Confirm every role in the stage table is installed for each selected
      harness (`agentbox skills list` reports `current` or `stale`). A missing
      role sets `blocked` with "restart the harness session after
      `agentbox skills install`"; harnesses scan agent directories only at
      session start.
+   - Validate the disposition. `ready` accepts to `ready`. `out-of-scope`
+     rejects with the reported evidence and closes. `blocked` sets `blocked`
+     with the reason and the single unblocking action. `needs-info` keeps the
+     issue open at `orchestrator:triage`, posts the clarification questions
+     with provenance, records the wait reason in `blocked_reason`, and stops;
+     rerun triage after a response without adding another workflow label.
+   - The orchestrator rechecks current tracker state and applies every label
+     and state change itself. The triage role never does.
 2. **Plan.** Dispatch a plan worker in its own worktree to write measurable
    acceptance criteria and the gate list — the commands that must pass.
    Normalize the issue with `issue.md`. Define the branch
@@ -315,8 +353,7 @@ work runs inline.
    plan with provenance; it does not write it.
 3. **Implement.** Dispatch exactly one writer of the selected type in its own
    worktree with the task spec. The orchestrator does not edit the branch
-   while a writer owns it. A fix cycle dispatches a fresh implementer rather
-   than continuing the old session.
+   while a writer owns it.
 4. **Verify.** After the worker finishes and the branch head is known,
    dispatch a fresh verify worker in a fresh worktree checked out at the pull
    request head. It reruns every gate on that commit and returns only `gates`
@@ -355,14 +392,35 @@ work runs inline.
      the orchestrator dispatches no further fix cycle: it sets `blocked`,
      quotes the open ledger, and asks the maintainer exactly one decision —
      merge with follow-ups, authorize one more cycle, or stop.
-7. **Merge.** The orchestrator verifies the head SHA matches the verified and
+7. **Fix cycle.** When review returns `request-changes` and the cycle budget
+   remains, dispatch a fresh `agentbox-fixer` in its own worktree at the
+   current pull request head with only the accepted open `blocker` and `major`
+   findings, their stable ids, the acceptance criteria, and the required
+   gates. The fixer works only those findings and never expands scope, adds
+   requirements, opens a PR, or accesses the tracker. A host fixer may push
+   its commit only to the existing pull request branch; the orchestrator syncs
+   and pushes a sandbox fixer's commit. Increment `review_cycles`, record the
+   fix stage, then rerun gate 4 (verify) and gate 6 (review) on the new head.
+   Deferred `minor` and `nit` findings are not fixer work.
+8. **Merge.** The orchestrator verifies the head SHA matches the verified and
    reviewed commit, all checks are green, and branch protection is satisfied.
    Any rebase or force-push after verification invalidates the evidence: rerun
    gates and review. Use the repository's merge strategy; prefer a merge
    commit when unspecified.
-8. **Close.** Confirm `Closes #<issue>` closed the issue, comment the outcome
+9. **Close.** Confirm `Closes #<issue>` closed the issue, comment the outcome
    with provenance, remove all `orchestrator:*` labels, and clean up
    worktrees and runs.
+10. **Retro.** After a terminal outcome, and only when the workflow reached
+    implementation, dispatch `agentbox-retro` once with a sanitized record:
+    stage outcomes, state transitions, gate results, review and fix cycles,
+    blockers, and relevant worker reports. It is tracker-blind and returns
+    zero or more candidate follow-up issue definitions. Skip retro when triage
+    rejected the issue or preflight blocked it before any work started, and
+    never let retro delay or reopen merge and close. Deduplicate and
+    scope-check every proposal against open issues before creating anything;
+    create accepted follow-ups only through the tracker adapter, with
+    provenance. Retro never calls the tracker and never claims a cross-run
+    pattern from one workflow.
 
 ### Severity bar
 
@@ -458,17 +516,26 @@ the stage returns.
 
 ### Harness agent roles
 
-`agentbox skills install` also writes one harness agent definition per
-non-orchestrator stage. Dispatch the named role instead of pasting the stage
-contract into an ad-hoc prompt; the role carries the tool limits and stage
-rules for its harness.
+`agentbox skills install` also writes one harness agent definition per stage.
+Dispatch the named role instead of pasting the stage contract into an ad-hoc
+prompt; the role carries the tool limits and stage rules for its harness. The
+parent orchestrator is not installed as a subagent role.
 
 | Stage | Role |
 | --- | --- |
+| triage | `agentbox-triage` |
 | plan | `agentbox-planner` |
 | implement | `agentbox-implementer` |
+| fix | `agentbox-fixer` |
 | verify | `agentbox-verifier` |
 | review | `agentbox-reviewer` |
+| retro | `agentbox-retro` |
+
+Triage and retro render without a shell: Claude omits `Bash`, OpenCode denies
+the `shell` action, and Codex carries the rule as instruction text with a
+reported limitation, so neither role can reach the tracker or forge. The
+fixer has a shell and can commit, but only the orchestrator opens pull
+requests and writes to the tracker.
 
 | Harness | Agent file | Invocation |
 | --- | --- | --- |
@@ -559,9 +626,10 @@ tracker APIs directly for them.
 ## Reporting back
 
 Report the issue number and state, the `workflow_id`, the recorded orchestrator
-runtime/agent/model/effort, each stage's worker and commit, the branch and PR,
-gate results with commit SHAs, review verdicts with the open finding ledger and
-cycle count, and the merge SHA. For stops, quote `blocked_reason`, the open
-ledger, and the single next action that unblocks the flow; at
-`review_cycles_max` that action is exactly one maintainer decision, not an
-open-ended instruction to keep iterating.
+runtime/agent/model/effort, the triage disposition, each stage's worker and
+commit, the branch and PR, gate results with commit SHAs, review verdicts with
+the open finding ledger and cycle count, each fix cycle's addressed finding ids,
+any retro proposals and created follow-ups, and the merge SHA. For stops, quote
+`blocked_reason`, the open ledger, and the single next action that unblocks the
+flow; at `review_cycles_max` that action is exactly one maintainer decision, not
+an open-ended instruction to keep iterating.

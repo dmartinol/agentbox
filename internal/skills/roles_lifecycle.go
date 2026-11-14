@@ -178,18 +178,20 @@ func replaceRolePath(res Result, path string, content []byte, _ ManifestRoleFile
 	return res, true, nil
 }
 
-// roleDetail appends the Codex write-capability limitation to a result, so the
+// roleDetail appends the Codex capability limitations to a result, so the
 // install output never implies enforcement the harness cannot provide.
 func roleDetail(detail, harness string, role Role) string {
-	note := RoleWriteLimitation(harness, role)
-	switch {
-	case note == "":
-		return detail
-	case detail == "":
-		return note
-	default:
-		return detail + "; " + note
+	for _, note := range []string{RoleWriteLimitation(harness, role), RoleShellLimitation(harness, role)} {
+		if note == "" {
+			continue
+		}
+		if detail == "" {
+			detail = note
+			continue
+		}
+		detail += "; " + note
 	}
+	return detail
 }
 
 // removeRoles deletes manifest-owned role files. With a harness filter only
