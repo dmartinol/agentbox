@@ -4,24 +4,12 @@ import { api } from '../api';
 import type { Run } from '../types';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
-import { canAttachRun, statusLabel } from './StatusBadge';
+import { StatusGlyph, canAttachRun, statusLabel } from './StatusBadge';
 import { LogSnapshot } from './LogSnapshot';
 
 const AgentTerminal = lazy(() => import('./AgentTerminal').then((module) => ({ default: module.AgentTerminal })));
 
 type ShellTab = { runId: string; session: string };
-
-const dotTones: Record<string, string> = {
-  running: 'bg-info',
-  created: 'bg-info',
-  prepared: 'bg-info',
-  idle: 'bg-warning',
-  'policy-blocked': 'bg-warning',
-  unreachable: 'bg-warning',
-  finished: 'bg-success',
-  error: 'bg-danger',
-  'create-failed': 'bg-danger'
-};
 
 const terminalFallback = <div className="grid min-h-0 flex-1 place-items-center bg-black text-sm text-muted">Loading terminal…</div>;
 
@@ -132,7 +120,7 @@ export function AgentWorkspace({
     }
   };
 
-  const needingAttention = runs.filter((run) => run.status === 'idle' || run.status === 'error').length;
+  const needingAttention = runs.filter((run) => run.status === 'waiting' || run.status === 'failed').length;
 
   const tabClass = (selected: boolean) =>
     cn(
@@ -170,11 +158,12 @@ export function AgentWorkspace({
               key={key}
               role="tab"
               aria-selected={activeKey === key}
+              aria-label={`${run.name || run.id} (${statusLabel(run.status)})`}
               title={`${statusLabel(run.status)} · ${run.branch}`}
               className={tabClass(activeKey === key)}
               onClick={() => setActiveKey(key)}
             >
-              <span className={cn('size-1.5 shrink-0 rounded-full', dotTones[run.status.toLowerCase()] ?? 'bg-muted')} />
+              <StatusGlyph status={run.status} />
               <span className="max-w-40 truncate">{run.name || run.id}</span>
               {unread.has(run.id) ? <span className="size-1.5 shrink-0 rounded-full bg-accent" aria-label="Unread activity" /> : null}
             </button>

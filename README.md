@@ -538,7 +538,7 @@ The GUI is a compact, Orca-inspired React single-page application built with Vit
 
 The two primary surfaces are:
 
-- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, compact status badges, inline lifecycle actions, and selected-agent metadata. The **Workspace** button on a project (or **Attach** on an agent) opens a workspace with one tab per agent plus optional shell tabs; only the visible tab holds a terminal. Logs, diffs, and effective policies open in a shared bottom drawer.
+- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, a derived status glyph plus label per run, a **Needs You** count for agents waiting on input, inline lifecycle actions, and selected-agent metadata. The **Workspace** button on a project (or **Attach** on an agent) opens a workspace with one tab per agent plus optional shell tabs; only the visible tab holds a terminal. Logs, diffs, and effective policies open in a shared bottom drawer.
 - **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, policies, MCP tools, skills, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. A blank profile policy automatically creates and references the default policy. Image build output and stop controls are also routed to the bottom drawer.
 
 The interface defaults to light mode and includes a header theme switcher; the selected theme is remembered locally.
@@ -549,17 +549,18 @@ The GUI calls a local JSON API served by the same process. It does not expose th
 
 Attach is available from both the GUI and CLI.
 
-In the GUI, click **Attach** on an active or idle agent, or **Workspace** on a
-project. AgentBox opens the project workspace: the tab strip lists every agent
-in that project, and the selected tab holds an xterm.js terminal connected to
-that agent's tmux session over a same-origin WebSocket. Switching tabs detaches
+In the GUI, click **Attach** on a Ready, Working, or Waiting for input agent, or
+**Workspace** on a project. AgentBox opens the project workspace: the tab strip
+lists every agent in that project, and the selected tab holds an xterm.js
+terminal connected to that agent's tmux session over a same-origin WebSocket. Switching tabs detaches
 the previous terminal and reattaches on return, showing the cached log tail in
 the meantime. Closing the workspace detaches the browser client; it does not
 finish the agent. Inside the terminal, `Ctrl-b d` also detaches.
 
-Runs that have finished or stopped open a read-only log snapshot instead of a
-terminal. The **Shell** button in the workspace starts an extra shell tab inside
-the active agent's sandbox, at its worktree, with the agent's environment. Closing
+Completed, Stopped, Failed, and Unreachable runs open a read-only log snapshot
+instead of a terminal. The **Shell** button in the workspace starts an extra
+shell tab inside the active agent's sandbox, at its worktree, with the agent's
+environment. Closing
 a shell tab stops that shell; it never affects the agent session.
 
 From the CLI:
@@ -568,11 +569,46 @@ From the CLI:
 ./agentbox agent attach <run-id>
 ```
 
-When the agent exits, the session asks whether to keep the agent idle for later
+When the agent exits, the session asks whether to keep the agent ready for later
 reattachment or finish it. Choosing idle creates an idle marker, keeps the
-sandbox and tmux session available, and shows the agent as **Idle**. Exiting the
-idle shell returns to the idle/finish prompt rather than finishing the agent.
-Choosing finish writes the finished marker and closes the tmux session.
+sandbox and tmux session available, and shows the agent as **Ready**. Exiting
+the idle shell returns to the idle/finish prompt rather than finishing the
+agent. Choosing finish writes the finished marker and closes the tmux session.
+
+## Run status
+
+Every run has one derived, read-only status. Nothing in the CLI or GUI can set
+it: AgentBox recomputes it from the sandbox, the tmux session, and explicit
+signals written by the agent or the session script.
+
+| Status | Meaning |
+| --- | --- |
+| Creating | Run record exists, sandbox is warming up; not attachable yet. |
+| Ready | Sandbox and agent session are available with no turn in flight. |
+| Working | The agent is executing a turn. |
+| Waiting for input | The agent asked for permission or a decision, or the session is asking whether to keep the run ready. |
+| Failed | Cannot run: prepare, create, policy, or bootstrap error. The detail says which. |
+| Unreachable | The sandbox or gateway cannot be inspected, so status cannot be computed. |
+| Stopped | You stopped the run; results were synced and the sandbox was stopped. |
+| Completed | The agent session ended and results were synced. |
+
+When the agent stops to ask a question, or finishes a plan and asks whether to
+implement it, the run reports Waiting for input until you answer. Press ESC in a Codex turn to return the run to Ready right away: tool results
+that arrive after the interrupt belong to the cancelled turn and are ignored
+instead of restoring Working.
+
+`agent list` and `agent show` print the status and its detail; `--json` includes
+`status` and `status_detail`. Attach and Stop apply to Ready, Working, and
+Waiting for input. Direct-checkout mode refuses a second run while any run on
+that checkout is active, or while its state cannot be verified.
+
+Fleet keeps itself current: it re-reads every run about once a second while a
+run is Creating, Working, or Waiting for input, every 2.5 seconds while runs are
+Ready (1.5 seconds when a workspace is open), and every 15 seconds when every
+run is terminal. Returning to the browser tab refreshes immediately. Each read
+recomputes the status from inside the sandbox, so the probe round trip adds to
+the refresh interval. The badge uses the short label (for example **Waiting**);
+hovering it, or reading it with a screen reader, gives the full status name.
 
 ## State location
 

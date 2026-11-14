@@ -97,6 +97,13 @@ func newSyncRunner(t *testing.T, artifacts map[string]string) *fakeRunner {
 		if call.name != "openshell" {
 			return nil, nil
 		}
+		joined := strings.Join(call.args, " ")
+		if containsCommand(call.args, "sandbox", "get") {
+			return []byte(`{"phase":"running"}`), nil
+		}
+		if strings.Contains(joined, "tmux has-session -t agent") {
+			return []byte("session=1\ndead=0\ncommand=codex\nactivity={\"state\":\"working\"}\n"), nil
+		}
 		for index, arg := range call.args {
 			if arg != "download" || index+3 >= len(call.args) {
 				continue

@@ -1,15 +1,12 @@
 export type RunStatus =
-  | 'running'
-  | 'created'
-  | 'prepared'
-  | 'finished'
-  | 'stopped'
-  | 'error'
-  | 'create-failed'
-  | 'policy-blocked'
-  | 'unreadable'
+  | 'creating'
+  | 'ready'
+  | 'working'
+  | 'waiting'
+  | 'failed'
   | 'unreachable'
-  | 'preview';
+  | 'stopped'
+  | 'completed';
 
 export interface Run {
   id: string;
@@ -29,7 +26,8 @@ export interface Run {
   mode: string;
   model: string;
   approval: string;
-  status: string;
+  status: RunStatus;
+  status_detail?: string;
   synced: boolean;
   policy: string;
   mcp?: string;

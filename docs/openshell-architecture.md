@@ -184,6 +184,7 @@ A run is created as follows:
 11. Verify the effective OpenShell policy.
 12. Mark the sandbox ready.
 13. Start tmux and the agent session.
+14. Probe the new run once and cache its derived status.
 
 ## Runtime configuration location
 
@@ -333,9 +334,10 @@ AgentBox never writes the raw secret into:
 - generated agent configuration;
 - run records;
 - logs;
-- command-line arguments.
+- command-line arguments;
+- generated activity hooks and the status probe (derived run status).
 
-## Attach and idle
+## Attach and run status
 
 Each run owns a tmux session named `agent`. The GUI attaches to runs through
 a project workspace: the tab strip lists every agent of the project, and each
@@ -347,8 +349,8 @@ tab is a view over one run.
   than by a background terminal.
 - While a tab reattaches, the GUI shows the cached tail of
   `/workspace/state/agent.log`, so the surface is never blank.
-- Runs that cannot attach (finished, stopped, error) open a read-only log
-  snapshot instead of a terminal.
+- Runs that cannot attach (Completed, Stopped, Failed, Unreachable) open a
+  read-only log snapshot instead of a terminal.
 - Shell tabs start a separate tmux session (`shell-N`) in the same sandbox
   and policy, at `/workspace/project`, with the same `HOME`, `XDG_*`,
   `CODEX_HOME`, and `CLAUDE_CONFIG_DIR` environment as the agent. Shells
@@ -374,8 +376,8 @@ Attach transport:
   Terminal input travels as binary frames; text frames are control
   messages.
 
-When the agent exits, the session asks whether to keep the run idle or finish
-it. Idle runs retain:
+When the agent exits, the session asks whether to keep the run ready or finish
+it. Kept runs retain:
 
 - the sandbox;
 - tmux;
@@ -385,6 +387,84 @@ it. Idle runs retain:
 
 Exiting an idle shell returns to the idle/finish prompt rather than finishing
 the run.
+
+## Derived run status
+
+`Run.Status` carries one derived, read-only operational value and
+`Run.StatusDetail` an optional explanation. The persisted pair is only a cache
+so Fleet and `agent show` can render before an inspect; every read reconciles
+it. There is no status setter in the CLI or HTTP API, and execution gates use
+the derived value only.
+
+The classification lives in `internal/app/status.go`. One probe exec per run
+collects the tmux session and foreground command, the bottom of the visible
+pane, `/workspace/idle`, `/workspace/finished`, `/workspace/exit-code`,
+`/workspace/state/activity.json`, and the `agent.log` mtime. Precedence, highest first:
+
+1. sandbox phase `error` → Failed;
+2. sandbox phase `stopped`/`exited` → Stopped;
+3. no tmux session and no finished marker → Creating;
+4. sandbox phase `completed` or finished marker → Completed, with the exit code
+   or "agent exited" as detail;
+5. the Codex plan-approval prompt on screen → Waiting for input, "plan ready for
+   review";
+6. an explicit `activity.json` signal while the session is alive → Working,
+   Waiting for input, or Ready (`done`/`idle`);
+7. idle marker or a shell in the tmux foreground → Ready;
+8. agent in the tmux foreground → Working;
+9. inspect error or unparsable response → Unreachable.
+
+Log silence never produces Waiting for input. Only an explicit signal or the
+session prompt does. OpenCode has no hooks, so a run counts as Working while
+`agent.log` changed within the last two minutes and Ready afterwards.
+
+### Activity signals
+
+`/workspace/state/activity.json` holds
+`{"state":"working|waiting|done|idle","detail":"..."}`. Malformed or unknown
+values are ignored, and a signal is only honoured while the agent session is
+alive, so a crash cannot leave a stale Working. AgentBox generates the writer
+(`activity.sh`) and the hook definitions:
+
+- Codex: `SessionStart` → idle; `UserPromptSubmit`, `PreToolUse`, `PostToolUse`
+  → working; `PermissionRequest` → waiting; `Stop`, `SessionEnd` → done;
+  `Interrupt` → idle. A `PreToolUse` for the `request_user_input` tool means the
+  agent stopped to ask a question, so it signals waiting instead of working;
+  the matching `PostToolUse` resumes working once the answer is submitted.
+- Claude Code: the same mapping plus `Notification` and `Elicitation` →
+  waiting. Claude has no `Interrupt` hook and does not fire `Stop` on an
+  interrupt, so an interrupted turn falls back to the session prompt.
+- OpenCode: no hooks.
+
+Codex ends a plan-mode turn with `Stop`, so the hook signal alone says done
+while the TUI is really waiting for "Implement this plan?". The probe therefore
+looks for that prompt in the last twelve visible pane lines and reports Waiting
+for input; nothing has to clear it, because the prompt disappears as soon as
+the user answers or dismisses it.
+
+Codex ends a turn on ESC but may still deliver progress hooks for tools that
+were in flight. `activity.sh` therefore records the interrupted `turn_id` in
+`/workspace/state/interrupted-turn` and ignores `PreToolUse`, `PostToolUse`,
+`PermissionRequest`, `Notification`, `Elicitation`, and `Stop` for that same
+turn, so the run returns to Ready and stays there. `UserPromptSubmit`,
+`SessionStart`, and `SessionEnd` clear the marker; signals without a hook
+payload keep the earlier behaviour.
+
+Generated configuration also removes the trust dialogs that would otherwise
+look like human-in-the-loop prompts: Codex runs with
+`--dangerously-bypass-hook-trust` when the pinned binary supports it and its
+`config.toml` pre-trusts `/workspace/project`; Claude's `.claude.json` sets
+`hasTrustDialogAccepted` and `hasTrustDialogHooksAccepted` for the same path.
+
+### Gates
+
+- Active (blocks a second direct-checkout run): Creating, Ready, Working,
+  Waiting for input; Unreachable also blocks because the state cannot be
+  verified.
+- Attach and Stop: Ready, Working, Waiting for input.
+- Delete: refuses those three unless `--discard`; Creating records still use the
+  existing sync and diff gates.
+- Sync runs when a run reaches Completed.
 
 ## Diff and sync
 

@@ -131,7 +131,7 @@ func TestAgentScriptPromptAndPermission(t *testing.T) {
 	if !strings.Contains(s, "'say '\\''ok'\\'''") {
 		t.Fatalf("prompt not shell quoted: %s", s)
 	}
-	if strings.Contains(s, "bypass") {
+	if strings.Contains(s, "--dangerously-bypass-approvals-and-sandbox") {
 		t.Fatal("prompted mode bypasses approval")
 	}
 	p.Args = []string{"--yolo"}

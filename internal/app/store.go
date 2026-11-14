@@ -116,7 +116,8 @@ type Run struct {
 	Mode             string    `json:"mode"`
 	Model            string    `json:"model"`
 	Approval         string    `json:"approval"`
-	Status           string    `json:"status"`
+	Status           RunStatus `json:"status"`
+	StatusDetail     string    `json:"status_detail"`
 	Synced           bool      `json:"synced"`
 	Policy           string    `json:"policy"`
 	PendingPolicy    string    `json:"pending_policy,omitempty"`
@@ -494,6 +495,7 @@ func (s Store) LoadRun(id string) (Run, error) {
 	if r.ID != id {
 		return r, fmt.Errorf("run ID mismatch")
 	}
+	r.Status, r.StatusDetail = NormalizeRunStatus(string(r.Status), r.StatusDetail)
 	return r, nil
 }
 

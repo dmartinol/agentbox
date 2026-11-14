@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal } from 'lucide-react';
+import { Bot, CircleHelp, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal } from 'lucide-react';
 import { api } from '../api';
 import type { MCPTools, Overview, Profile, Run, SkillsEntry, StartRunRequest } from '../types';
 import { Badge } from '../components/ui/badge';
@@ -13,10 +13,20 @@ import { Modal } from '../components/ui/dialog';
 import { ConfirmDialog } from '../components/ui/confirm';
 import { Table, TBody, TD, TH, THead, TR } from '../components/ui/table';
 import { AgentWorkspace } from '../components/AgentWorkspace';
-import { StatusBadge, canAttachRun, isActiveRun, canStopRun, statusLabel } from '../components/StatusBadge';
+import { StatusBadge, canAttachRun, isActiveRun, canStopRun, isWaitingRun, statusLabel } from '../components/StatusBadge';
 import type { LogDrawerState } from '../components/LogDrawer';
 
 const allProjects = 'All projects';
+
+// Fleet stays live on its own: a run that is still starting must not sit on
+// Creating until someone reloads the page. Poll fast while something is
+// changing or while a terminal is on screen, a little slower while an idle
+// agent could start a turn, and stay cheap once every run is terminal.
+function fleetPollDelay(runs: Run[], watching: boolean): number {
+  if (runs.some((run) => run.status === 'creating' || run.status === 'working' || run.status === 'waiting')) return 1000;
+  if (runs.some((run) => run.status === 'ready')) return watching ? 1500 : 2500;
+  return 15000;
+}
 
 type AgentAction = 'sync' | 'stop' | 'delete';
 
@@ -95,6 +105,8 @@ export function FleetView({
     return matchesSearch && (projectFilter === allProjects || project === projectFilter);
   }), [agents, search, projectFilter]);
 
+  const needsYouCount = useMemo(() => agents.filter((agent) => isWaitingRun(agent.status)).length, [agents]);
+
   const grouped = useMemo(() => {
     const groups = new Map<string, Run[]>();
     for (const agent of filtered) {
@@ -131,7 +143,7 @@ export function FleetView({
       const before = previous.get(agent.id);
       next.set(agent.id, agent.status);
       if (!before || before === agent.status) continue;
-      const needsYou = agent.status === 'idle' || agent.status === 'finished' || agent.status === 'error';
+      const needsYou = agent.status === 'waiting' || agent.status === 'completed';
       if (!needsYou || agent.id === focusedRunId) continue;
       setUnread((current) => new Set(current).add(agent.id));
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
@@ -143,17 +155,54 @@ export function FleetView({
     previousStatuses.current = next;
   }, [agents, focusedRunId]);
 
+  const pollDelay = fleetPollDelay(agents, Boolean(workspace));
+
   useEffect(() => {
-    if (!workspace) return;
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'hidden') return;
-      void api
-        .runs()
-        .then((runs) => setOverview((current) => (current ? { ...current, runs } : current)))
-        .catch(() => undefined);
-    }, 15000);
-    return () => window.clearInterval(timer);
-  }, [workspace]);
+    let cancelled = false;
+    let timer = 0;
+    let inFlight = false;
+
+    const refresh = async () => {
+      if (cancelled || inFlight || document.visibilityState === 'hidden') return;
+      inFlight = true;
+      try {
+        const next = await api.runs();
+        if (cancelled) return;
+        setOverview((current) => (current ? { ...current, runs: next } : current));
+        setSelected((current) => (current ? next.find((run) => run.id === current.id) : current));
+      } catch {
+        // Keep the last known fleet; the next tick retries.
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const tick = async () => {
+      await refresh();
+      if (!cancelled) schedule();
+    };
+
+    const schedule = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void tick(), pollDelay);
+    };
+
+    // Returning to the tab refreshes immediately instead of waiting out a
+    // long terminal-state delay.
+    const onVisibilityChange = () => {
+      if (cancelled || document.visibilityState === 'hidden') return;
+      window.clearTimeout(timer);
+      void tick();
+    };
+
+    schedule();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [pollDelay]);
 
   const inFlightStatus = (agent: Run): string => {
     const kind = pending[agent.id];
@@ -328,6 +377,11 @@ export function FleetView({
         <Select aria-label="Filter by project" className="w-44" value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
           {projects.map((project) => <option key={project} value={project}>{project}</option>)}
         </Select>
+        {needsYouCount > 0 ? (
+          <Badge tone="warning" aria-label={`${needsYouCount} agents waiting for input`}>
+            <CircleHelp className="size-3" /> Needs You {needsYouCount}
+          </Badge>
+        ) : null}
         <Button variant="ghost" size="icon" aria-label="Refresh agents" onClick={() => void load()}>
           {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
         </Button>
@@ -444,7 +498,8 @@ export function FleetView({
                   ['Image', selected.image],
                   ['Mode', selected.mode],
                   ['Approval', selected.approval],
-                  ['Worktree', selected.worktree]
+                  ['Worktree', selected.worktree],
+                  ...(selected.status_detail ? [['Detail', selected.status_detail]] : [])
                 ].map(([label, value]) => (
                   <div key={label} className="grid grid-cols-[5.5rem_1fr] gap-2">
                     <dt className="text-muted">{label}</dt>

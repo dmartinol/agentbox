@@ -75,7 +75,11 @@ agentbox agent list [--json]
 | `--json` | `false` | Print the run records as JSON. |
 
 Reconciles run states with the sandbox environment, then prints one line per
-run with its name, ID, project, agent, isolation, mode, status, and worktree.
+run with its name, ID, project, agent, isolation, mode, derived status (with its
+detail when present), and worktree.
+
+Status is derived and read-only: `creating`, `ready`, `working`, `waiting`,
+`failed`, `unreachable`, `stopped`, or `completed`.
 
 ## show
 {: #agent-show }
@@ -89,6 +93,9 @@ agentbox agent show [--json] ID
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--json` | `false` | Print the run record as JSON. |
+
+Inspects the sandbox before printing, so the status and detail reflect the
+current state. The JSON record includes `status` and `status_detail`.
 
 ## attach
 {: #agent-attach }

@@ -366,8 +366,18 @@ func TestPrepareAgentClaudeLocalApprovalWithoutSelection(t *testing.T) {
 	if settings["enableAllProjectMcpServers"] != true {
 		t.Fatalf("enableAllProjectMcpServers missing without selection: %s", body)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "home", ".claude", ".claude.json")); !os.IsNotExist(err) {
-		t.Fatalf(".claude.json written without selection: %v", err)
+	var state map[string]any
+	body, err = os.ReadFile(filepath.Join(dir, "home", ".claude", ".claude.json"))
+	if err != nil || json.Unmarshal(body, &state) != nil {
+		t.Fatalf(".claude.json unreadable without selection: %v %s", err, body)
+	}
+	if _, ok := state["mcpServers"]; ok {
+		t.Fatalf(".claude.json declares MCP servers without selection: %s", body)
+	}
+	projects, _ := state["projects"].(map[string]any)
+	project, _ := projects["/workspace/project"].(map[string]any)
+	if project["hasTrustDialogAccepted"] != true || project["hasTrustDialogHooksAccepted"] != true {
+		t.Fatalf(".claude.json lacks workspace trust: %s", body)
 	}
 }
 

@@ -268,12 +268,13 @@ func newProjectRunTree(projects []app.Project, runs []app.Run) []projectRunNode 
 			if runProject != name {
 				continue
 			}
-			switch status := strings.ToLower(run.Status); {
-			case status == "running" || status == "created" || status == "prepared":
+			if run.Status.IsActive() {
 				node.ActiveRuns = append(node.ActiveRuns, run)
-			case status == "finished":
+			}
+			if run.Status == app.StatusCompleted {
 				node.FinishedRuns = append(node.FinishedRuns, run)
-			case status != "finished" && status != "running" && status != "created" && status != "prepared":
+			}
+			if run.Status == app.StatusReady || run.Status == app.StatusWaiting {
 				node.IdleRuns = append(node.IdleRuns, run)
 			}
 		}
@@ -290,13 +291,19 @@ func newSummary(runs []app.Run, images []app.ImageArtifact, gateways []gatewayRe
 		"projects": len(projects),
 	}
 	for _, run := range runs {
-		switch status := strings.ToLower(run.Status); {
-		case status == "running" || status == "created" || status == "prepared":
+		switch run.Status {
+		case app.StatusCreating, app.StatusReady, app.StatusWorking, app.StatusWaiting:
 			summary["active"]++
-		case status == "finished":
+		case app.StatusCompleted:
 			summary["finished"]++
-		case status == "error" || status == "create-failed" || status == "policy-blocked" || status == "unreadable" || status == "unreachable":
+		case app.StatusFailed, app.StatusUnreachable:
 			summary["failed"]++
+		}
+		if run.Status == app.StatusWaiting {
+			summary["waiting"]++
+		}
+		if run.Status == app.StatusStopped {
+			summary["stopped"]++
 		}
 		if !run.Synced {
 			summary["unsynced"]++
@@ -315,7 +322,7 @@ func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
-	run, err := s.app.Store.LoadRun(r.PathValue("id"))
+	run, err := s.app.GetRun(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, err)
 		return
