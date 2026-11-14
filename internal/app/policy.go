@@ -48,9 +48,10 @@ type Binary struct {
 }
 
 type PolicyConfiguration struct {
-	Name   string   `json:"name"`
-	Path   string   `json:"path"`
-	UsedBy []string `json:"used_by,omitempty"`
+	Name       string   `json:"name"`
+	Path       string   `json:"path"`
+	UsedBy     []string `json:"used_by,omitempty"`
+	DefaultFor string   `json:"default_for,omitempty"`
 }
 
 func ParsePolicy(b []byte) (Policy, error) {
@@ -115,8 +116,10 @@ func (s Store) ListPolicyConfigurations() ([]PolicyConfiguration, error) {
 		}
 	}
 	usedBy := make(map[string][]string)
+	defaultFor := make(map[string]string)
 	for _, profile := range profiles {
 		usedBy[profile.Policy] = append(usedBy[profile.Policy], profile.Name)
+		defaultFor[profile.Name] = profile.Name
 	}
 	out := make([]PolicyConfiguration, 0, len(entries))
 	for _, entry := range entries {
@@ -140,7 +143,7 @@ func (s Store) ListPolicyConfigurations() ([]PolicyConfiguration, error) {
 		}
 		users := append([]string(nil), usedBy[path]...)
 		sort.Strings(users)
-		out = append(out, PolicyConfiguration{Name: name, Path: path, UsedBy: users})
+		out = append(out, PolicyConfiguration{Name: name, Path: path, UsedBy: users, DefaultFor: defaultFor[name]})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
@@ -218,6 +221,52 @@ func (s Store) SavePolicyConfigurationContent(name string, content []byte) error
 		return err
 	}
 	return atomicWrite(path, content)
+}
+
+func (s Store) DeletePolicyConfiguration(name string) error {
+	path, err := s.PolicyConfigurationPath(name)
+	if err != nil {
+		return err
+	}
+	if err := ensureResourceExists(path, "policy", name); err != nil {
+		return err
+	}
+	return os.Remove(path)
+}
+
+func (a *App) DeletePolicyConfiguration(name string) error {
+	if _, err := a.Store.LoadPolicyConfiguration(name); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return &NotFoundError{Resource: "policy", Name: name}
+		}
+		return err
+	}
+	path, err := a.Store.PolicyConfigurationPath(name)
+	if err != nil {
+		return err
+	}
+	profiles, err := a.Store.ListProfiles()
+	if err != nil {
+		return err
+	}
+	var referenced, generatedDefault []string
+	for _, profile := range profiles {
+		if profile.Policy == path {
+			referenced = append(referenced, profile.Name)
+		}
+		if profile.Name == name {
+			generatedDefault = append(generatedDefault, profile.Name)
+		}
+	}
+	if len(referenced) > 0 {
+		sort.Strings(referenced)
+		return &ConflictError{Resource: "policy", Name: name, Reason: "profiles reference it", Dependents: referenced}
+	}
+	if len(generatedDefault) > 0 {
+		sort.Strings(generatedDefault)
+		return &ConflictError{Resource: "policy", Name: name, Reason: "it is the generated default for a profile", Dependents: generatedDefault}
+	}
+	return a.Store.DeletePolicyConfiguration(name)
 }
 
 func (s Store) policyUsers(path string) ([]string, error) {

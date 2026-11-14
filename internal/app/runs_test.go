@@ -370,3 +370,43 @@ func TestAttachSessionPreservesProbeError(t *testing.T) {
 		t.Fatalf("attach stream issued after probe failure: %#v", runner.streams)
 	}
 }
+
+func TestRunRecordsProfileName(t *testing.T) {
+	ctx := context.Background()
+	store := Store{Base: t.TempDir()}
+	policy, err := store.CreatePolicyConfiguration("unit-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := Profile{Version: 1, Name: "mycodex", Agent: "codex", Image: "localhost/openshell:codex-1.2.3-r3", Mode: "standard", Provider: "unit-provider", Policy: policy.Path, Approval: "prompted"}
+	if err := store.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		switch {
+		case call.name == "openshell" && len(call.args) > 0 && call.args[0] == "gateway":
+			return []byte(`{"name":"openshell","type":"podman"}`), nil
+		case call.name == "openshell" && len(call.args) > 0 && call.args[0] == "provider":
+			return []byte(`{}`), nil
+		case call.name == "podman":
+			return []byte(`[]`), nil
+		}
+		return nil, nil
+	}}
+	app := App{Store: store, Runner: runner}
+	run, err := app.Start(ctx, StartOptions{Profile: "mycodex", Gateway: "openshell", Dry: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.ProfileName != "mycodex" {
+		t.Fatalf("run profile = %q; want mycodex", run.ProfileName)
+	}
+	run.ID = "run-profile123"
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.LoadRun(run.ID)
+	if err != nil || stored.ProfileName != "mycodex" {
+		t.Fatalf("stored run profile = %q, %v", stored.ProfileName, err)
+	}
+}

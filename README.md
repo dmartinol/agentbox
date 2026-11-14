@@ -598,6 +598,34 @@ The interface defaults to light mode and includes a header theme switcher; the s
 
 The GUI calls a local JSON API served by the same process. It does not expose the server on the network by default; bind explicitly if remote access is intended and protected.
 
+Setup exposes guarded lifecycle actions for every resource. Destructive actions
+always open a confirmation dialog and state what is removed and what is kept:
+
+- **Projects:** deleting removes only `projects/<name>.yaml`; the checkout and
+  run records are kept. Any run, active or terminal, blocks deletion.
+- **Profiles:** deleting removes only `profiles/<name>.yaml`; the image,
+  policy, and run records are kept. A non-terminal run using the profile, or
+  being the only profile for its agent, blocks deletion.
+- **Policies:** deleting removes only `policies/<name>.yaml`; profiles are
+  kept. A profile that references the policy blocks deletion, as does the
+  generated default `policies/<profile-name>.yaml` while that profile exists.
+- **Gateways:** deleting runs `openshell gateway remove <name>` and removes the
+  local registration; the remote gateway, sandboxes, and run records are kept.
+  A non-terminal run on that gateway blocks deletion.
+- **Images:** deleting removes the local image and all of its tags; profile and
+  run records are kept. Profiles and non-terminal runs that reference the image
+  block deletion.
+- **MCP tools and Skills:** entries can be edited or deleted. Editing keeps the
+  entry name read-only and preserves currently selected values that are no
+  longer available, with a warning. Deleting removes only the AgentBox entry;
+  global or host configuration is kept.
+- **Registry:** clearing removes only `registry.yaml`; it does not log out of
+  Podman or delete images, and is disabled when no saved reference exists.
+
+When a guard blocks deletion, the button shows a visible reason and the API
+returns `409` with the names of the dependent objects. Deleting a missing
+resource returns `404`.
+
 ## Attach behavior
 
 Attach is available from both the GUI and CLI.

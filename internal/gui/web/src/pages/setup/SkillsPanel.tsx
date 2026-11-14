@@ -7,6 +7,7 @@ import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input, Select } from '../../components/ui/input';
 import { Modal } from '../../components/ui/dialog';
+import { ConfirmDialog } from '../../components/ui/confirm';
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 
 const agents = ['claude', 'codex', 'opencode'];
@@ -24,6 +25,11 @@ export function SkillsPanel() {
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [selectedPlugins, setSelectedPlugins] = useState<string[]>([]);
   const [busy, setBusy] = useState<string>();
+  const [editing, setEditing] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<SkillsEntry | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = async () => {
     try {
@@ -51,11 +57,23 @@ export function SkillsPanel() {
   };
 
   const openCreate = async () => {
+    setEditing(false);
     setCreateForm({ name: '', agent: 'claude' });
     setSelectedSkills([]);
     setSelectedPlugins([]);
     setCreateOpen(true);
     await loadAvailable('claude');
+  };
+
+  const openEdit = async (entry: SkillsEntry) => {
+    setEditing(true);
+    setCreateForm({ name: entry.name, agent: entry.agent });
+    setSelectedSkills(entry.skills ?? []);
+    setSelectedPlugins(entry.plugins ?? []);
+    setAvailable({ ...emptyAvailable, agent: entry.agent });
+    setFormError('');
+    setCreateOpen(true);
+    await loadAvailable(entry.agent);
   };
 
   const changeAgent = async (agent: string) => {
@@ -80,25 +98,28 @@ export function SkillsPanel() {
         plugins: selectedPlugins
       });
       setCreateOpen(false);
-      setNotice('Skills entry created');
+      setNotice(`Skills entry ${editing ? 'saved' : 'created'}`);
       await load();
     } catch (err) {
-      setError(err as Error);
+      setFormError((err as Error).message);
     } finally {
       setBusy(undefined);
     }
   };
 
-  const remove = async (name: string) => {
-    setBusy(name);
+  const remove = async () => {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    setDeleteError('');
     try {
-      await api.deleteSkills(name);
-      setNotice(`Skills entry ${name} deleted`);
+      await api.deleteSkills(deleteTarget.name);
+      setDeleteTarget(null);
+      setNotice(`Skills entry ${deleteTarget.name} deleted`);
       await load();
     } catch (err) {
-      setError(err as Error);
+      setDeleteError((err as Error).message);
     } finally {
-      setBusy(undefined);
+      setDeleteBusy(false);
     }
   };
 
@@ -122,7 +143,10 @@ export function SkillsPanel() {
                 <TD className="truncate text-muted">{entry.skills.join(', ') || '—'}</TD>
                 <TD className="truncate text-muted">{entry.plugins.join(', ') || '—'}</TD>
                 <TD>
-                  <Button size="xs" variant="ghost" loading={busy === entry.name} onClick={() => void remove(entry.name)}>Delete</Button>
+                  <div className="flex flex-wrap gap-1">
+                    <Button size="xs" variant="ghost" onClick={() => void openEdit(entry)}>Edit</Button>
+                    <Button size="xs" variant="ghost" loading={busy === entry.name} onClick={() => { setDeleteTarget(entry); setDeleteError(''); }}>Delete</Button>
+                  </div>
                 </TD>
               </TR>
             ))}
@@ -157,9 +181,10 @@ export function SkillsPanel() {
         <div>Entries select host skills and whole plugin skill bundles for one agent. At start, selected SKILL.md folders are copied into the agent's user skills directory inside the sandbox. Plugins contribute only their skills: plugin scripts, apps, hooks, commands, and MCP servers are not delivered. Missing skills or plugins warn and the run still starts.</div>
       </div>
 
-      <Modal open={createOpen} onOpenChange={setCreateOpen} title="Create skills entry" footer={<><Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button><Button loading={busy === 'create'} disabled={!createForm.name.trim() || (selectedSkills.length === 0 && selectedPlugins.length === 0)} onClick={() => void create()}>Create</Button></>}>
+      <Modal open={createOpen} onOpenChange={setCreateOpen} title={editing ? `Edit ${createForm.name}` : 'Create skills entry'} footer={<><Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button><Button loading={busy === 'create'} disabled={!createForm.name.trim() || (selectedSkills.length === 0 && selectedPlugins.length === 0)} onClick={() => void create()}>{editing ? 'Save' : 'Create'}</Button></>}>
         <div className="grid gap-3">
-          <Field label="Name" htmlFor="skills-name" required><Input id="skills-name" value={createForm.name} onChange={(event) => setCreateForm({ ...createForm, name: event.target.value })} /></Field>
+          {formError ? <div className="sm:col-span-2"><Alert variant="danger" title="Unable to save skills entry">{formError}</Alert></div> : null}
+          <Field label="Name" htmlFor="skills-name" required><Input id="skills-name" readOnly={editing} value={createForm.name} onChange={(event) => setCreateForm({ ...createForm, name: event.target.value })} /></Field>
           <Field label="Agent" htmlFor="skills-agent" required helper="Host skills are discovered per agent.">
             <Select id="skills-agent" value={createForm.agent} onChange={(event) => void changeAgent(event.target.value)}>
               {agents.map((agent) => <option key={agent} value={agent}>{agent}</option>)}
@@ -167,6 +192,15 @@ export function SkillsPanel() {
           </Field>
           <Field label="Skills" htmlFor="skills-list" helper={available.skills.length === 0 ? `No standalone ${createForm.agent} skills found on this host.` : 'Standalone skill folders are copied into the run.'}>
             <div id="skills-list" className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+              {selectedSkills.filter((skill) => !available.skills.some((item) => item.name === skill)).length ? (
+                <div className="text-xs text-warning">Unavailable saved skills are shown below and can be removed from the entry.</div>
+              ) : null}
+              {selectedSkills.filter((skill) => !available.skills.some((item) => item.name === skill)).map((skill) => (
+                <label key={`saved-${skill}`} className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" checked onChange={() => toggle(skill, selectedSkills, setSelectedSkills)} className="mt-0.5 size-3.5 accent-accent" />
+                  {skill} <span className="text-xs text-muted">(unavailable)</span>
+                </label>
+              ))}
               {available.skills.map((skill) => (
                 <label key={skill.name} className="flex items-start gap-2 text-sm">
                   <input type="checkbox" aria-label={skill.name} checked={selectedSkills.includes(skill.name)} onChange={() => toggle(skill.name, selectedSkills, setSelectedSkills)} className="mt-0.5 size-3.5 accent-accent" />
@@ -180,6 +214,15 @@ export function SkillsPanel() {
           </Field>
           <Field label="Plugins" htmlFor="skills-plugins" helper={available.plugins.length === 0 ? `No ${createForm.agent} plugin skill bundles found on this host.` : 'A plugin is included or excluded as a whole.'}>
             <div id="skills-plugins" className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-border p-2">
+              {selectedPlugins.filter((plugin) => !available.plugins.some((item) => item.id === plugin)).length ? (
+                <div className="text-xs text-warning">Unavailable saved plugins are shown below and can be removed from the entry.</div>
+              ) : null}
+              {selectedPlugins.filter((plugin) => !available.plugins.some((item) => item.id === plugin)).map((plugin) => (
+                <label key={`saved-${plugin}`} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked onChange={() => toggle(plugin, selectedPlugins, setSelectedPlugins)} className="size-3.5 accent-accent" />
+                  {plugin} <span className="text-xs text-muted">(unavailable)</span>
+                </label>
+              ))}
               {available.plugins.map((plugin) => (
                 <label key={plugin.id} className="flex items-center gap-2 text-sm">
                   <input type="checkbox" aria-label={plugin.id} checked={selectedPlugins.includes(plugin.id)} onChange={() => toggle(plugin.id, selectedPlugins, setSelectedPlugins)} className="size-3.5 accent-accent" />
@@ -191,6 +234,24 @@ export function SkillsPanel() {
           </Field>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null);
+            setDeleteError('');
+          }
+        }}
+        title={deleteTarget ? `Delete ${deleteTarget.name}` : 'Delete skills entry'}
+        confirmLabel="Delete"
+        busyLabel="Deleting"
+        busy={deleteBusy}
+        onConfirm={() => void remove()}
+      >
+        {deleteError ? <Alert variant="danger" title="Skills deletion failed" className="mb-3">{deleteError}</Alert> : null}
+        <p className="text-sm text-muted">Remove only this AgentBox selection. Host skills, plugins, and project files are kept.</p>
+      </ConfirmDialog>
     </div>
   );
 }

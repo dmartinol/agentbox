@@ -3,6 +3,8 @@ import { api } from '../../api';
 import type { PolicyConfiguration, Run } from '../../types';
 import { Alert } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
+import { ActionButton } from '../../components/ui/action';
+import { ConfirmDialog } from '../../components/ui/confirm';
 import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input, Select, Textarea } from '../../components/ui/input';
@@ -25,6 +27,9 @@ export function PoliciesPanel() {
   const [editorName, setEditorName] = useState('');
   const [editorContent, setEditorContent] = useState('');
   const [busy, setBusy] = useState<string>();
+  const [deletePolicy, setDeletePolicy] = useState<PolicyConfiguration | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = async () => {
     try {
@@ -54,6 +59,22 @@ export function PoliciesPanel() {
     }
   };
 
+  const remove = async () => {
+    if (!deletePolicy) return;
+    setDeleteBusy(true);
+    setDeleteError('');
+    try {
+      await api.deletePolicy(deletePolicy.name);
+      setDeletePolicy(null);
+      setNotice(`Policy ${deletePolicy.name} deleted`);
+      await load();
+    } catch (err) {
+      setDeleteError((err as Error).message);
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex justify-end"><Button size="sm" onClick={() => setCreateOpen(true)}>Create policy</Button></div>
@@ -75,6 +96,20 @@ export function PoliciesPanel() {
                     <Button size="xs" variant="ghost" onClick={() => { setHostForm({ name: policy.name, agent: 'codex', host: '' }); setHostOpen(true); }}>Add host</Button>
                     <Button size="xs" variant="ghost" onClick={() => { setApplyForm({ name: policy.name, runId: runs[0]?.id ?? '' }); setApplyOpen(true); }}>Apply</Button>
                     <Button size="xs" variant="ghost" onClick={async () => { const content = await api.policyContent(policy.name); setEditorName(policy.name); setEditorContent(content.content); setEditorOpen(true); }}>YAML</Button>
+                    <ActionButton
+                      size="xs"
+                      variant="ghost"
+                      disabledReason={
+                        policy.used_by?.length
+                          ? `Used by profiles: ${policy.used_by.join(', ')}`
+                          : policy.default_for
+                            ? `Generated default for profile ${policy.default_for}`
+                            : undefined
+                      }
+                      onClick={() => { setDeletePolicy(policy); setDeleteError(''); }}
+                    >
+                      Delete
+                    </ActionButton>
                   </div>
                 </TD>
               </TR>
@@ -113,6 +148,24 @@ export function PoliciesPanel() {
       <Modal open={editorOpen} onOpenChange={setEditorOpen} title={`Edit ${editorName}`} className="w-[min(94vw,56rem)]" footer={<><Button variant="ghost" onClick={() => setEditorOpen(false)}>Cancel</Button><Button loading={busy === 'save'} onClick={() => void action('save', async () => { await api.savePolicyContent(editorName, editorContent); setEditorOpen(false); }, 'Policy saved')}>Save</Button></>}>
         <Textarea aria-label="Policy YAML" rows={20} value={editorContent} onChange={(event) => setEditorContent(event.target.value)} />
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deletePolicy)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeletePolicy(null);
+            setDeleteError('');
+          }
+        }}
+        title={deletePolicy ? `Delete ${deletePolicy.name}` : 'Delete policy'}
+        confirmLabel="Delete policy"
+        busyLabel="Deleting…"
+        busy={deleteBusy}
+        onConfirm={() => void remove()}
+      >
+        {deleteError ? <Alert variant="danger" title="Policy deletion failed" className="mb-3">{deleteError}</Alert> : null}
+        <p className="text-sm text-muted">Remove only the policy YAML. Profiles that reference another policy are kept.</p>
+      </ConfirmDialog>
     </div>
   );
 }

@@ -25,3 +25,21 @@ describe('API client', () => {
     await expect(api.stopRun('missing')).rejects.toThrow('project not found');
   });
 });
+
+  it('issues guarded resource lifecycle requests', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({ ok: true, status: 200, json: async () => ({ deleted: true }) }));
+    vi.stubGlobal('fetch', fetchMock);
+    await api.deleteProject('demo');
+    await api.deleteProfile('codex');
+    await api.deletePolicy('default');
+    await api.deleteGateway('openshell');
+    await api.clearRegistry();
+    const paths = fetchMock.mock.calls.map((call) => [call[0], (call[1] as RequestInit).method]);
+    expect(paths).toEqual([
+      ['/api/projects/demo/delete', 'POST'],
+      ['/api/profiles/codex/delete', 'POST'],
+      ['/api/policies/default/delete', 'POST'],
+      ['/api/gateways/openshell/delete', 'POST'],
+      ['/api/registry/clear', 'POST']
+    ]);
+  });

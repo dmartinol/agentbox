@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -63,5 +64,35 @@ func TestProviderListUsesExplicitGateway(t *testing.T) {
 	want := []string{"provider", "list", "-o", "json", "--gateway", "openshell"}
 	if !reflect.DeepEqual(runner.outputs[0].args, want) {
 		t.Fatalf("provider list command = %#v; want %#v", runner.outputs[0].args, want)
+	}
+}
+
+func TestGatewayRemoveLifecycle(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(Run{ID: "run-live123", Name: "live-run", Gateway: "gateway-one", Status: StatusWorking}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	app := App{Store: store, Runner: runner}
+	err := app.GatewayRemove(context.Background(), "gateway-one")
+	var conflict *ConflictError
+	if err == nil || !errors.As(err, &conflict) || !reflect.DeepEqual(conflict.Dependents, []string{"live-run"}) {
+		t.Fatalf("active guard = %v", err)
+	}
+	if len(runner.outputs) != 0 {
+		t.Fatalf("blocked gateway issued command: %#v", runner.outputs)
+	}
+
+	if err := store.SaveRun(Run{ID: "run-live123", Status: StatusCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.GatewayRemove(context.Background(), "gateway-one"); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.outputs) != 1 || runner.outputs[0].name != "openshell" || !reflect.DeepEqual(runner.outputs[0].args, []string{"gateway", "remove", "gateway-one"}) {
+		t.Fatalf("commands = %#v", runner.outputs)
 	}
 }

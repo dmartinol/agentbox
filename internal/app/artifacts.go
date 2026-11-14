@@ -203,7 +203,7 @@ func terminalRunStatus(status RunStatus) bool {
 func (a *App) ImageRemove(ctx context.Context, reference string) error {
 	image, err := a.LocalImage(ctx, reference)
 	if err != nil {
-		return err
+		return &NotFoundError{Resource: "image", Name: reference}
 	}
 	usage, err := a.ImageUsage()
 	if err != nil {
@@ -215,7 +215,7 @@ func (a *App) ImageRemove(ctx context.Context, reference string) error {
 	}
 	if len(holders) > 0 {
 		sort.Strings(holders)
-		return fmt.Errorf("image %q is in use by %s", reference, strings.Join(holders, ", "))
+		return &ConflictError{Resource: "image", Name: reference, Reason: "profiles or non-terminal runs use it", Dependents: holders}
 	}
 	removeReference := image.ID
 	if removeReference == "" {

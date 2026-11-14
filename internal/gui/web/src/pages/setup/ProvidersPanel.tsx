@@ -4,6 +4,7 @@ import type { Gateway, Provider } from '../../types';
 import { Alert } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
+import { ActionButton } from '../../components/ui/action';
 import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input, Select } from '../../components/ui/input';
@@ -147,8 +148,23 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
                   </TD>
                   <TD>
                     <div className="flex gap-1">
-                      <Button size="xs" variant="ghost" disabled={provider.builtin} title={provider.builtin ? 'Built-in providers are managed automatically' : undefined} onClick={() => { setEditProvider(provider); setEditCredential(provider.credential ?? provider.credential_keys?.[0] ?? ''); setEditGateway(provider.gateway || gateway); setEditError(''); }}>Edit</Button>
-                      <Button size="xs" variant="ghost" className="text-danger" disabled={provider.builtin || usedCount > 0} title={provider.builtin ? 'Built-in providers cannot be deleted' : usedCount ? 'Delete dependent profiles first' : undefined} onClick={() => { setDeleteError(''); setDeleteProvider(provider); }}>Delete</Button>
+                      <ActionButton
+                        size="xs"
+                        variant="ghost"
+                        disabledReason={provider.builtin ? 'Built-in providers are managed automatically' : undefined}
+                        onClick={() => { setEditProvider(provider); setEditCredential(provider.credential ?? provider.credential_keys?.[0] ?? ''); setEditGateway(provider.gateway || gateway); setEditError(''); }}
+                      >
+                        Edit
+                      </ActionButton>
+                      <ActionButton
+                        size="xs"
+                        variant="ghost"
+                        className="text-danger"
+                        disabledReason={provider.builtin ? 'Built-in providers cannot be deleted' : usedCount ? 'Delete dependent profiles first' : undefined}
+                        onClick={() => { setDeleteError(''); setDeleteProvider(provider); }}
+                      >
+                        Delete
+                      </ActionButton>
                     </div>
                   </TD>
                 </TR>

@@ -67,6 +67,42 @@ images with holders and name them. Deleting an image that a profile still names
 leaves that profile in place; a later run fails at start with the actionable
 `image unavailable locally` error. Nothing rewrites `Profile.Image` automatically.
 
+Holder checks live in `internal/app`. The HTTP layer maps the typed conflict to
+`409` and returns a `dependents` array containing the sorted profile and run
+names. The GUI disables the action with a visible reason but does not decide
+whether an image is removable.
+
+## Resource deletion guards
+
+AgentBox keeps registrations separate from the data they refer to. The Setup GUI
+uses the same application-level guard model as images:
+
+| Resource | Removed by delete | Blocks delete | Kept by delete |
+| --- | --- | --- | --- |
+| Project | `projects/<name>.yaml` | any run, terminal or not | checkout, worktree, run records |
+| Profile | `profiles/<name>.yaml` | a non-terminal run using it; being the only profile for `Profile.Agent` | image, policy, run records |
+| Policy | `policies/<name>.yaml` | a profile reference; an existing generated default named `policies/<profile>.yaml` | profiles |
+| Gateway | local OpenShell registration via `openshell gateway remove <name>` | a non-terminal run using the gateway | remote gateway, sandboxes, run records |
+| MCP or Skills entry | `mcps/<name>.yaml` or `skills/<name>.yaml` | none | global/host configuration |
+| Registry reference | `registry.yaml` | none | Podman images and login state |
+
+Projects are intentionally stricter than other resources: historical run records
+are enough to prevent deleting a project registration, because the Fleet view
+continues to name that project. Policy guards also protect an existing generated
+default even when its profile currently references another policy, so a blank
+policy field can round-trip without losing the file that would be reused. After
+the profile is deleted, its orphaned generated policy may be deleted.
+
+Each guard returns a typed conflict from `internal/app`. The local API maps it
+to `409` with `{"error": "...", "dependents": ["..."]}` and maps a missing
+resource to `404`. React renders the list-derived reason, disables the button
+with `aria-disabled`, and keeps the control keyboard focusable; it never
+duplicates guard logic.
+
+Registry clear is idempotent and removes only `registry.yaml`. It performs no
+Podman logout and no image deletion. The GUI disables Clear when no saved
+reference exists.
+
 ## Provider layer
 
 Provider setup registers an inference provider with OpenShell.
@@ -319,6 +355,13 @@ the server process binary (for example the `node` path inside the image),
 not the agent binary. Use the existing policy host-rule editing to allow
 MCP endpoints; AgentBox never edits policies automatically.
 
+Setup lists the complete saved entry, including names that are no longer present
+in host configuration. Editing reopens the create dialog with the name read-only,
+marks unavailable current selections with a warning, and saves through the same
+create endpoint. This preserves an entry whose host dependency is temporarily
+missing. Deleting requires confirmation and removes only the named AgentBox
+entry; the agent's global MCP configuration is retained.
+
 ## Skills layer
 
 A skills entry (`$AGENTBOX_HOME/skills/<name>.yaml`) selects standalone host
@@ -352,6 +395,11 @@ resolved to their target contents and executable bits are preserved. Plugins
 contribute only their `skills/` folders: plugin scripts, apps, hooks,
 commands, and plugin-declared MCP servers are not delivered. Project-committed
 skills ride along in the clone unchanged.
+
+Setup treats Skills the same way as MCP tools: the list contains all saved
+skills and plugin names, Edit keeps the name read-only and preserves unavailable
+selections with a warning, and Delete confirms before removing only the AgentBox
+entry. Host skill folders and plugin bundles remain untouched.
 
 ## Credential resolution
 

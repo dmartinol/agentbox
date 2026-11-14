@@ -110,6 +110,29 @@ Timestamped backups live under
 layout, per-file template states, agent role rendering and states, the
 `npx skills` relationship, and the update and remove lifecycle.
 
+## Local GUI API
+
+The local web GUI talks only to the JSON API served by `agentbox gui`. This
+change adds no CLI commands. Its guarded lifecycle routes are:
+
+| Route | Result |
+| --- | --- |
+| `POST /api/projects/{name}/delete` | `200` after removing `projects/<name>.yaml`; `409` with `dependents` when any run references it; `404` when absent. |
+| `POST /api/profiles/{name}/delete` | `200` after removing `profiles/<name>.yaml`; `409` with `dependents` for a non-terminal run or the last profile for that agent; `404` when absent. |
+| `POST /api/policies/{name}/delete` | `200` after removing `policies/<name>.yaml`; `409` with `dependents` for a referencing profile or an existing generated default; `404` when absent. |
+| `POST /api/gateways/{name}/delete` | `200` after `openshell gateway remove <name>`; `409` with `dependents` for a non-terminal run. |
+| `POST /api/registry/clear` | `200` idempotently after removing `registry.yaml`; no Podman logout or image operation. |
+
+Successful delete routes return `{"deleted": true}`. Registry clear returns
+`{"cleared": true}`. A `409` response has an `error` message and a sorted
+`dependents` array naming the blocking objects. A missing resource returns
+`404`. The GUI renders these action errors in the active dialog or panel.
+
+MCP and Skills entries are edited through their existing create routes with the
+unchanged entry name. Their list payloads contain the complete saved selection,
+so no detail route is needed. Deleting either entry removes only its AgentBox
+YAML file; host and global configuration is retained.
+
 ## Related guides
 
 - [Getting started]({{ '/getting-started/' | relative_url }})

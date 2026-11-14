@@ -52,8 +52,10 @@ export const api = {
 
   projects: () => request<Project[]>('/api/projects'),
   saveProject: (project: Project) => post<Project>('/api/projects', project),
+  deleteProject: (name: string) => post<{ deleted: true }>(`/api/projects/${encodeURIComponent(name)}/delete`),
   profiles: () => request<Profile[]>('/api/profiles'),
   saveProfile: (profile: Profile) => post<Profile>('/api/profiles', profile),
+  deleteProfile: (name: string) => post<{ deleted: true }>(`/api/profiles/${encodeURIComponent(name)}/delete`),
   providers: (gateway = '') => request<Provider[]>(`/api/providers${gateway ? `?gateway=${encodeURIComponent(gateway)}` : ''}`),
   providerModels: (name: string, gateway = '') => request<string[]>(`/api/providers/${encodeURIComponent(name)}/models${gateway ? `?gateway=${encodeURIComponent(gateway)}` : ''}`),
   setupProvider: (input: { kind: string; name: string; host: string; credential: string; gateway: string }) => post<{ ok: true }>('/api/providers', input),
@@ -72,11 +74,13 @@ export const api = {
   pushImage: (localTag: string, remote: string) => post<{ ok: true }>('/api/images/push', { localTag, remote }),
   registry: () => request<Registry>('/api/registry'),
   saveRegistry: (reference: string) => post<Registry>('/api/registry', { reference }),
+  clearRegistry: () => post<{ cleared: true }>('/api/registry/clear'),
   discoverRegistry: () => post<ImageArtifact[]>('/api/registry/discover'),
 
   gateways: () => request<Gateway[]>('/api/gateways'),
   connectGateway: (input: { url: string; name: string }) => post<{ ok: true }>('/api/gateways/connect', input),
   startGateway: () => post<{ ok: true }>('/api/gateways/start'),
+  deleteGateway: (name: string) => post<{ deleted: true }>(`/api/gateways/${encodeURIComponent(name)}/delete`),
   gatewayInfo: (name: string) => request<unknown>(`/api/gateways/${encodeURIComponent(name)}/info`),
 
   policies: () => request<PolicyConfiguration[]>('/api/policies'),
@@ -85,6 +89,7 @@ export const api = {
   savePolicyContent: (name: string, content: string) => post<PolicyConfiguration>(`/api/policies/${encodeURIComponent(name)}`, { content }),
   addPolicyHost: (name: string, agent: string, host: string) => post<PolicyConfiguration>(`/api/policies/${encodeURIComponent(name)}/host`, { agent, host }),
   applyPolicy: (name: string, runId: string) => post<{ ok: true }>(`/api/policies/${encodeURIComponent(name)}/apply`, { runId }),
+  deletePolicy: (name: string) => post<{ deleted: true }>(`/api/policies/${encodeURIComponent(name)}/delete`),
 
   mcps: () => request<MCPTools[]>('/api/mcps'),
   createMCP: (entry: MCPTools) => post<MCPTools>('/api/mcps', entry),

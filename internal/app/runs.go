@@ -167,7 +167,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if runName == "" {
 		runName = id
 	}
-	preview := Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: StatusCreating, StatusDetail: "dry run preview", WorktreeIsolated: useWorktree}
+	preview := Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, ProfileName: p.Name, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: StatusCreating, StatusDetail: "dry run preview", WorktreeIsolated: useWorktree}
 	if selection != nil {
 		preview.MCP = selection.Entry.Name
 		preview.MCPWarnings = selection.Warnings()
@@ -197,6 +197,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	}
 	r.Name = runName
 	r.Project = projectName
+	r.ProfileName = p.Name
 	r.WorktreeIsolated = useWorktree
 	r.Created = time.Now().UTC()
 	r.Gateway = opt.Gateway

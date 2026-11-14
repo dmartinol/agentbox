@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -128,5 +129,58 @@ func TestDeleteDirectRunKeepsProjectCheckout(t *testing.T) {
 		if call.name == "openshell" && containsCommand(call.args, "sandbox", "delete") {
 			t.Fatalf("prepared record attempted a sandbox delete: %#v", call)
 		}
+	}
+}
+
+func TestDeleteProjectRemovesRegistrationAndKeepsRoot(t *testing.T) {
+	root := t.TempDir()
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProject(Project{Version: 1, Name: "unused", Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	app := App{Store: store, Runner: &fakeRunner{}}
+	if err := app.DeleteProject("unused"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(store.ProjectPath("unused")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("project file still exists: %v", err)
+	}
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		t.Fatalf("project root not retained: %v", err)
+	}
+	if err := app.DeleteProject("unused"); err == nil {
+		t.Fatal("missing project was accepted")
+	}
+}
+
+func TestDeleteProjectRefusedWhenAnyRunReferences(t *testing.T) {
+	for _, status := range []RunStatus{StatusWorking, StatusCompleted} {
+		t.Run(string(status), func(t *testing.T) {
+			store := Store{Base: t.TempDir()}
+			if err := store.Ensure(); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SaveProject(Project{Version: 1, Name: "held", Root: "/repo"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SaveRun(Run{ID: "run-held123", Name: "held-run", Project: "held", Status: status}); err != nil {
+				t.Fatal(err)
+			}
+			app := App{Store: store, Runner: &fakeRunner{}}
+			err := app.DeleteProject("held")
+			var conflict *ConflictError
+			if err == nil || !errors.As(err, &conflict) {
+				t.Fatalf("error = %v; want conflict", err)
+			}
+			if !slices.Equal(conflict.Dependents, []string{"held-run"}) {
+				t.Fatalf("dependents = %#v", conflict.Dependents)
+			}
+			if _, err := os.Stat(store.ProjectPath("held")); err != nil {
+				t.Fatalf("project was removed: %v", err)
+			}
+		})
 	}
 }
