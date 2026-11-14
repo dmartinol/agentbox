@@ -128,6 +128,7 @@ procps) and deliberately omit `gh` and `openssh-client`. AgentBox therefore adds
 no forge credential, no git credential helper, and no generated `.gitconfig` to a
 run: repository work inside a sandbox uses plain `git` over the run policy, and a
 sandbox has no forge reachability unless the policy is edited to allow it.
+Forge-capable repository access is deferred to #19.
 Custom policies written by earlier builds may still list forge hosts; remove
 those rules with `agentbox policy edit` to restore the default.
 
@@ -192,7 +193,7 @@ configuration.
 
 Network rules are binary-scoped. A host rule added by AgentBox therefore
 allows the agent launcher together with `/usr/local/bin/node`, `/usr/bin/git`,
-`/usr/lib/git-core/**`, `/usr/bin/gh`, `/usr/bin/curl`, and `/usr/bin/git-lfs`.
+`/usr/lib/git-core/**`, `/usr/bin/curl`, and `/usr/bin/git-lfs`.
 The supported agents are Node applications, so listing only the launcher path
 would miss the process that opens the socket; git reaches HTTPS through a
 separate helper binary.
@@ -216,8 +217,7 @@ A run is created as follows:
 4. Save the run record.
 5. Create a source Git bundle.
 6. Generate run-specific agent configuration on the host.
-7. Create the sandbox from the selected image, inference provider, optional Git
-   provider, and policy.
+7. Create the sandbox from the selected image, inference provider, and policy.
 8. Upload the source bundle.
 9. Upload and extract the configuration archive into `/workspace/state`.
 10. Clone the source bundle into `/workspace/project`.

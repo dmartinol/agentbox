@@ -434,6 +434,8 @@ func agentEgressBinaries(agent string) []string {
 		"/usr/local/bin/node",
 		"/usr/bin/git",
 		"/usr/lib/git-core/**",
+		"/usr/bin/curl",
+		"/usr/bin/git-lfs",
 	}
 }
 

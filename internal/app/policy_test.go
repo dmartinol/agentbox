@@ -58,7 +58,7 @@ func TestAddNetworkRuleProducesValidRuleAndRejectsBadInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	rule, ok := policy.Network["host-api-example-test"]
-	wantBinaries := []string{"/usr/local/bin/codex", "/usr/local/bin/node", "/usr/bin/git", "/usr/lib/git-core/**"}
+	wantBinaries := []string{"/usr/local/bin/codex", "/usr/local/bin/node", "/usr/bin/git", "/usr/lib/git-core/**", "/usr/bin/curl", "/usr/bin/git-lfs"}
 	if !ok || rule.Endpoints[0].Host != "api.example.test" || len(rule.Binaries) != len(wantBinaries) {
 		t.Fatalf("unexpected generated rule: %+v", rule)
 	}

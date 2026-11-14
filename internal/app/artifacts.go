@@ -179,7 +179,7 @@ func (a *App) ImageUsage() (map[string][]string, error) {
 
 func terminalRunStatus(status string) bool {
 	switch status {
-	case "finished", "stopped", "completed", "exited":
+	case "finished", "stopped", "completed", "exited", "failed", "canceled":
 		return true
 	}
 	return false
