@@ -137,7 +137,7 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 		if status.Name != "agentbox-orchestrator" {
 			continue
 		}
-		if len(status.Files) != 4 {
+		if len(status.Files) != 6 {
 			t.Fatalf("orchestrator template statuses = %+v", status.Files)
 		}
 		for _, file := range status.Files {
@@ -169,7 +169,7 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 
 	// The orchestrator skill is packaged, installed, and shown like the others.
 	orchestratorDir := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator")
-	for _, file := range []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md"} {
+	for _, file := range []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md", "review-task.md", "verify-task.md"} {
 		if _, err := os.Stat(filepath.Join(orchestratorDir, file)); err != nil {
 			t.Fatalf("%s was not installed: %v", file, err)
 		}
@@ -187,8 +187,8 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 
 func TestSkillsListRowsKeepTemplateColumnsAligned(t *testing.T) {
 	installation := formatSkillStatusRow("agents", "current", "0.2.0", "/tmp/skill/SKILL.md")
-	template := formatSkillStatusRow("file:verdict.md", "modified", "-", "/tmp/skill/verdict.md")
-	if !strings.HasPrefix(template, "  file:verdict.md ") {
+	template := formatSkillStatusRow("file:review-task.md", "modified", "-", "/tmp/skill/review-task.md")
+	if !strings.HasPrefix(template, "  file:review-task.md ") {
 		t.Fatalf("template target was truncated: %q", template)
 	}
 	installationState := strings.Index(installation, "current")
@@ -197,7 +197,7 @@ func TestSkillsListRowsKeepTemplateColumnsAligned(t *testing.T) {
 		t.Fatalf("state columns differ: installation=%q template=%q", installation, template)
 	}
 	installationPath := strings.Index(installation, "/tmp/skill/SKILL.md")
-	templatePath := strings.Index(template, "/tmp/skill/verdict.md")
+	templatePath := strings.Index(template, "/tmp/skill/review-task.md")
 	if installationPath == 0 || templatePath != installationPath {
 		t.Fatalf("path columns differ: installation=%q template=%q", installation, template)
 	}
@@ -235,7 +235,7 @@ func TestSkillsInstallRefusesDifferingSkillFileWithoutForce(t *testing.T) {
 	if err := dispatch(context.Background(), a, []string{"skills", "install", "--dir", dir}); err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range []string{"issue.md", "pr.md", "verdict.md", "state.md"} {
+	for _, file := range []string{"issue.md", "pr.md", "verdict.md", "state.md", "review-task.md", "verify-task.md"} {
 		if _, err := os.Stat(filepath.Join(dir, "agentbox-orchestrator", file)); err != nil {
 			t.Fatalf("--dir did not write %s: %v", file, err)
 		}

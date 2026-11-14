@@ -65,9 +65,13 @@ Rules:
   runtime does not support, or a worker type that is unavailable — sets
   `blocked` with the exact reason. Never fall back to a default, a cheaper
   model, or a different agent.
-- Reviewer independence: whenever another agent or model is available, use it
-  for verify and review. When none is available, record the limitation in the
-  state record instead of claiming independence.
+- Reviewer independence and diversity: use a different agent or model from the
+  implementer for the *first* review pass only. Consecutive fix cycles keep the
+  same reviewer selection and rely on session and worktree isolation for
+  independence; rotating models every cycle maximizes judgment variance instead
+  of converging the review and is explicitly discouraged. When no different
+  agent or model is available, record the limitation in the state record
+  instead of claiming independence.
 - Changing a selection after work has started is a new explicit instruction,
   recorded as a new stage entry. It does not rewrite prior provenance.
 
@@ -99,6 +103,11 @@ the orchestrator turn.
   working tree that is not the pushed head is invalid.
 - A fix cycle dispatches a new implementer and then a new reviewer at the new
   head. Previous approvals carry forward only when the diff is unaffected.
+- Cycle 1 reviews the full pull request diff against the base. Cycle N>1
+  reviews only `prev_head..head`, the ledger status of every prior finding, and
+  the gates. A reviewer must not re-derive the touched subsystem or review the
+  full diff again; a new finding outside the reviewed range is allowed only at
+  `blocker` severity.
 - A rebase or force-push invalidates prior verification and review evidence
   and restarts both stages at the new head.
 
@@ -178,14 +187,16 @@ Orchestrated by agentbox-orchestrator {{VERSION}} · workflow orchestrator-owner
 
 ## Templates
 
-The skill ships four templates and installs them beside `SKILL.md`:
+The skill ships six templates and installs them beside `SKILL.md`:
 
 | Template | Used for |
 | --- | --- |
 | `issue.md` | Normalized issue body: Summary, Current behavior, Proposed design, Acceptance criteria, Test plan, Risks, Out of scope, Related. |
 | `pr.md` | Pull request body: Summary, Changes, Evidence, `Closes #N`, Risks, provenance. |
-| `verdict.md` | Review verdict: verdict, findings with severity, evidence at commit, required changes, provenance. |
+| `verdict.md` | Review verdict: outcome, severity bar, review scope, findings with ids and status, evidence at commit, required changes, follow-ups, provenance. |
 | `state.md` | The state envelope and its schema. |
+| `review-task.md` | Reviewer mandate: role, delta scope, severity bar, checklist, output contract. |
+| `verify-task.md` | Verify mandate: role, gate-only scope, and the `gates` and `observations` output contract. |
 
 Resolve a template from the first source that defines it:
 
@@ -206,7 +217,7 @@ Resolve every other setting from the first source that defines it:
 4. the defaults in this skill.
 
 `.github/orchestrator.yaml` may set `orchestrator`, worker and model
-selections per stage, `review_cycles_max` (default 3), `merge_strategy`
+selections per stage, `review_cycles_max` (default 2), `merge_strategy`
 (default `merge commit`), `poll_seconds` (default 20–30), and
 `task_deadline_minutes`. A lower-precedence source never overrides a higher
 one, and an explicit user choice always wins.
@@ -251,10 +262,23 @@ stages:
   - {stage: review, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-10, worktree: issue-35-review, commit: <full-sha>, pr: 42}
 gates:
   - {command: make test, result: pending, commit: <full-sha>}
+findings:
+  - {id: F1, severity: major, location: internal/app/run.go:42, status: open, opened_at: <full-sha>, closed_at: ""}
+  - {id: F2, severity: minor, location: internal/app/run.go:88, status: "deferred #52", opened_at: <full-sha>, closed_at: <full-sha>}
 review_cycles: 0
+review_cycles_max: 2
 blocked_reason: ""
 updated: 2026-11-13T08:00:00Z
 ```
+
+`findings[]` is the finding ledger. Every finding gets a stable `id` that the
+review verdict cites; `location` is a repository-relative `path:line`. `status`
+is `open`, `fixed`, `deferred #<issue>`, or `wontfix`. Gate 6 requires a status
+for every open id before a verdict is posted. A new finding gets a new id, and
+a `fixed` id cannot reopen without evidence at the current head. Severity
+disputes are settled by the orchestrator against the enumerated definitions in
+`verdict.md` and recorded here, so a finding cannot change class between
+cycles.
 
 The record may contain model and effort identifiers. It must never contain
 credentials, environment-variable values, account identifiers, absolute host
@@ -290,20 +314,42 @@ work runs inline.
    than continuing the old session.
 4. **Verify.** After the worker finishes and the branch head is known,
    dispatch a fresh verify worker in a fresh worktree checked out at the pull
-   request head. It reruns every gate on that commit. Worker-reported results
-   are advisory; only evidence at the recorded commit counts. Any failure
-   returns the issue to `in-progress` with one writer.
+   request head. It reruns every gate on that commit and returns only `gates`
+   and `observations`; it never returns required changes, findings, or a
+   verdict, and it is not a second reviewer. Worker-reported results are
+   advisory; only evidence at the recorded commit counts. Any gate failure
+   returns the issue to `in-progress` with one writer. The orchestrator MUST
+   NOT forward a verifier observation to the reviewer as a requirement;
+   observations enter the ledger only after the reviewer classifies them, and
+   only at their real severity.
 5. **Pull request.** A capable host implementer may open it; otherwise the
    orchestrator pushes the sandbox result and opens it. Use a Conventional
    Commits title and the `pr.md` body: Summary, Changes, Evidence (gate
    results and SHAs), `Closes #<issue>`, Risks, and the marker and footer.
    Wait for checks to finish before review.
-6. **Independent review.** Dispatch a fresh reviewer that is not the writer,
-   in its own worktree at the pull request head. It returns `verdict.md`
-   because one GitHub identity cannot approve its own pull request. The
-   orchestrator posts the verdict with provenance and refuses a second verdict
-   for the same `(workflow, stage, commit)`. Default 3 cycles of review,
-   address, re-review; code changes after verification restart gate 4.
+6. **Independent review.** Dispatch a reviewer that is not the writer, in its
+   own worktree at the pull request head, using the selection recorded for the
+   first pass; later cycles reuse that reviewer selection. It returns
+   `verdict.md` because one GitHub identity cannot approve its own pull
+   request. The orchestrator posts the verdict with provenance and refuses a
+   second verdict for the same `(workflow, stage, commit)`. Code changes after
+   verification restart gate 4.
+   - Cycle 1 reviews the full diff against the base; cycle N>1 reviews
+     `prev_head..head`, the ledger status of every prior finding, and the
+     gates, as defined in Stage ownership and isolation.
+   - Apply the severity bar: only `blocker` and `major` block merge. A
+     `minor` or `nit` never blocks merge and is always a follow-up.
+   - Accept `approve`, `approve-with-follow-ups`, `request-changes`, or
+     `blocked`. `approve-with-follow-ups` requires the mandatory `Follow-ups`
+     section and one created issue per deferred group before the verdict is
+     posted; the merge then proceeds immediately.
+   - Require a ledger status for every open finding id before posting a
+     verdict. New findings get new ids, and a `fixed` id cannot reopen without
+     evidence at the current head.
+   - `review_cycles_max` (default 2) bounds request-changes cycles. At the cap
+     the orchestrator dispatches no further fix cycle: it sets `blocked`,
+     quotes the open ledger, and asks the maintainer exactly one decision —
+     merge with follow-ups, authorize one more cycle, or stop.
 7. **Merge.** The orchestrator verifies the head SHA matches the verified and
    reviewed commit, all checks are green, and branch protection is satisfied.
    Any rebase or force-push after verification invalidates the evidence: rerun
@@ -312,6 +358,22 @@ work runs inline.
 8. **Close.** Confirm `Closes #<issue>` closed the issue, comment the outcome
    with provenance, remove all `orchestrator:*` labels, and clean up
    worktrees and runs.
+
+### Severity bar
+
+Only `blocker` and `major` block merge. The response to a finding is fixed by
+its severity; a reviewer never chooses how hard a finding blocks.
+
+| Severity | Definition | Action |
+| --- | --- | --- |
+| `blocker` | Fails an acceptance criterion, loses or corrupts data, exposes a secret, weakens the sandbox or policy, leaves a gate or CI red, or reports false provenance. | Blocks merge. |
+| `major` | A reproducible defect in the behavior this pull request changes. | Blocks merge. |
+| `minor` | A real issue with no merge risk. | Follow-up only; never blocks. |
+| `nit` | Style or preference. | Follow-up only; never blocks. |
+
+A `minor` or `nit` never blocks merge and is always deferred to a follow-up
+issue. `Required changes` contains only the smallest changes that remove the
+merge risk from open `blocker` and `major` findings.
 
 ## Worker runtimes
 
@@ -464,6 +526,8 @@ tracker APIs directly for them.
 
 Report the issue number and state, the `workflow_id`, the recorded orchestrator
 runtime/agent/model/effort, each stage's worker and commit, the branch and PR,
-gate results with commit SHAs, review verdicts and cycle count, and the merge
-SHA. For stops, quote `blocked_reason` and the single next action that
-unblocks the flow.
+gate results with commit SHAs, review verdicts with the open finding ledger and
+cycle count, and the merge SHA. For stops, quote `blocked_reason`, the open
+ledger, and the single next action that unblocks the flow; at
+`review_cycles_max` that action is exactly one maintainer decision, not an
+open-ended instruction to keep iterating.

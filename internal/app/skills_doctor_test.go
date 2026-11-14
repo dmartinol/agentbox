@@ -165,7 +165,14 @@ func TestDoctorRecommendsInstallForStaleTemplateWithoutCanonicalSkill(t *testing
 	if found.OK || !strings.Contains(found.Detail, "stale: ") {
 		t.Fatalf("stale template check = %+v", found)
 	}
-	templates := []string{filepath.Join(dir, "issue.md"), filepath.Join(dir, "pr.md"), filepath.Join(dir, "verdict.md"), filepath.Join(dir, "state.md")}
+	templates := []string{
+		filepath.Join(dir, "issue.md"),
+		filepath.Join(dir, "pr.md"),
+		filepath.Join(dir, "verdict.md"),
+		filepath.Join(dir, "state.md"),
+		filepath.Join(dir, "review-task.md"),
+		filepath.Join(dir, "verify-task.md"),
+	}
 	expected := "stale: " + strings.Join(templates, ", ") + "; run `agentbox skills install`"
 	if !strings.Contains(found.Detail, expected) {
 		t.Fatalf("stale template without SKILL.md lacks the install command: %s", found.Detail)

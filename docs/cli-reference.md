@@ -97,8 +97,8 @@ the OpenShell gateway must both be able to see the referenced variables.
 Usage skills installed with `agentbox skills` live outside the `~/.agentbox`
 tree: one canonical copy of each skill under `~/.agents/skills` (or
 `./.agents/skills` with `--local`), including templates such as the
-orchestrator's `issue.md`, `pr.md`, `verdict.md`, and `state.md` beside
-`SKILL.md`, relative links for Claude and OpenCode, a
+orchestrator's `issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`,
+and `verify-task.md` beside `SKILL.md`, relative links for Claude and OpenCode, a
 `.agentbox-managed.json` manifest recording the path and hash of every file
 AgentBox owns, and timestamped backups under
 `~/.agents/.agentbox-skill-backups` (or `<dir>/.agentbox-skill-backups` for a
