@@ -21,6 +21,7 @@ const shellScript = `export HOME=/workspace/state/home; ` +
 	`export XDG_DATA_HOME=/workspace/state/data; ` +
 	`export CODEX_HOME=/workspace/state/home/.codex; ` +
 	`export CLAUDE_CONFIG_DIR=/workspace/state/home/.claude; ` +
+	`export TMPDIR=/tmp; ` +
 	`cd /workspace/project; exec /bin/sh`
 
 // ValidSession reports whether a session name may be attached to.

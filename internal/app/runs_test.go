@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -263,4 +264,63 @@ func countArg(args []string, want string) int {
 		}
 	}
 	return count
+}
+
+// Attaching immediately after start used to fail with "no sessions" because the
+// sandbox bootstrap creates the tmux session just after the run reports running.
+func TestAttachSessionWaitsForTmuxSession(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	run := Run{ID: "run-unit123", Sandbox: "sandbox-unit123", Gateway: "gateway-one", Status: "running"}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	probes := 0
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if commandHasArg(call, "has-session") {
+			probes++
+			if probes < 3 {
+				return nil, errors.New("no sessions")
+			}
+			return nil, nil
+		}
+		return nil, errors.New("missing")
+	}}
+	app := App{Store: store, Runner: runner}
+	if err := app.AttachSessionStream(context.Background(), run.ID, "agent", strings.NewReader(""), io.Discard, io.Discard, DefaultTerminalSize, nil); err != nil {
+		t.Fatal(err)
+	}
+	if probes != 3 {
+		t.Fatalf("session probes = %d, want 3", probes)
+	}
+	if len(runner.streams) != 1 || !commandHasArg(runner.streams[0], "attach") {
+		t.Fatalf("attach stream not issued: %#v", runner.streams)
+	}
+}
+
+func TestAttachSessionFailsFastWhenAgentEnded(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	run := Run{ID: "run-unit123", Sandbox: "sandbox-unit123", Status: "running"}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if commandHasArg(call, "has-session") {
+			return nil, errors.New("no sessions")
+		}
+		return nil, nil
+	}}
+	app := App{Store: store, Runner: runner}
+	err := app.AttachSessionStream(context.Background(), run.ID, "agent", strings.NewReader(""), io.Discard, io.Discard, DefaultTerminalSize, nil)
+	if err == nil || !strings.Contains(err.Error(), "has ended") {
+		t.Fatalf("attach error = %v", err)
+	}
+	if len(runner.streams) != 0 {
+		t.Fatalf("attach stream issued for an ended session: %#v", runner.streams)
+	}
 }

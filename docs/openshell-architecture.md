@@ -392,9 +392,9 @@ tab is a view over one run.
   read-only log snapshot instead of a terminal.
 - Shell tabs start a separate tmux session (`shell-N`) in the same sandbox
   and policy, at `/workspace/project`, with the same `HOME`, `XDG_*`,
-  `CODEX_HOME`, and `CLAUDE_CONFIG_DIR` environment as the agent. Shells
-  never share the `agent` session, so their terminal sizes cannot fight and
-  the agent log stays untouched.
+  `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, and `TMPDIR` environment as the agent.
+  Shells never share the `agent` session, so their terminal sizes cannot
+  fight and the agent log stays untouched.
 - Closing a shell tab stops its tmux session. Closing the workspace only
   detaches; it does not finish the run.
 
