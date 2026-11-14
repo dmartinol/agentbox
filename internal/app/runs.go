@@ -126,7 +126,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 		return Run{}, err
 	}
 	if !useWorktree {
-		if err := a.requireDirectRunAvailable(sourceRoot); err != nil {
+		if err := a.requireDirectRunAvailable(ctx, sourceRoot); err != nil {
 			return Run{}, err
 		}
 	}
@@ -167,7 +167,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if runName == "" {
 		runName = id
 	}
-	preview := Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: "preview", WorktreeIsolated: useWorktree}
+	preview := Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: StatusCreating, StatusDetail: "dry run preview", WorktreeIsolated: useWorktree}
 	if selection != nil {
 		preview.MCP = selection.Entry.Name
 		preview.MCPWarnings = selection.Warnings()
@@ -220,54 +220,64 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if err := a.Store.SaveRun(r); err != nil {
 		return r, err
 	}
+	failRun := func(err error) (Run, error) {
+		r.Status = StatusFailed
+		r.StatusDetail = truncateDetail(err.Error())
+		_ = a.Store.SaveRun(r)
+		return r, err
+	}
 	bundle, err := a.MakeBundle(ctx, r)
 	if err != nil {
-		return r, err
+		return failRun(err)
 	}
 	config, err := a.PrepareAgent(ctx, r, p, opt.Prompt, selection, skillSelection)
 	if err != nil {
-		return r, err
+		return failRun(err)
 	}
 	bootstrap := []byte(bootstrapScript)
 	bootPath := filepath.Join(config, "bootstrap.sh")
 	if err := os.WriteFile(bootPath, bootstrap, 0700); err != nil {
-		return r, err
+		return failRun(err)
 	}
 	args := []string{"sandbox", "create", "--name", r.Sandbox, "--from", p.Image, "--provider", p.Provider, "--policy", r.Policy, "--detach", "--no-auto-providers", "--approval-mode", "manual", "--label", "agentbox-run=" + id, "--gateway", opt.Gateway, "--", "/bin/sh", "-c", "while [ ! -f /workspace/ready ]; do sleep 1; done; exec /bin/sh /workspace/state/bootstrap.sh"}
 	if _, err := a.Runner.Output(ctx, "openshell", args...); err != nil {
-		r.Status = "create-failed"
-		_ = a.Store.SaveRun(r)
-		return r, err
+		return failRun(err)
 	}
-	r.Status = "created"
+	r.Status = StatusCreating
+	r.StatusDetail = "sandbox created; starting agent"
 	r.Synced = false
 	if err := a.Store.SaveRun(r); err != nil {
 		return r, err
 	}
 	if err := a.upload(ctx, r, bundle, "/workspace/source.bundle"); err != nil {
-		return r, err
+		return failRun(err)
 	}
 	tarPath := filepath.Join(a.Store.RunsDir(), id+"-config.tar")
 	if _, err := a.Runner.Output(ctx, "tar", "-C", config, "-cf", tarPath, "."); err != nil {
-		return r, err
+		return failRun(err)
 	}
 	if err := a.upload(ctx, r, tarPath, "/workspace/config.tar"); err != nil {
-		return r, err
+		return failRun(err)
 	}
 	prep := "set -eu; mkdir -p /workspace/state; tar -xf /workspace/config.tar -C /workspace/state; git clone /workspace/source.bundle /workspace/project; git -C /workspace/project checkout " + shellQuote(r.Branch)
 	if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", prep); err != nil {
-		return r, err
+		return failRun(err)
 	}
 	if err := a.VerifyEffectivePolicy(ctx, r, p); err != nil {
-		r.Status = "policy-blocked"
+		r.Status = StatusFailed
+		r.StatusDetail = "policy check failed: " + err.Error()
 		_ = a.Store.SaveRun(r)
 		return r, err
 	}
 	if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", "touch /workspace/ready"); err != nil {
+		return failRun(err)
+	}
+	r.Status = StatusReady
+	updated, err := a.inspectRun(ctx, r)
+	if err != nil {
 		return r, err
 	}
-	r.Status = "running"
-	return r, a.Store.SaveRun(r)
+	return updated, nil
 }
 
 func (a *App) VerifyEffectivePolicy(ctx context.Context, r Run, p Profile) error {
@@ -305,48 +315,77 @@ func (a *App) ListAndReconcile(ctx context.Context) ([]Run, error) {
 		return nil, err
 	}
 	for i := range runs {
-		r := runs[i]
-		if r.Status == "create-failed" || r.Status == "prepared" {
-			continue
-		}
-		b, err := a.Runner.Output(ctx, "openshell", "sandbox", "get", r.Sandbox, "-o", "json", "--gateway", r.Gateway)
+		updated, err := a.inspectRun(ctx, runs[i])
 		if err != nil {
-			r.Status = "unreachable"
-			_ = a.Store.SaveRun(r)
-			runs[i] = r
-			continue
+			return nil, err
 		}
-		var status struct {
-			Phase string `json:"phase"`
-		}
-		if err := json.Unmarshal(b, &status); err != nil {
-			r.Status = "unreadable"
-			_ = a.Store.SaveRun(r)
-			runs[i] = r
-			continue
-		}
-		state := strings.ToLower(status.Phase)
-		if state == "error" {
-			r.Status = "error"
-			_ = a.Store.SaveRun(r)
-		} else {
-			_, idleErr := a.sandboxExec(ctx, r, "/bin/sh", "-c", "test -f /workspace/idle")
-			_, finishErr := a.sandboxExec(ctx, r, "/bin/sh", "-c", "test -f /workspace/finished")
-			var syncFinished bool
-			r.Status, syncFinished = classifySandboxStatus(state, idleErr == nil, finishErr == nil)
-			_ = a.Store.SaveRun(r)
-			if syncFinished {
-				if err := a.Sync(ctx, r.ID); err == nil {
-					r, _ = a.Store.LoadRun(r.ID)
+		if updated.Status == StatusCompleted && !updated.Synced {
+			if syncErr := a.Sync(ctx, updated.ID); syncErr == nil {
+				if reloaded, loadErr := a.Store.LoadRun(updated.ID); loadErr == nil {
+					updated = reloaded
 				}
 			}
 		}
-		runs[i] = r
+		runs[i] = updated
 	}
 	return runs, nil
 }
 
-func (a *App) requireDirectRunAvailable(root string) error {
+// inspectRun derives the authoritative status for one run. Failed runs keep
+// their terminal failure until the record is deleted; every other run is
+// probed so the cache never outlives the sandbox.
+func (a *App) inspectRun(ctx context.Context, r Run) (Run, error) {
+	if r.Status == StatusFailed {
+		return r, nil
+	}
+	evidence := runEvidence{Agent: r.Agent}
+	b, err := a.Runner.Output(ctx, "openshell", a.sandboxArgs(r, "sandbox", "get", r.Sandbox, "-o", "json")...)
+	if err != nil {
+		// A prepared record has no sandbox yet; keep Creating instead of
+		// reporting the missing sandbox, which is the expected state.
+		if sandboxNotFound(err) && (r.Status == StatusCreating) {
+			return r, nil
+		}
+		evidence.InspectErr = err.Error()
+	} else {
+		var status struct {
+			Phase string `json:"phase"`
+		}
+		if unmarshalErr := json.Unmarshal(b, &status); unmarshalErr != nil {
+			evidence.Unreadable = true
+		} else {
+			evidence.Phase = strings.ToLower(status.Phase)
+			probeOut, probeErr := a.sandboxExec(ctx, r, "/bin/sh", "-c", statusProbeScript)
+			if probeErr != nil {
+				evidence.InspectErr = probeErr.Error()
+			} else if parsed, parseErr := parseRunProbe(probeOut); parseErr != nil {
+				evidence.InspectErr = parseErr.Error()
+			} else {
+				evidence = parsed
+				evidence.Phase = strings.ToLower(status.Phase)
+				evidence.Agent = r.Agent
+			}
+		}
+	}
+	status, detail := classifyRunStatus(evidence, time.Now())
+	if status == StatusStopped && r.Status == StatusStopped && r.StatusDetail != "" {
+		// Keep the reason Stop recorded instead of the generic sandbox phase.
+		detail = r.StatusDetail
+	}
+	r.Status, r.StatusDetail = status, detail
+	return r, a.Store.SaveRun(r)
+}
+
+// GetRun returns one run with its status recomputed by a sandbox inspect.
+func (a *App) GetRun(ctx context.Context, id string) (Run, error) {
+	r, err := a.Store.LoadRun(id)
+	if err != nil {
+		return Run{}, err
+	}
+	return a.inspectRun(ctx, r)
+}
+
+func (a *App) requireDirectRunAvailable(ctx context.Context, root string) error {
 	runs, err := a.Store.ListRuns()
 	if err != nil {
 		return err
@@ -355,31 +394,19 @@ func (a *App) requireDirectRunAvailable(root string) error {
 		if run.Isolated() || filepath.Clean(run.Source) != root {
 			continue
 		}
-		switch strings.ToLower(run.Status) {
-		case "running", "created", "prepared":
-			return fmt.Errorf("direct worktree mode already has active run %s; wait for it to finish or enable worktree isolation", run.ID)
+		updated, err := a.inspectRun(ctx, run)
+		if err != nil {
+			return err
+		}
+		switch updated.Status {
+		case StatusCreating, StatusReady, StatusWorking, StatusWaiting:
+			return fmt.Errorf("direct worktree mode already has active run %s (%s); wait for it to finish or enable worktree isolation", updated.ID, updated.Status.Label())
+		case StatusUnreachable:
+			// Never start a second direct run on a checkout we cannot verify.
+			return fmt.Errorf("cannot verify that direct run %s is idle: %s; restore the gateway or enable worktree isolation", updated.ID, updated.StatusDetail)
 		}
 	}
 	return nil
-}
-
-func classifySandboxStatus(phase string, idleMarker, finishedMarker bool) (string, bool) {
-	phase = strings.ToLower(phase)
-	if phase == "error" {
-		return "error", false
-	}
-	if idleMarker {
-		return "idle", false
-	}
-	if finishedMarker {
-		return "finished", true
-	}
-	switch phase {
-	case "stopped", "completed", "exited":
-		return "stopped", false
-	default:
-		return "running", false
-	}
 }
 
 func (a *App) Attach(ctx context.Context, id string) error {
@@ -460,9 +487,12 @@ func (a *App) TailLogs(ctx context.Context, id string, lines int) ([]byte, error
 }
 
 func (a *App) Stop(ctx context.Context, id string) error {
-	r, err := a.Store.LoadRun(id)
+	r, err := a.GetRun(ctx, id)
 	if err != nil {
 		return err
+	}
+	if !r.Status.IsStoppable() {
+		return fmt.Errorf("run %s is %s; stop applies to Ready, Working, or Waiting for input (use `agentbox agent delete %s --discard` to discard it)", id, r.Status.Label(), id)
 	}
 	if _, err := a.sandboxExec(ctx, r, "tmux", "send-keys", "-t", "agent", "C-c"); err != nil {
 		return err
@@ -493,7 +523,8 @@ func (a *App) Stop(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	r.Status = "stopped"
+	r.Status = StatusStopped
+	r.StatusDetail = "stopped by user"
 	r.Synced = true
 	return a.Store.SaveRun(r)
 }
@@ -544,8 +575,8 @@ func (a *App) Delete(ctx context.Context, id string, discard bool) error {
 	if err != nil {
 		return err
 	}
-	if r.Status == "running" && !discard {
-		return fmt.Errorf("run is still active; stop it or pass --discard")
+	if r.Status.IsStoppable() && !discard {
+		return fmt.Errorf("run is %s; stop it or pass --discard", r.Status.Label())
 	}
 	if !r.Synced && !discard {
 		return fmt.Errorf("run has unsynced results; sync first or pass --discard")
@@ -559,7 +590,9 @@ func (a *App) Delete(ctx context.Context, id string, discard bool) error {
 			return fmt.Errorf("run has review changes; pass --discard to acknowledge deletion")
 		}
 	}
-	if r.Status != "create-failed" && r.Status != "prepared" {
+	// Prepared records never had a sandbox; every other record is attempted
+	// so a partially created sandbox is not orphaned.
+	if !(r.Status == StatusCreating && r.Synced) {
 		if err := a.deleteSandboxAndWait(ctx, r); err != nil {
 			return err
 		}

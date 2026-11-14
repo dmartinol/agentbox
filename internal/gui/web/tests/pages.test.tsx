@@ -106,6 +106,23 @@ describe('fleet shell', () => {
     expect(screen.getAllByRole('button', { name: /setup/i })).toHaveLength(1);
   });
 
+  it('refreshes a starting agent without a page reload', async () => {
+    const starting = { ...runs[0], id: 'run-creating', name: 'fresh-run', status: 'creating' as const, status_detail: 'sandbox is warming up' };
+    const ready = { ...starting, status: 'ready' as const, status_detail: '' };
+    mockRoutes({ ...defaultRoutes(), 'GET /api/overview': { ...overview, runs: [starting] }, 'GET /api/runs': [ready] });
+    render(<App />);
+    expect((await screen.findAllByText('Creating')).length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getAllByText('Ready').length).toBeGreaterThan(0), { timeout: 4000 });
+  });
+
+  it('counts agents waiting for input as Needs You', async () => {
+    const waitingRuns = runs.map((run) => run.id === 'run-idle' ? { ...run, status: 'waiting' as const, status_detail: 'permission requested' } : run);
+    mockRoutes({ ...defaultRoutes(), 'GET /api/overview': { ...overview, runs: waitingRuns }, 'GET /api/runs': waitingRuns });
+    render(<App />);
+    expect(await screen.findByText(/Needs You 1/)).toBeInTheDocument();
+    expect((await screen.findAllByLabelText('Waiting for input')).length).toBeGreaterThan(0);
+  });
+
   it('defaults to light mode and remembers the selected theme', async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -272,7 +289,7 @@ describe('fleet shell', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click((await screen.findAllByRole('button', { name: /attach/i }))[0]);
-    await user.click(await screen.findByRole('tab', { name: 'finished-run' }));
+    await user.click(await screen.findByRole('tab', { name: /finished-run/ }));
     expect(await screen.findByLabelText('Output for finished-run')).toBeInTheDocument();
     expect(await screen.findByText('finished output')).toBeInTheDocument();
     expect(screen.queryByLabelText('Terminal for finished-run')).toBeNull();
@@ -514,7 +531,7 @@ describe('fleet actions', () => {
     expect(within(row).getByRole('button', { name: 'Stopping' })).toBeDisabled();
     expect(within(row).getByText('Stopping', { selector: 'span' })).toBeInTheDocument();
     resolveStop(runs[0]);
-    await waitFor(() => expect(within(row).getByText('Running')).toBeInTheDocument());
+    await waitFor(() => expect(within(row).getByText('Working')).toBeInTheDocument());
   });
 
   it('marks a new agent start in flight', async () => {

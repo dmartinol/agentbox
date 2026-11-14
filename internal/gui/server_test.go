@@ -30,6 +30,7 @@ type guiRunner struct {
 	phases          map[string]string
 	finishedMarkers map[string]bool
 	idleMarkers     map[string]bool
+	probes          map[string]string
 	search          string
 	logs            string
 }
@@ -57,6 +58,14 @@ func (r guiRunner) Output(_ context.Context, name string, args ...string) ([]byt
 		return nil, fmt.Errorf("sandbox not found")
 	case name == "openshell" && containsCommand(args, "sandbox", "exec"):
 		joined := strings.Join(args, " ")
+		if strings.Contains(joined, "tmux has-session -t agent") {
+			for sandbox, probe := range r.probes {
+				if strings.Contains(joined, sandbox) {
+					return []byte(probe), nil
+				}
+			}
+			return []byte("session=0\ndead=1\n"), nil
+		}
 		if strings.HasSuffix(joined, "test -f /workspace/finished") || strings.HasSuffix(joined, "test -f /workspace/idle") {
 			marker := "finished"
 			markers := r.finishedMarkers
@@ -112,14 +121,19 @@ func testRunner() guiRunner {
 		gateways: `[{"name":"openshell","active":true,"endpoint":"https://localhost:17670","type":"podman","auth":"bearer","source":"local"}]`,
 		phases: map[string]string{
 			"sandbox-active":   "running",
-			"sandbox-idle":     "stopped",
-			"sandbox-finished": "stopped",
+			"sandbox-idle":     "running",
+			"sandbox-finished": "running",
 		},
 		finishedMarkers: map[string]bool{
 			"sandbox-finished": true,
 		},
 		idleMarkers: map[string]bool{
 			"sandbox-idle": true,
+		},
+		probes: map[string]string{
+			"sandbox-active":   "session=1\ndead=0\ncommand=codex\nidle=0\nfinished=0\nactivity={\"state\":\"working\"}\n",
+			"sandbox-idle":     "session=1\ndead=0\ncommand=sh\nidle=1\nfinished=0\n",
+			"sandbox-finished": "session=0\ndead=1\ncommand=\nidle=0\nfinished=1\nexit=0\n",
 		},
 		search: `[{"Name":"quay.io/team/openshell","Tag":"codex-0.167.0-r3-linux-arm64"}]`,
 		logs:   "agent log output\n",
@@ -156,12 +170,12 @@ func newTestServerWithRunner(t *testing.T, runner guiRunner) *httptest.Server {
 		ID: "run-active", Name: "active-run", Created: time.Now().UTC(), Source: "/repo", Project: "demo",
 		Worktree: "/trees/demo/active-run", WorktreeIsolated: true, Branch: "agentbox/demo/active-run",
 		Sandbox: "sandbox-active", Gateway: "openshell", Agent: "codex", Image: profile.Image, Mode: profile.Mode,
-		Model: profile.Model, Approval: profile.Approval, Status: "running", Synced: true, Policy: policy.Path,
+		Model: profile.Model, Approval: profile.Approval, Status: "working", Synced: true, Policy: policy.Path,
 	}
 	idle := now
-	idle.ID, idle.Name, idle.Sandbox, idle.Status, idle.Synced = "run-idle", "idle-run", "sandbox-idle", "stopped", false
+	idle.ID, idle.Name, idle.Sandbox, idle.Status, idle.Synced = "run-idle", "idle-run", "sandbox-idle", "ready", false
 	finished := now
-	finished.ID, finished.Name, finished.Sandbox, finished.Status, finished.Synced = "run-finished", "finished-run", "sandbox-finished", "finished", true
+	finished.ID, finished.Name, finished.Sandbox, finished.Status, finished.Synced = "run-finished", "finished-run", "sandbox-finished", "completed", true
 	for _, run := range []app.Run{now, idle, finished} {
 		if err := store.SaveRun(run); err != nil {
 			t.Fatal(err)
@@ -212,7 +226,7 @@ func TestOverviewAggregatesFleetAndProjectTree(t *testing.T) {
 	server := newTestServer(t)
 	var response overviewResponse
 	requestJSON(t, http.MethodGet, server.URL+"/api/overview", nil, &response)
-	if response.Summary["active"] != 1 || response.Summary["finished"] != 1 || response.Summary["unsynced"] != 1 {
+	if response.Summary["active"] != 2 || response.Summary["finished"] != 1 || response.Summary["unsynced"] != 1 || response.Summary["waiting"] != 0 {
 		t.Fatalf("summary = %#v", response.Summary)
 	}
 	if response.Summary["images"] != 1 || response.Summary["gateways"] != 1 || response.Summary["profiles"] != 1 || response.Summary["projects"] != 1 {
@@ -221,7 +235,7 @@ func TestOverviewAggregatesFleetAndProjectTree(t *testing.T) {
 	if len(response.Tree) != 1 || response.Tree[0].Project != "demo" {
 		t.Fatalf("tree = %#v", response.Tree)
 	}
-	if len(response.Tree[0].ActiveRuns) != 1 || len(response.Tree[0].IdleRuns) != 1 || len(response.Tree[0].FinishedRuns) != 1 {
+	if len(response.Tree[0].ActiveRuns) != 2 || len(response.Tree[0].IdleRuns) != 1 || len(response.Tree[0].FinishedRuns) != 1 {
 		t.Fatalf("project run buckets = %#v", response.Tree[0])
 	}
 	if response.Tree[0].Isolation != "worktree" {
@@ -234,11 +248,18 @@ func TestRunsListReconcilesStatuses(t *testing.T) {
 	var runs []app.Run
 	requestJSON(t, http.MethodGet, server.URL+"/api/runs", nil, &runs)
 	statuses := map[string]string{}
+	filled := 0
 	for _, run := range runs {
-		statuses[run.ID] = run.Status
+		statuses[run.ID] = string(run.Status)
+		if run.StatusDetail != "" {
+			filled++
+		}
 	}
-	if statuses["run-active"] != "running" || statuses["run-idle"] != "idle" || statuses["run-finished"] != "finished" {
+	if statuses["run-active"] != "working" || statuses["run-idle"] != "ready" || statuses["run-finished"] != "completed" {
 		t.Fatalf("reconciled statuses = %#v", statuses)
+	}
+	if filled == 0 {
+		t.Fatal("completed run should carry an exit-code detail")
 	}
 }
 

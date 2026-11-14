@@ -13,14 +13,70 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const activityScript = `#!/bin/sh
+set -u
+state=${1:-}
+case "$state" in
+  working|waiting|done|idle) ;;
+  *) exit 0 ;;
+esac
+detail=${2:-}
+event=${3:-}
+detail=$(printf '%s' "$detail" | tr -d '"\\\r\n')
+marker=/workspace/state/interrupted-turn
+
+# Harness hooks pipe their JSON payload in. The session wrapper keeps a
+# terminal on stdin, where reading would block.
+payload=
+if [ ! -t 0 ]; then
+  payload=$(cat 2>/dev/null || true)
+fi
+turn=$(printf '%s' "$payload" | sed -n 's/.*"turn_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+
+# A question is a tool call that blocks until the user answers, so the turn is
+# waiting for input instead of working. Look at the payload before tool_input
+# so text inside the call cannot be mistaken for the tool name.
+if [ "$event" = PreToolUse ] && [ "$state" = working ]; then
+  tool=$(printf '%s' "${payload%%\"tool_input\"*}" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  case "$tool" in
+    request_user_input) state=waiting; detail="asking a question" ;;
+  esac
+fi
+
+# ESC ends a turn, but Codex still delivers results for tools that were in
+# flight, so a late progress hook for the interrupted turn must not restore
+# Working or Waiting. Only a new prompt, or a new session, moves past it.
+if [ -n "$turn" ]; then
+  case "$event" in
+    PreToolUse|PostToolUse|PermissionRequest|Notification|Elicitation|Stop)
+      if [ "$(cat "$marker" 2>/dev/null || true)" = "$turn" ]; then
+        exit 0
+      fi
+      ;;
+  esac
+fi
+
+mkdir -p /workspace/state 2>/dev/null || true
+case "$event" in
+  Interrupt) [ -n "$turn" ] && printf '%s' "$turn" > "$marker" 2>/dev/null || true ;;
+  UserPromptSubmit|SessionStart|SessionEnd) rm -f "$marker" 2>/dev/null || true ;;
+esac
+printf '{"state":"%s","detail":"%s"}\n' "$state" "$detail" > /workspace/state/activity.json.tmp
+mv /workspace/state/activity.json.tmp /workspace/state/activity.json
+`
+
 const sessionScript = `#!/bin/sh
 set -u
 cd /workspace/project
+activity() {
+  /bin/sh /workspace/state/activity.sh "$1" "${2:-}" 2>/dev/null || true
+}
 /bin/sh /workspace/state/agent.sh
 status=$?
 while :; do
   echo
   echo "Agent session ended."
+  activity waiting "agent exited; choose idle or finish"
   printf "Keep this run idle for reattach? [y]es/[f]inish: "
   if ! IFS= read -r answer; then
     answer=f
@@ -28,6 +84,7 @@ while :; do
   case "$answer" in
     y|Y|yes|YES)
       touch /workspace/idle
+      activity idle "kept idle for reattach"
       echo
       echo "Run kept idle."
       echo "Detach: Ctrl-b d. Exiting this shell keeps the run idle."
@@ -35,6 +92,7 @@ while :; do
         /bin/sh
         echo
         echo "Idle shell ended. The run remains available for reattach."
+        activity waiting "idle shell ended; choose idle or finish"
         printf "Keep this run idle for reattach? [y]es/[f]inish: "
         if ! IFS= read -r answer; then
           answer=f
@@ -42,7 +100,7 @@ while :; do
         case "$answer" in
           y|Y|yes|YES) continue ;;
           f|F|finish|FINISH|n|N|no|NO) break ;;
-          *) echo "Enter y to keep the run idle or f to finish." ;;
+          *) echo "Enter y to keep this run idle or f to finish." ;;
         esac
       done
       rm -f /workspace/idle
@@ -51,13 +109,61 @@ while :; do
       break
       ;;
     *)
-      echo "Enter y to keep the run idle or f to finish."
+      echo "Enter y to keep this run idle or f to finish."
       ;;
   esac
 done
+activity done "session finished"
 touch /workspace/finished
 exit "$status"
 `
+
+// activityHook maps a harness event to an explicit activity state.
+type activityHook struct {
+	Event  string
+	State  string
+	Detail string
+}
+
+var codexActivityHooks = []activityHook{
+	{"SessionStart", "idle", "session started"},
+	{"UserPromptSubmit", "working", "prompt submitted"},
+	{"PreToolUse", "working", "running a tool"},
+	{"PostToolUse", "working", "processing tool result"},
+	{"PermissionRequest", "waiting", "permission requested"},
+	{"Stop", "done", "turn finished"},
+	{"SessionEnd", "done", "session ended"},
+	{"Interrupt", "idle", "interrupted"},
+}
+
+// Claude Code has no Interrupt hook; Stop does not fire on user interrupt, so
+// Notification is the closest explicit "needs attention" signal.
+var claudeActivityHooks = []activityHook{
+	{"SessionStart", "idle", "session started"},
+	{"UserPromptSubmit", "working", "prompt submitted"},
+	{"PreToolUse", "working", "running a tool"},
+	{"PostToolUse", "working", "processing tool result"},
+	{"PermissionRequest", "waiting", "permission requested"},
+	{"Notification", "waiting", "agent needs attention"},
+	{"Elicitation", "waiting", "agent asked for input"},
+	{"Stop", "done", "turn finished"},
+	{"SessionEnd", "done", "session ended"},
+}
+
+func hooksDoc(hooks []activityHook) map[string]any {
+	events := map[string]any{}
+	for _, hook := range hooks {
+		command := "/bin/sh /workspace/state/activity.sh " + hook.State + " " + shellQuote(hook.Detail) + " " + hook.Event
+		events[hook.Event] = []any{
+			map[string]any{
+				"hooks": []any{
+					map[string]any{"type": "command", "command": command, "timeout": 10},
+				},
+			},
+		}
+	}
+	return map[string]any{"hooks": events}
+}
 
 func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string, mcp *MCPSelection, skills *SkillsSelection) (string, error) {
 	dir := filepath.Join(a.Store.RunsDir(), r.ID+"-config")
@@ -74,17 +180,21 @@ func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string,
 		if err := os.MkdirAll(config, 0700); err != nil {
 			return "", err
 		}
+		configBody := "[projects.\"/workspace/project\"]\ntrust_level = \"trusted\"\n"
 		if p.Mode == "gateway" {
-			body := fmt.Sprintf("[model_providers.gateway]\nname = \"Model gateway\"\nbase_url = %q\nenv_key = %q\nwire_api = \"responses\"\nrequires_openai_auth = false\n", p.BaseURL, p.APIKeyEnv)
-			if err := os.WriteFile(filepath.Join(config, "config.toml"), []byte(body), 0600); err != nil {
-				return "", err
-			}
+			configBody += fmt.Sprintf("[model_providers.gateway]\nname = \"Model gateway\"\nbase_url = %q\nenv_key = %q\nwire_api = \"responses\"\nrequires_openai_auth = false\n", p.BaseURL, p.APIKeyEnv)
 			profile := fmt.Sprintf("model = %q\nmodel_provider = \"gateway\"\nweb_search = \"disabled\"\n", p.Model)
 			if err := os.WriteFile(filepath.Join(config, "gateway.config.toml"), []byte(profile), 0600); err != nil {
 				return "", err
 			}
 		}
+		if err := os.WriteFile(filepath.Join(config, "config.toml"), []byte(configBody), 0600); err != nil {
+			return "", err
+		}
 		if err := writeCodexMCP(config, mcp); err != nil {
+			return "", err
+		}
+		if err := writeJSONFile(filepath.Join(config, "hooks.json"), hooksDoc(codexActivityHooks)); err != nil {
 			return "", err
 		}
 	case "opencode":
@@ -118,16 +228,25 @@ func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string,
 		// without an interactive approval prompt: a cloned repository cannot
 		// approve its own servers, and only user-scope settings apply in
 		// untrusted folders.
-		settings := map[string]any{"enableAllProjectMcpServers": true}
+		settings := map[string]any{"enableAllProjectMcpServers": true, "hooks": hooksDoc(claudeActivityHooks)["hooks"]}
 		if p.Mode == "gateway" {
 			settings["env"] = map[string]string{"ANTHROPIC_BASE_URL": gatewaySiteURL(p.BaseURL), "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"}
+		}
+		state := map[string]any{
+			"projects": map[string]any{
+				"/workspace/project": map[string]any{
+					"hasTrustDialogAccepted":      true,
+					"hasTrustDialogHooksAccepted": true,
+				},
+			},
 		}
 		if mcp != nil && len(mcp.Servers) > 0 {
 			// User-scope servers: project-local definitions keep precedence
 			// on name conflicts ("local wins").
-			if err := writeJSONFile(filepath.Join(claude, ".claude.json"), map[string]any{"mcpServers": mcp.Servers}); err != nil {
-				return "", err
-			}
+			state["mcpServers"] = mcp.Servers
+		}
+		if err := writeJSONFile(filepath.Join(claude, ".claude.json"), state); err != nil {
+			return "", err
 		}
 		if err := writeJSONFile(filepath.Join(claude, "settings.json"), settings); err != nil {
 			return "", err
@@ -144,6 +263,9 @@ func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string,
 		return "", err
 	}
 	if err := os.WriteFile(filepath.Join(dir, "session.sh"), []byte(sessionScript), 0700); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "activity.sh"), []byte(activityScript), 0700); err != nil {
 		return "", err
 	}
 	return dir, nil
@@ -234,9 +356,17 @@ func agentScript(p Profile, prompt string) (string, error) {
 			}
 		}
 	}
+	if p.Agent == "codex" {
+		// Generated hooks are trusted by construction; older pinned images do
+		// not know the flag, so only pass it when the binary advertises it.
+		b.WriteString("hookflag=\nif codex --help 2>/dev/null | grep -q -- --dangerously-bypass-hook-trust; then hookflag=--dangerously-bypass-hook-trust; fi\n")
+	}
 	b.WriteString("exec")
-	for _, arg := range args {
+	for i, arg := range args {
 		b.WriteByte(' ')
+		if i == 1 && p.Agent == "codex" {
+			b.WriteString("$hookflag ")
+		}
 		b.WriteString(shellQuote(arg))
 	}
 	b.WriteByte('\n')

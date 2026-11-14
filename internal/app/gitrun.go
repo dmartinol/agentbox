@@ -90,7 +90,7 @@ func (a *App) CreateWorktreeAt(ctx context.Context, source, id, worktree, branch
 		rollback()
 		return Run{}, err
 	}
-	r := Run{ID: id, Source: root, Worktree: worktree, Branch: branch, Baseline: strings.TrimSpace(string(baselineB)), LastSynced: strings.TrimSpace(string(baselineB)), Sandbox: id, Status: "prepared", Synced: true}
+	r := Run{ID: id, Source: root, Worktree: worktree, Branch: branch, Baseline: strings.TrimSpace(string(baselineB)), LastSynced: strings.TrimSpace(string(baselineB)), Sandbox: id, Status: StatusCreating, Synced: true}
 	fp, err := a.WorktreeFingerprint(ctx, r)
 	if err != nil {
 		rollback()
@@ -130,7 +130,7 @@ func (a *App) CreateDirectRun(ctx context.Context, source, id string) (Run, erro
 		Baseline:         head,
 		LastSynced:       head,
 		Sandbox:          id,
-		Status:           "prepared",
+		Status:           StatusCreating,
 		Synced:           true,
 		WorktreeIsolated: false,
 	}

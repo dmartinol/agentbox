@@ -10,29 +10,6 @@ import (
 	"time"
 )
 
-func TestClassifySandboxStatus(t *testing.T) {
-	cases := []struct {
-		phase    string
-		idle     bool
-		finished bool
-		want     string
-		sync     bool
-	}{
-		{phase: "running", want: "running"},
-		{phase: "running", idle: true, want: "idle"},
-		{phase: "RUNNING", finished: true, want: "finished", sync: true},
-		{phase: "completed", finished: true, want: "finished", sync: true},
-		{phase: "stopped", want: "stopped"},
-		{phase: "error", finished: true, want: "error"},
-	}
-	for _, tc := range cases {
-		got, sync := classifySandboxStatus(tc.phase, tc.idle, tc.finished)
-		if got != tc.want || sync != tc.sync {
-			t.Errorf("classifySandboxStatus(%q,%v,%v) = %q,%v; want %q,%v", tc.phase, tc.idle, tc.finished, got, sync, tc.want, tc.sync)
-		}
-	}
-}
-
 func TestDeleteProtectsActiveAndReviewableRunData(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -51,7 +28,9 @@ func TestDeleteProtectsActiveAndReviewableRunData(t *testing.T) {
 				run.Synced = false
 			}
 			if !tc.active {
-				run.Status = "stopped"
+				run.Status = StatusStopped
+			} else {
+				run.Status = StatusWorking
 			}
 			if tc.edit {
 				if err := os.WriteFile(filepath.Join(run.Worktree, "tracked.txt"), []byte("review me\n"), 0600); err != nil {
@@ -70,7 +49,7 @@ func TestDeleteProtectsActiveAndReviewableRunData(t *testing.T) {
 			if tc.want != "" && !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("unexpected delete refusal: %v", err)
 			}
-			if tc.active && !strings.Contains(err.Error(), "still active") {
+			if tc.active && !strings.Contains(err.Error(), "run is Working") {
 				t.Fatalf("active run refusal was unclear: %v", err)
 			}
 			for _, call := range runner.outputs {
@@ -99,7 +78,7 @@ func TestStopRetainsSandboxWhenSyncRefusesLocalConflict(t *testing.T) {
 		}
 	}
 	stored, err := app.Store.LoadRun(run.ID)
-	if err != nil || stored.Status != "running" {
+	if err != nil || stored.Status != StatusWorking {
 		t.Fatalf("run state did not retain recovery status: %+v, %v", stored, err)
 	}
 }
@@ -113,8 +92,11 @@ func TestStopSyncsBeforeStoppingSandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	stored, err := app.Store.LoadRun(run.ID)
-	if err != nil || stored.Status != "stopped" || !stored.Synced {
+	if err != nil || stored.Status != StatusStopped || !stored.Synced {
 		t.Fatalf("run did not record successful stop/sync: %+v, %v", stored, err)
+	}
+	if stored.StatusDetail != "stopped by user" {
+		t.Fatalf("stop detail = %q", stored.StatusDetail)
 	}
 	stopIndex, syncDownloadIndex := -1, -1
 	for i, call := range runner.outputs {
@@ -143,16 +125,16 @@ func TestListAndReconcileAttemptsSyncWhenCompletedMarkerExists(t *testing.T) {
 			return (OSRunner{}).Output(context.Background(), "git", call.args...)
 		}
 		if call.name == "openshell" && commandHasArg(call, "get") {
-			return []byte(`{"phase":"completed"}`), nil
+			return []byte(`{"phase":"running"}`), nil
 		}
-		if call.name == "openshell" && strings.Contains(strings.Join(call.args, " "), "test -f /workspace/idle") {
-			return nil, errors.New("idle marker not found")
+		if call.name == "openshell" && strings.Contains(strings.Join(call.args, " "), "tmux has-session -t agent") {
+			return []byte("session=0\ndead=1\nfinished=1\nexit=0\n"), nil
 		}
 		return nil, nil
 	}
 	app.Runner = runner
 	got, err := app.ListAndReconcile(context.Background())
-	if err != nil || len(got) != 1 || got[0].Status != "finished" {
+	if err != nil || len(got) != 1 || got[0].Status != StatusCompleted || !strings.Contains(got[0].StatusDetail, "exit code") {
 		t.Fatalf("reconcile result = %#v, %v", got, err)
 	}
 	foundExport := false

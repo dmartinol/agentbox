@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,19 +49,21 @@ func TestProjectRegistrationAndDirectRun(t *testing.T) {
 		t.Fatalf("direct run missing branch/baseline: %+v", run)
 	}
 
-	run.Status = "running"
+	run.Status = StatusWorking
 	if err := app.Store.SaveRun(run); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.requireDirectRunAvailable(project.Root); err == nil || !strings.Contains(err.Error(), "active run") {
+	app.Runner = statusRunnerFor("running", "session=1\ndead=0\ncommand=codex\nactivity={\"state\":\"working\"}\n")
+	if err := app.requireDirectRunAvailable(ctx, project.Root); err == nil || !strings.Contains(err.Error(), "active run") {
 		t.Fatalf("active direct run was not guarded: %v", err)
 	}
-	run.Status = "stopped"
-	if err := app.Store.SaveRun(run); err != nil {
-		t.Fatal(err)
+	app.Runner = statusRunnerFor("running", "session=0\ndead=1\nfinished=1\n")
+	if err := app.requireDirectRunAvailable(ctx, project.Root); err != nil {
+		t.Fatalf("completed direct run still blocked: %v", err)
 	}
-	if err := app.requireDirectRunAvailable(project.Root); err != nil {
-		t.Fatalf("finished direct run still blocked: %v", err)
+	app.Runner = &fakeRunner{output: func(recordedCommand) ([]byte, error) { return nil, errors.New("gateway down") }}
+	if err := app.requireDirectRunAvailable(ctx, project.Root); err == nil || !strings.Contains(err.Error(), "cannot verify") {
+		t.Fatalf("unverifiable direct run was not guarded: %v", err)
 	}
 }
 
@@ -103,12 +106,13 @@ func TestDeleteDirectRunKeepsProjectCheckout(t *testing.T) {
 	}
 	cmd(t, source, "git", "add", ".")
 	cmd(t, source, "git", "commit", "-qm", "base")
-	app := App{Store: Store{Base: filepath.Join(base, "state")}, Runner: &fakeRunner{}}
+	runner := &fakeRunner{}
+	app := App{Store: Store{Base: filepath.Join(base, "state")}, Runner: runner}
 	run, err := app.CreateDirectRun(ctx, source, "run-directdelete")
 	if err != nil {
 		t.Fatal(err)
 	}
-	run.Status = "prepared"
+	run.Status = StatusCreating
 	run.Synced = true
 	run.Policy = filepath.Join(app.Store.PolicyDir(), run.ID+".yaml")
 	if err := app.Store.SaveRun(run); err != nil {
@@ -119,5 +123,10 @@ func TestDeleteDirectRunKeepsProjectCheckout(t *testing.T) {
 	}
 	if _, err := os.Stat(source); err != nil {
 		t.Fatalf("direct project checkout was removed: %v", err)
+	}
+	for _, call := range runner.outputs {
+		if call.name == "openshell" && containsCommand(call.args, "sandbox", "delete") {
+			t.Fatalf("prepared record attempted a sandbox delete: %#v", call)
+		}
 	}
 }

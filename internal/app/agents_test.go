@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -47,8 +48,31 @@ func TestPrepareAgentGeneratesIsolatedConfigForEachAgentMode(t *testing.T) {
 						t.Errorf("script lacks %q:\n%s", want, script)
 					}
 				}
-				if strings.Contains(string(script), "dangerously") || strings.Contains(string(script), "--auto") {
+				if strings.Contains(string(script), "--dangerously-bypass-approvals-and-sandbox") || strings.Contains(string(script), "--auto") {
 					t.Fatalf("prompted config bypasses approval: %s", script)
+				}
+				if agent == "codex" && !strings.Contains(string(script), "dangerously-bypass-hook-trust") {
+					t.Fatalf("codex script lacks the capability-checked hook-trust flag: %s", script)
+				}
+				if agent == "codex" {
+					config, err := os.ReadFile(filepath.Join(dir, "home", ".codex", "config.toml"))
+					if err != nil || !strings.Contains(string(config), "trust_level = \"trusted\"") {
+						t.Fatalf("codex config lacks workspace trust: %v %s", err, config)
+					}
+					hooks, err := os.ReadFile(filepath.Join(dir, "home", ".codex", "hooks.json"))
+					if err != nil || !json.Valid(hooks) || !strings.Contains(string(hooks), "PermissionRequest") || !strings.Contains(string(hooks), "activity.sh") {
+						t.Fatalf("codex hooks missing: %v %s", err, hooks)
+					}
+				}
+				if agent == "claude" {
+					state, err := os.ReadFile(filepath.Join(dir, "home", ".claude", ".claude.json"))
+					if err != nil || !strings.Contains(string(state), "hasTrustDialogAccepted") || !strings.Contains(string(state), "hasTrustDialogHooksAccepted") {
+						t.Fatalf("claude workspace trust missing: %v %s", err, state)
+					}
+					settings, err := os.ReadFile(filepath.Join(dir, "home", ".claude", "settings.json"))
+					if err != nil || !strings.Contains(string(settings), "Elicitation") || !strings.Contains(string(settings), "Notification") {
+						t.Fatalf("claude hooks missing: %v %s", err, settings)
+					}
 				}
 				if mode == "gateway" {
 					switch agent {
@@ -259,6 +283,9 @@ func TestSessionScriptOffersIdleReattach(t *testing.T) {
 		"The run remains available for reattach",
 		"Detach: Ctrl-b d",
 		"touch /workspace/finished",
+		"activity waiting",
+		"activity idle",
+		"activity done",
 	} {
 		if !strings.Contains(sessionScript, want) {
 			t.Fatalf("session script missing %q:\n%s", want, sessionScript)
@@ -317,5 +344,168 @@ func TestProviderSetupAcceptsModelBaseURLAsGatewayHost(t *testing.T) {
 	}
 	if !strings.Contains(string(provider), "host: api.enmaas.devshift.net") || strings.Contains(string(provider), "https://api.enmaas.devshift.net") {
 		t.Fatalf("gateway host was not normalized: %s", provider)
+	}
+}
+
+func TestCodexHooksNameTheEventSoInterruptsCanBeTracked(t *testing.T) {
+	raw, err := json.Marshal(hooksDoc(codexActivityHooks))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hook := range codexActivityHooks {
+		want := "activity.sh " + hook.State + " '" + hook.Detail + "' " + hook.Event
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("hook for %s does not name the event, want %q:\n%s", hook.Event, want, raw)
+		}
+	}
+}
+
+// activityHarness runs the generated activity.sh against a temporary state
+// directory so the interrupt handling can be exercised without a sandbox.
+type activityHarness struct {
+	t     *testing.T
+	dir   string
+	state string
+}
+
+func newActivityHarness(t *testing.T) *activityHarness {
+	t.Helper()
+	dir := t.TempDir()
+	state := filepath.Join(dir, "state")
+	if err := os.MkdirAll(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	body := strings.ReplaceAll(activityScript, "/workspace/state", state)
+	if err := os.WriteFile(filepath.Join(state, "activity.sh"), []byte(body), 0700); err != nil {
+		t.Fatal(err)
+	}
+	return &activityHarness{t: t, dir: dir, state: state}
+}
+
+func (h *activityHarness) hook(event, state, detail, payload string) {
+	h.t.Helper()
+	cmd := exec.Command("/bin/sh", filepath.Join(h.state, "activity.sh"), state, detail, event)
+	cmd.Stdin = strings.NewReader(payload)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		h.t.Fatalf("%s hook failed: %v %s", event, err, out)
+	}
+}
+
+func (h *activityHarness) current() string {
+	h.t.Helper()
+	raw, err := os.ReadFile(filepath.Join(h.state, "activity.json"))
+	if err != nil {
+		h.t.Fatalf("activity.json: %v", err)
+	}
+	var doc struct {
+		State  string `json:"state"`
+		Detail string `json:"detail"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		h.t.Fatalf("activity.json is not valid JSON: %v %s", err, raw)
+	}
+	return doc.State + "/" + doc.Detail
+}
+
+func turnPayload(turn string) string {
+	return `{"session_id":"s1","turn_id":"` + turn + `","hook_event_name":"PreToolUse"}`
+}
+
+func TestActivityScriptDropsLateSignalsForInterruptedTurn(t *testing.T) {
+	h := newActivityHarness(t)
+	h.hook("UserPromptSubmit", "working", "prompt submitted", turnPayload("turn-1"))
+	if got := h.current(); got != "working/prompt submitted" {
+		t.Fatalf("prompt submit = %q", got)
+	}
+	h.hook("PreToolUse", "working", "running a tool", turnPayload("turn-1"))
+	if got := h.current(); got != "working/running a tool" {
+		t.Fatalf("pre tool = %q", got)
+	}
+
+	h.hook("Interrupt", "idle", "interrupted", turnPayload("turn-1"))
+	if got := h.current(); got != "idle/interrupted" {
+		t.Fatalf("interrupt = %q", got)
+	}
+
+	for _, late := range []struct{ event, state, detail string }{
+		{"PostToolUse", "working", "processing tool result"},
+		{"PreToolUse", "working", "running a tool"},
+		{"PermissionRequest", "waiting", "permission requested"},
+		{"Stop", "done", "turn finished"},
+	} {
+		h.hook(late.event, late.state, late.detail, turnPayload("turn-1"))
+		if got := h.current(); got != "idle/interrupted" {
+			t.Fatalf("late %s changed the interrupted turn to %q", late.event, got)
+		}
+	}
+
+	h.hook("UserPromptSubmit", "working", "prompt submitted", turnPayload("turn-2"))
+	if got := h.current(); got != "working/prompt submitted" {
+		t.Fatalf("new turn did not clear the interrupt: %q", got)
+	}
+	h.hook("PostToolUse", "working", "processing tool result", turnPayload("turn-2"))
+	if got := h.current(); got != "working/processing tool result" {
+		t.Fatalf("new turn lost its tool signal: %q", got)
+	}
+	h.hook("Interrupt", "idle", "interrupted", turnPayload("turn-2"))
+	h.hook("UserPromptSubmit", "working", "prompt submitted", turnPayload("turn-3"))
+	if got := h.current(); got != "working/prompt submitted" {
+		t.Fatalf("prompt after a second interrupt = %q", got)
+	}
+}
+
+func TestActivityScriptKeepsWorkingForTurnsWithoutPayload(t *testing.T) {
+	h := newActivityHarness(t)
+	h.hook("Interrupt", "idle", "interrupted", "")
+	if got := h.current(); got != "idle/interrupted" {
+		t.Fatalf("interrupt without payload = %q", got)
+	}
+	h.hook("PostToolUse", "working", "processing tool result", "")
+	if got := h.current(); got != "working/processing tool result" {
+		t.Fatalf("payload-less signals must behave as before: %q", got)
+	}
+}
+
+func TestSessionStartClearsStaleInterruptMarker(t *testing.T) {
+	h := newActivityHarness(t)
+	h.hook("Interrupt", "idle", "interrupted", turnPayload("turn-1"))
+	h.hook("SessionStart", "idle", "session started", `{"session_id":"s1"}`)
+	h.hook("PostToolUse", "working", "processing tool result", turnPayload("turn-1"))
+	if got := h.current(); got != "working/processing tool result" {
+		t.Fatalf("session start did not clear the marker: %q", got)
+	}
+}
+
+func TestActivityScriptOnlyDropsKnownProgressEvents(t *testing.T) {
+	h := newActivityHarness(t)
+	h.hook("Interrupt", "idle", "interrupted", turnPayload("turn-1"))
+	h.hook("SessionEnd", "done", "session ended", turnPayload("turn-1"))
+	if got := h.current(); got != "done/session ended" {
+		t.Fatalf("session end was suppressed by the interrupt marker: %q", got)
+	}
+}
+
+func TestActivityScriptReportsQuestionsAsWaitingForInput(t *testing.T) {
+	h := newActivityHarness(t)
+	ask := `{"turn_id":"turn-1","hook_event_name":"PreToolUse","tool_name":"request_user_input","tool_input":{"questions":[{"question":"Which filter?"}]}}`
+	h.hook("PreToolUse", "working", "running a tool", ask)
+	if got := h.current(); got != "waiting/asking a question" {
+		t.Fatalf("question prompt = %q", got)
+	}
+	h.hook("PostToolUse", "working", "processing tool result", ask)
+	if got := h.current(); got != "working/processing tool result" {
+		t.Fatalf("answering did not resume the turn: %q", got)
+	}
+
+	bash := `{"turn_id":"turn-1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`
+	h.hook("PreToolUse", "working", "running a tool", bash)
+	if got := h.current(); got != "working/running a tool" {
+		t.Fatalf("ordinary tool = %q", got)
+	}
+
+	trap := `{"turn_id":"turn-1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"grep -F \"tool_name\":\"request_user_input\" notes.txt"}}`
+	h.hook("PreToolUse", "working", "running a tool", trap)
+	if got := h.current(); got != "working/running a tool" {
+		t.Fatalf("text inside tool_input was read as the tool name: %q", got)
 	}
 }

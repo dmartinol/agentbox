@@ -1123,7 +1123,11 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 			if name == "" {
 				name = r.ID
 			}
-			fmt.Printf("%-16s %-20s %-14s %-9s %-9s %-10s %-12s %s\n", name, r.ID, r.Project, r.Agent, isolation, r.Mode, r.Status, r.Worktree)
+			status := r.Status.Label()
+			if r.StatusDetail != "" {
+				status += " (" + r.StatusDetail + ")"
+			}
+			fmt.Printf("%-16s %-20s %-14s %-9s %-9s %-10s %-32s %s\n", name, r.ID, r.Project, r.Agent, isolation, r.Mode, status, r.Worktree)
 		}
 		return nil
 	case "show":
@@ -1135,14 +1139,25 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		if err := need(f.Args(), 1); err != nil {
 			return err
 		}
-		r, err := a.Store.LoadRun(f.Args()[0])
+		r, err := a.GetRun(ctx, f.Args()[0])
 		if err != nil {
 			return err
 		}
 		if *jsonOut {
 			return app.PrintJSON(r)
 		}
-		fmt.Printf("%+v\n", r)
+		fmt.Printf("id:       %s\n", r.ID)
+		fmt.Printf("name:     %s\n", r.Name)
+		fmt.Printf("project:  %s\n", r.Project)
+		fmt.Printf("agent:    %s\n", r.Agent)
+		fmt.Printf("status:   %s\n", r.Status.Label())
+		if r.StatusDetail != "" {
+			fmt.Printf("detail:   %s\n", r.StatusDetail)
+		}
+		fmt.Printf("worktree: %s\n", r.Worktree)
+		fmt.Printf("branch:   %s\n", r.Branch)
+		fmt.Printf("sandbox:  %s\n", r.Sandbox)
+		fmt.Printf("synced:   %t\n", r.Synced)
 		return nil
 	case "attach":
 		if err := need(args[1:], 1); err != nil {

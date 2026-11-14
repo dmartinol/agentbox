@@ -29,7 +29,8 @@ export const runs: Run[] = [
     mode: 'gateway',
     model: 'model-x',
     approval: 'unattended',
-    status: 'running',
+    status: 'working',
+    status_detail: 'running a tool',
     synced: true,
     policy: '/policies/run-active.yaml',
     mcp: 'codex-work',
@@ -75,7 +76,7 @@ export const runs: Run[] = [
     mode: 'gateway',
     model: 'model-z',
     approval: 'prompted',
-    status: 'finished',
+    status: 'completed',
     synced: true,
     policy: '/policies/run-finished.yaml'
   }
