@@ -470,9 +470,10 @@ func imageCmd(ctx context.Context, a *app.App, args []string) error {
 			return err
 		}
 		if len(removed) == 0 {
-			fmt.Println("No unused AgentBox images to remove.")
+			fmt.Println("No unused or dangling AgentBox images to remove.")
 			return nil
 		}
+		fmt.Printf("Removed %d AgentBox image(s):\n", len(removed))
 		for _, reference := range removed {
 			fmt.Println(reference)
 		}

@@ -87,11 +87,6 @@ func ParsePolicy(b []byte) (Policy, error) {
 }
 
 // DefaultPolicy returns the baseline policy for an agent sandbox.
-//
-// /var/tmp is writable because the images ship it (mode 1777) and SQLite, which
-// backs the Codex, Claude, and OpenCode state stores, prefers it over /tmp when
-// TMPDIR is unset. Denying it surfaces as SQLITE_CANTOPEN (code 14), which
-// Codex reports as a damaged local database instead of a permission problem.
 func DefaultPolicy() []byte {
 	return []byte("version: 1\nfilesystem_policy:\n  include_workdir: true\n  read_only:\n    - /usr\n    - /lib\n    - /etc\n    - /proc\n    - /dev/urandom\n  read_write:\n    - /workspace\n    - /tmp\n    - /var/tmp\n    - /dev/null\n    - /dev/pts\n    - /dev/ptmx\nlandlock:\n  compatibility: hard_requirement\nprocess:\n  run_as_user: sandbox\n  run_as_group: sandbox\nnetwork_policies: {}\n")
 }

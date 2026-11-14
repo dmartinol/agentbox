@@ -1117,8 +1117,10 @@ func (s *Server) deleteImage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.app.ImageRemove(r.Context(), request.Reference); err != nil {
 		status := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "in use by") || strings.Contains(err.Error(), "not found") {
+		if strings.Contains(err.Error(), "in use by") {
 			status = http.StatusConflict
+		} else if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
 		}
 		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return

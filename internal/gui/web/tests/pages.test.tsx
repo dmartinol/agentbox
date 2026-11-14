@@ -728,7 +728,7 @@ describe('image lifecycle', () => {
     const user = await openImages();
     await user.click(await screen.findByRole('button', { name: 'Refresh all agents' }));
     expect(await screen.findAllByText('Refresh all agents')).toHaveLength(2);
-    expect(await screen.findAllByText('Running').then((elements) => elements.length)).toBeGreaterThan(0);
+    expect(await screen.findAllByText(/running/i).then((elements) => elements.length)).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
     expect(await screen.findByText(/Refreshing codex to 1.0.0/i)).toBeInTheDocument();
     expect(await screen.findByText(/Built image: localhost\/openshell:codex-1.0.0-r4/i)).toBeInTheDocument();

@@ -250,12 +250,13 @@ func TestImageRemoveAndPruneRespectProfileAndActiveRunHolders(t *testing.T) {
 	if err := store.SaveProfile(profile); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SaveRun(Run{ID: "run-active", Name: "active-run", Image: runImage, Status: "running"}); err != nil {
+	if err := store.SaveRun(Run{ID: "run-active", Name: "active-run", Image: runImage, Status: StatusWorking}); err != nil {
 		t.Fatal(err)
 	}
 	terminalImage := "localhost/openshell:opencode-1.0.0-r4"
-	for _, status := range []string{"finished", "stopped", "completed", "exited", "failed", "canceled"} {
-		if err := store.SaveRun(Run{ID: "run-" + status, Name: "run-" + status, Image: terminalImage, Status: status}); err != nil {
+	for _, status := range []RunStatus{"finished", "stopped", "completed", "exited", "failed", "canceled"} {
+		label := string(status)
+		if err := store.SaveRun(Run{ID: "run-" + label, Name: "run-" + label, Image: terminalImage, Status: status}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -264,6 +265,9 @@ func TestImageRemoveAndPruneRespectProfileAndActiveRunHolders(t *testing.T) {
 		{"Id":"image-profile","Names":["` + profileImage + `"],"Digest":"sha256:profile","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"1.0.0","agentbox.recipe":"4"}},
 		{"Id":"image-run","Names":["` + runImage + `"],"Digest":"sha256:run","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"claude","agentbox.version":"1.0.0","agentbox.recipe":"4"}}
 		,{"Id":"image-terminal","Names":["` + terminalImage + `"],"Digest":"sha256:terminal","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"opencode","agentbox.version":"1.0.0","agentbox.recipe":"4"}}
+			,{"Id":"image-dangling","Names":[],"Labels":{"agentbox":"true","agentbox.agent":"opencode","agentbox.version":"2.1.0","agentbox.recipe":"4"}}
+			,{"Id":"image-legacy-dangling","Names":[],"Labels":{"ai-sandbox.spike":"true","ai-sandbox.agent":"opencode","ai-sandbox.version":"2.0.0","ai-sandbox.recipe":"3"}}
+			,{"Id":"image-unlabeled-dangling","Names":[],"Labels":{}}
 	]`)
 	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
 		if call.name == "podman" && len(call.args) > 0 && call.args[0] == "images" {
@@ -276,7 +280,7 @@ func TestImageRemoveAndPruneRespectProfileAndActiveRunHolders(t *testing.T) {
 	if err := app.ImageRemove(context.Background(), profileImage); err == nil || !strings.Contains(err.Error(), "profile unit-profile") {
 		t.Fatalf("profile-held removal error = %v", err)
 	}
-	if err := app.ImageRemove(context.Background(), runImage); err == nil || !strings.Contains(err.Error(), "run active-run (running)") {
+	if err := app.ImageRemove(context.Background(), runImage); err == nil || !strings.Contains(err.Error(), "run active-run (working)") {
 		t.Fatalf("run-held removal error = %v", err)
 	}
 	usage, err := app.ImageUsage()
@@ -294,10 +298,10 @@ func TestImageRemoveAndPruneRespectProfileAndActiveRunHolders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(removed) != 2 {
-		t.Fatalf("pruned = %#v; want exactly two images", removed)
+	if len(removed) != 3 {
+		t.Fatalf("pruned = %#v; want two named images and one dangling image", removed)
 	}
-	for _, reference := range []string{freeImage, terminalImage} {
+	for _, reference := range []string{freeImage, terminalImage, "image-dangling"} {
 		found := false
 		for _, got := range removed {
 			if got == reference {
@@ -311,5 +315,43 @@ func TestImageRemoveAndPruneRespectProfileAndActiveRunHolders(t *testing.T) {
 	}
 	if err := app.ImageRemove(context.Background(), freeImage); err != nil {
 		t.Fatalf("unreferenced removal failed: %v", err)
+	}
+	for _, call := range runner.outputs {
+		if call.name == "podman" && len(call.args) >= 3 && call.args[0] == "image" && call.args[1] == "rm" && call.args[2] == "image-dangling" {
+			return
+		}
+	}
+	t.Fatalf("dangling AgentBox image was not removed by image ID: %#v", runner.outputs)
+}
+
+func TestImageRemoveProtectsEveryNamedAlias(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	profile := testProfile("codex", "standard", "prompted")
+	profile.Image = "quay.io/team/openshell:codex-1.0.0-r4"
+	if err := store.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`[
+		{"Id":"image-alias","Names":["localhost/openshell:codex-1.0.0-r4","quay.io/team/openshell:codex-1.0.0-r4"],"Digest":"sha256:alias","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"1.0.0","agentbox.recipe":"4"}}
+	]`)
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if call.name == "podman" && len(call.args) > 0 && call.args[0] == "images" {
+			return raw, nil
+		}
+		return nil, nil
+	}}
+	app := App{Store: store, Runner: runner}
+
+	err := app.ImageRemove(context.Background(), "localhost/openshell:codex-1.0.0-r4")
+	if err == nil || !strings.Contains(err.Error(), "profile unit-profile") {
+		t.Fatalf("alias-held removal error = %v", err)
+	}
+	for _, call := range runner.outputs {
+		if call.name == "podman" && len(call.args) > 1 && call.args[0] == "image" && call.args[1] == "rm" {
+			t.Fatalf("held image was removed: %#v", call)
+		}
 	}
 }

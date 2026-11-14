@@ -249,8 +249,9 @@ Recipe `r4` images include a fixed local-work toolset: `git`, `tmux`,
 `procps`. Rebuild at newer harness versions with
 **Refresh all agents** in Setup → Images. Remove one image with
 `./agentbox image rm REF`, or remove every image that no profile and no
-non-terminal run references with `./agentbox image prune`. Neither command
-rewrites profiles, and both refuse images that are still in use.
+non-terminal run references with `./agentbox image prune`; prune also removes
+superseded dangling images labeled `agentbox=true` by image ID. Neither command
+rewrites profiles, and both refuse named images that are still in use.
 
 AgentBox derives the remote reference from the local image metadata and OCI labels. In **Images → Push**, the local image is selected from a dropdown and the remote reference is derived read-only from the configured registry.
 

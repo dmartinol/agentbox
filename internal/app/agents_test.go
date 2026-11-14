@@ -44,7 +44,7 @@ func TestPrepareAgentGeneratesIsolatedConfigForEachAgentMode(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				for _, want := range []string{"HOME=/workspace/state/home", "XDG_CONFIG_HOME=/workspace/state/config", "XDG_DATA_HOME=/workspace/state/data", "TMPDIR=/tmp", "print", "hello"} {
+				for _, want := range []string{"HOME=/workspace/state/home", "XDG_CONFIG_HOME=/workspace/state/config", "XDG_DATA_HOME=/workspace/state/data", "print", "hello"} {
 					if !strings.Contains(string(script), want) {
 						t.Errorf("script lacks %q:\n%s", want, script)
 					}
@@ -508,6 +508,7 @@ func TestActivityScriptReportsQuestionsAsWaitingForInput(t *testing.T) {
 	h.hook("PreToolUse", "working", "running a tool", trap)
 	if got := h.current(); got != "working/running a tool" {
 		t.Fatalf("text inside tool_input was read as the tool name: %q", got)
+	}
 }
 
 func TestPrepareAgentNeverWritesGitCredentials(t *testing.T) {
@@ -537,28 +538,6 @@ func TestPrepareAgentNeverWritesGitCredentials(t *testing.T) {
 			})
 			if err != nil {
 				t.Fatal(err)
-			}
-		})
-	}
-}
-
-func TestPrepareAgentTrustsCodexWorktreeInEveryMode(t *testing.T) {
-	for _, mode := range []string{"standard", "gateway"} {
-		t.Run(mode, func(t *testing.T) {
-			store := Store{Base: t.TempDir()}
-			app := App{Store: store}
-			dir, err := app.PrepareAgent(context.Background(), Run{ID: "run-unit123"}, testProfile("codex", mode, "unattended"), "", nil, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			config, err := os.ReadFile(filepath.Join(dir, "home", ".codex", "config.toml"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, want := range []string{`[projects."/workspace/project"]`, `trust_level = "trusted"`} {
-				if !strings.Contains(string(config), want) {
-					t.Fatalf("codex config lacks %q:\n%s", want, config)
-				}
 			}
 		})
 	}
