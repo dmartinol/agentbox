@@ -1,4 +1,4 @@
-import type { MCPTools, Overview, Run, SkillsEntry } from '../src/types';
+import type { MCPTools, Overview, Run, SkillStatus, SkillsEntry } from '../src/types';
 
 export const mcps: MCPTools[] = [
   { version: 1, name: 'codex-work', agent: 'codex', servers: ['github', 'sentry'] },
@@ -8,6 +8,14 @@ export const mcps: MCPTools[] = [
 export const skillEntries: SkillsEntry[] = [
   { version: 1, name: 'codex-skills', agent: 'codex', skills: ['orca-cli'], plugins: ['browser@openai-bundled'] },
   { version: 1, name: 'claude-skills', agent: 'claude', skills: ['find-skills'], plugins: [] }
+];
+
+export const skillStatus: SkillStatus[] = [
+  { name: 'agentbox-planner', kind: 'role', version: '0.2.0', installations: [
+    { target: 'claude', path: '/home/.claude/agents/agentbox-planner.md', present: true, version: '0.2.0', state: 'current' },
+    { target: 'codex', path: '/home/.codex/agents/agentbox-planner.toml', present: true, version: '0.2.0', state: 'stale', detail: 'run `agentbox skills update`' },
+    { target: 'opencode', path: '/home/.config/opencode/agents/agentbox-planner.md', present: false, state: 'missing' }
+  ] }
 ];
 
 export const runs: Run[] = [

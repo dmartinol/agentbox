@@ -100,13 +100,15 @@ tree: one canonical copy of each skill under `~/.agents/skills` (or
 orchestrator's `issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`,
 and `verify-task.md` beside `SKILL.md`, relative links for Claude and OpenCode, a
 `.agentbox-managed.json` manifest recording the path and hash of every file
-AgentBox owns, and timestamped backups under
+AgentBox owns, and four global harness agent roles under
+`~/.codex/agents`, `~/.claude/agents`, and `~/.config/opencode/agents`.
+Timestamped backups live under
 `~/.agents/.agentbox-skill-backups` (or `<dir>/.agentbox-skill-backups` for a
 `--dir` install). Nothing is written to `~/.codex/skills`, because Codex reads
 `~/.agents/skills` directly and would list every skill twice. See the
 [skills command page]({{ '/cli-reference/skills/' | relative_url }}) for the
-layout, per-file template states, the `npx skills` relationship, and the
-update and remove lifecycle.
+layout, per-file template states, agent role rendering and states, the
+`npx skills` relationship, and the update and remove lifecycle.
 
 ## Related guides
 

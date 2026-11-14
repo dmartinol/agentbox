@@ -23,6 +23,23 @@ const manifestVersion = 2
 type Manifest struct {
 	Version int                      `json:"version"`
 	Skills  map[string]ManifestSkill `json:"skills"`
+	// Roles records the agent-role files AgentBox owns. It is additive: a
+	// manifest written before roles existed loads with an empty map and needs
+	// no migration. Roles are global-only and carry no links.
+	Roles map[string]ManifestRole `json:"roles,omitempty"`
+}
+
+// ManifestRole records one managed role: the binary version that wrote it and
+// the installed file per harness, with its path and sha256.
+type ManifestRole struct {
+	Version   string                      `json:"version"`
+	Harnesses map[string]ManifestRoleFile `json:"harnesses"`
+}
+
+// ManifestRoleFile records one harness-native rendering of a role.
+type ManifestRoleFile struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
 }
 
 // ManifestSkill records one managed skill: the binary version that wrote it,
@@ -94,7 +111,7 @@ func manifestExists(root string) bool {
 // SKILL.md hash becomes the file entry, so an existing install is recognised
 // as managed and gains the newly shipped templates on update.
 func loadManifest(root string) *Manifest {
-	m := &Manifest{Version: manifestVersion, Skills: map[string]ManifestSkill{}}
+	m := &Manifest{Version: manifestVersion, Skills: map[string]ManifestSkill{}, Roles: map[string]ManifestRole{}}
 	body, err := os.ReadFile(manifestPath(root))
 	if err != nil {
 		return m
@@ -139,6 +156,15 @@ func loadManifest(root string) *Manifest {
 		if parsed.Skills == nil {
 			parsed.Skills = map[string]ManifestSkill{}
 		}
+		if parsed.Roles == nil {
+			parsed.Roles = map[string]ManifestRole{}
+		}
+		for name, record := range parsed.Roles {
+			if record.Harnesses == nil {
+				record.Harnesses = map[string]ManifestRoleFile{}
+			}
+			parsed.Roles[name] = record
+		}
 		for name, record := range parsed.Skills {
 			record.Links = nonNil(record.Links)
 			if record.Path == "" {
@@ -168,12 +194,21 @@ func loadManifest(root string) *Manifest {
 // saveManifest atomically writes the manifest of a canonical root.
 func saveManifest(root string, m *Manifest) error {
 	m.Version = manifestVersion
+	if m.Roles == nil {
+		m.Roles = map[string]ManifestRole{}
+	}
 	for name, record := range m.Skills {
 		record.Links = nonNil(record.Links)
 		if record.Files == nil {
 			record.Files = []ManifestEntry{}
 		}
 		m.Skills[name] = record
+	}
+	for name, record := range m.Roles {
+		if record.Harnesses == nil {
+			record.Harnesses = map[string]ManifestRoleFile{}
+		}
+		m.Roles[name] = record
 	}
 	body, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -195,6 +230,12 @@ func saveManifest(root string, m *Manifest) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), manifestPath(root))
+}
+
+// File returns the record of one managed role file of one harness.
+func (r ManifestRole) File(harness string) (ManifestRoleFile, bool) {
+	file, ok := r.Harnesses[harness]
+	return file, ok
 }
 
 // File returns the record of one managed file of the skill.

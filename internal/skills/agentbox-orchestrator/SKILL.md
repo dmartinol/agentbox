@@ -302,6 +302,11 @@ work runs inline.
    Ask once for the orchestrator and per-stage selections, confirm inherited
    defaults, create the `workflow_id`, and write the state record. Accept to
    `ready`, reject with a comment and close, or set `blocked`.
+   - Confirm every role in the stage table is installed for each selected
+     harness (`agentbox skills list` reports `current` or `stale`). A missing
+     role sets `blocked` with "restart the harness session after
+     `agentbox skills install`"; harnesses scan agent directories only at
+     session start.
 2. **Plan.** Dispatch a plan worker in its own worktree to write measurable
    acceptance criteria and the gate list — the commands that must pass.
    Normalize the issue with `issue.md`. Define the branch
@@ -451,13 +456,42 @@ fresh worktree for each command, so neither stage sees uncommitted state.
 Record the same full SHA in each stage entry and remove each worktree after
 the stage returns.
 
-### Harness worker
+### Harness agent roles
 
-Use the current harness's subagent for a stage that needs a local worker. A
-harness subagent is a host process sharing host credentials, so it may commit,
-push, and open the pull request itself. Supply a model override where the
-harness supports one; otherwise record the declared model and set `blocked`
-when the requested model cannot be honoured.
+`agentbox skills install` also writes one harness agent definition per
+non-orchestrator stage. Dispatch the named role instead of pasting the stage
+contract into an ad-hoc prompt; the role carries the tool limits and stage
+rules for its harness.
+
+| Stage | Role |
+| --- | --- |
+| plan | `agentbox-planner` |
+| implement | `agentbox-implementer` |
+| verify | `agentbox-verifier` |
+| review | `agentbox-reviewer` |
+
+| Harness | Agent file | Invocation |
+| --- | --- | --- |
+| Codex | `~/.codex/agents/<role>.toml` | select the role as the subagent, or pass the role name in the spawn request |
+| Claude Code | `~/.claude/agents/<role>.md` | pass `<role>` as the subagent type |
+| OpenCode | `~/.config/opencode/agents/<role>.md` | select the subagent `<role>` |
+
+A harness subagent is a host process sharing host credentials, so it may
+commit, push, and open the pull request itself. Supply a model override where
+the harness supports one; otherwise record the declared model and set
+`blocked` when the requested model cannot be honoured.
+
+Codex agent files cannot narrow sandbox or approval capabilities, so the
+read-only verifier and reviewer rules are instruction text there, not
+enforced capability. Treat them as prompt-level restrictions.
+
+When the recorded stage selection differs from the role's installed model or
+effort, render a copy for that worker instead of editing the installed file:
+
+```sh
+agentbox skills roles render agentbox-reviewer --harness codex \
+  --model MODEL --effort EFFORT > /tmp/ISSUE-reviewer.toml
+```
 
 For verify and review, create one fresh detached worktree per stage at the
 full pull request head SHA and launch the worker with that worktree as its

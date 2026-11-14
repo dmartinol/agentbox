@@ -127,11 +127,20 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &statuses); err != nil {
 		t.Fatalf("skills list output is not JSON: %s (%v)", output, err)
 	}
-	if len(statuses) != len(skills.Names()) {
+	if len(statuses) != len(skills.Names())+len(skills.RoleNames()) {
 		t.Fatalf("statuses = %d", len(statuses))
 	}
 	if statuses[0].Installations[0].State != "current" {
 		t.Fatalf("installation = %+v", statuses[0].Installations[0])
+	}
+	roles := 0
+	for _, status := range statuses {
+		if status.Kind == "role" {
+			roles++
+		}
+	}
+	if roles != len(skills.RoleNames()) {
+		t.Fatalf("role statuses = %d", roles)
 	}
 	for _, status := range statuses {
 		if status.Name != "agentbox-orchestrator" {
@@ -155,6 +164,9 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 	}
 	if !strings.Contains(output, "file") || !strings.Contains(output, "issue.md") {
 		t.Fatalf("text list does not report templates: %s", output)
+	}
+	if !strings.Contains(output, "agentbox-planner") || !strings.Contains(output, "(role)") {
+		t.Fatalf("text list does not report roles: %s", output)
 	}
 
 	output, err = captureStdout(t, func() error {
@@ -648,5 +660,145 @@ func TestSkillsCommandsAndAgentStartFlag(t *testing.T) {
 	}
 	if err := dispatch(context.Background(), a, []string{"skill", "delete", "unit-skills"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestSkillsRolesRenderAndShow covers the role surface of the CLI: the
+// canonical definition is shown, and render emits a harness file on stdout
+// without touching the installed copy.
+func TestSkillsRolesRenderAndShow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, dir := range []string{".claude", ".codex", filepath.Join(".config", "opencode")} {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	if err := dispatch(context.Background(), a, []string{"skills", "install"}); err != nil {
+		t.Fatal(err)
+	}
+	installed := filepath.Join(home, ".codex", "agents", "agentbox-reviewer.toml")
+	before, err := os.ReadFile(installed)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "show", "agentbox-planner"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "name: agentbox-planner") || !strings.Contains(output, "write: false") {
+		t.Fatalf("shown role lacks its canonical definition: %s", output[:120])
+	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "roles", "render", "agentbox-reviewer", "--harness", "codex", "--model", "override-model", "--effort", "high"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, `model = "override-model"`) || !strings.Contains(output, `model_reasoning_effort = "high"`) {
+		t.Fatalf("rendered role lacks the override: %s", output)
+	}
+	after, err := os.ReadFile(installed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("roles render modified the installed role")
+	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "roles", "render", "agentbox-implementer", "--harness", "claude"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "tools:") || !strings.Contains(output, "Edit, Write") {
+		t.Fatalf("writable claude role lacks write tools: %s", output)
+	}
+}
+
+// TestSkillsInstallSkipRoles installs only the usage skills.
+func TestSkillsInstallSkipRoles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, dir := range []string{".claude", ".codex", filepath.Join(".config", "opencode")} {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	if err := dispatch(context.Background(), a, []string{"skills", "install", "--skip-roles"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "agentbox-cli", "SKILL.md")); err != nil {
+		t.Fatalf("skills were not installed: %v", err)
+	}
+	for _, dir := range []string{filepath.Join(".claude", "agents"), filepath.Join(".codex", "agents")} {
+		if entries, err := os.ReadDir(filepath.Join(home, dir)); err == nil && len(entries) > 0 {
+			t.Fatalf("--skip-roles wrote agent files: %v", entries)
+		}
+	}
+}
+
+// TestSkillsLocalReportsGlobalRoles keeps a project-scoped install from
+// writing global agent files and reports why.
+func TestSkillsLocalReportsGlobalRoles(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "install", "--local"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "agent roles are global-only") {
+		t.Fatalf("local install did not report skipped roles: %s", output)
+	}
+	if _, err := os.Stat(filepath.Join(project, ".claude", "agents")); !os.IsNotExist(err) {
+		t.Fatalf("local install wrote agent files: %v", err)
+	}
+}
+
+// TestSkillsInstallJSONReportsOneRoleRowPerHarness covers the install report
+// contract: one row per role and harness, in text and JSON.
+func TestSkillsInstallJSONReportsOneRoleRowPerHarness(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, dir := range []string{".claude", ".codex", filepath.Join(".config", "opencode")} {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "install", "--all", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var results []skills.Result
+	if err := json.Unmarshal([]byte(output), &results); err != nil {
+		t.Fatalf("install output is not JSON: %v", err)
+	}
+	count := 0
+	for _, result := range results {
+		if skills.ValidRoleName(result.Skill) {
+			count++
+			if result.Target != "claude" && result.Target != "codex" && result.Target != "opencode" {
+				t.Fatalf("role row target = %+v", result)
+			}
+			if result.Action != "installed" {
+				t.Fatalf("role row action = %+v", result)
+			}
+		}
+	}
+	if want := len(skills.RoleNames()) * 3; count != want {
+		t.Fatalf("role rows = %d, want %d", count, want)
 	}
 }

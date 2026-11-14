@@ -125,6 +125,30 @@ export interface PluginInfo {
   skills: number;
 }
 
+export interface SkillInstallation {
+  target: string;
+  path: string;
+  present: boolean;
+  version?: string;
+  state: string;
+  detail?: string;
+}
+
+export interface SkillFileStatus {
+  name: string;
+  path: string;
+  state: string;
+  detail?: string;
+}
+
+export interface SkillStatus {
+  name: string;
+  kind?: 'skill' | 'role';
+  version: string;
+  installations: SkillInstallation[];
+  files?: SkillFileStatus[];
+}
+
 export interface AvailableSkills {
   agent: string;
   skills: SkillInfo[];

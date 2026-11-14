@@ -3,6 +3,7 @@ package skills
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -629,4 +630,42 @@ func TestOrchestratorSkillInstallsAndLists(t *testing.T) {
 	if _, err := Embedded("agentbox-orchestrator-extra", "1.0.0"); err == nil {
 		t.Fatal("accepted a lookalike skill name")
 	}
+}
+
+// TestOrchestratorSkillUsesShippedRoles keeps the skill and the embedded role
+// set in sync: the stage table names only roles this binary ships, and every
+// shipped role is dispatched by the skill.
+func TestOrchestratorSkillUsesShippedRoles(t *testing.T) {
+	body := collapsed(t)
+	for _, role := range RoleNames() {
+		if !strings.Contains(body, role) {
+			t.Fatalf("skill does not name shipped role %q", role)
+		}
+	}
+	referenced := regexp.MustCompile(`agentbox-(?:planner|implementer|verifier|reviewer)[a-z-]*`).FindAllString(body, -1)
+	if len(referenced) == 0 {
+		t.Fatal("skill does not reference any agent role")
+	}
+	for _, name := range referenced {
+		if !ValidRoleName(name) {
+			t.Fatalf("skill references unknown role %q", name)
+		}
+	}
+	wantAll(t, body,
+		"~/.codex/agents/<role>.toml",
+		"~/.claude/agents/<role>.md",
+		"~/.config/opencode/agents/<role>.md",
+	)
+}
+
+// TestOrchestratorSkillChecksRoleAvailabilityAtTriage covers the blocked
+// outcome for a missing role: harnesses scan agent directories only at session
+// start, so the recovery is a session restart after installing.
+func TestOrchestratorSkillChecksRoleAvailabilityAtTriage(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"agentbox skills list",
+		"restart the harness session after `agentbox skills install`",
+		"harness agent definition",
+	)
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
-import type { AvailableSkills, SkillsEntry } from '../../types';
+import type { AvailableSkills, SkillStatus, SkillsEntry } from '../../types';
 import { Alert } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
 import { EmptyState } from '../../components/ui/empty';
@@ -14,6 +14,7 @@ const emptyAvailable: AvailableSkills = { agent: 'claude', skills: [], plugins: 
 
 export function SkillsPanel() {
   const [entries, setEntries] = useState<SkillsEntry[]>([]);
+  const [status, setStatus] = useState<SkillStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [notice, setNotice] = useState('');
@@ -26,7 +27,9 @@ export function SkillsPanel() {
 
   const load = async () => {
     try {
-      setEntries((await api.skills()) ?? []);
+      const [nextEntries, nextStatus] = await Promise.all([api.skills(), api.skillsStatus()]);
+      setEntries(nextEntries ?? []);
+      setStatus(nextStatus ?? []);
       setError(null);
     } catch (err) {
       setError(err as Error);
@@ -99,6 +102,8 @@ export function SkillsPanel() {
     }
   };
 
+  const roles = status.filter((entry) => entry.kind === 'role');
+
   return (
     <div className="space-y-3">
       <div className="flex justify-end"><Button size="sm" onClick={() => void openCreate()}>Create skills entry</Button></div>
@@ -124,6 +129,29 @@ export function SkillsPanel() {
           </TBody>
         </Table>
       )}
+      <div className="space-y-2 rounded-lg border border-border bg-surface/40 p-2.5">
+        <div>
+          <div className="text-sm font-medium text-foreground">Agent roles</div>
+          <div className="text-xs text-muted">Installed globally by <code>agentbox skills install</code> for the orchestrator stages. A harness scans these directories at session start, so restart the session after installing.</div>
+        </div>
+        {roles.length === 0 ? (
+          <EmptyState title="No agent roles reported" description="Run agentbox skills install to write the planner, implementer, verifier, and reviewer roles." />
+        ) : (
+          <Table>
+            <THead><TR><TH className="w-[28%]">Role</TH><TH className="w-[14%]">Harness</TH><TH className="w-[14%]">State</TH><TH>Path</TH></TR></THead>
+            <TBody>
+              {roles.flatMap((role) => role.installations.map((installation) => (
+                <TR key={`${role.name}-${installation.target}`}>
+                  <TD className="truncate font-medium">{role.name}</TD>
+                  <TD className="truncate">{installation.target}</TD>
+                  <TD className="truncate" title={installation.detail}>{installation.state}</TD>
+                  <TD className="truncate text-muted" title={installation.path}>{installation.path}</TD>
+                </TR>
+              )))}
+            </TBody>
+          </Table>
+        )}
+      </div>
       <div className="rounded-lg border border-border bg-surface/40 p-2.5 text-sm text-muted">
         <div className="mb-1 font-medium text-foreground">How skills work</div>
         <div>Entries select host skills and whole plugin skill bundles for one agent. At start, selected SKILL.md folders are copied into the agent's user skills directory inside the sandbox. Plugins contribute only their skills: plugin scripts, apps, hooks, commands, and MCP servers are not delivered. Missing skills or plugins warn and the run still starts.</div>

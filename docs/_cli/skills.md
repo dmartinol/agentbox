@@ -10,6 +10,7 @@ subcommands:
   - remove
   - list
   - show
+  - roles render
 ---
 
 `agentbox skills` installs AgentBox's own usage skills for host agents and
@@ -22,13 +23,24 @@ This command is separate from [`agentbox skill`]({{ '/cli-reference/skill/' | re
 which selects host skills and plugin bundles to deliver **into** an agent's
 sandbox. `agentbox skills` documents how to drive AgentBox itself.
 
-Three skills are shipped:
+Three usage skills and four harness agent roles are shipped:
 
 | Skill | Covers |
 | --- | --- |
 | `agentbox-cli` | Starting, inspecting, attaching to, syncing, and deleting runs; project, profile, and policy basics; the blocked-host recovery path. |
 | `agentbox-api` | The local HTTP API at `http://127.0.0.1:8080/api/...` with `curl`, plus a map of the Fleet and Setup surfaces. |
 | `agentbox-orchestrator` | The issue-to-PR orchestrator flow: triage, a selected worker per stage with the agent, model, and effort it actually applied (`not-applicable` for AgentBox workers), isolated verify and review worktrees detached at the PR head, a capability-based forge matrix, provenance-marked comments and PRs, a severity-gated finding ledger with delta re-review and a bounded cycle cap, gated merge, and close, with a GitHub tracker adapter. It ships `issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`, and `verify-task.md` templates. |
+
+The agent roles are the orchestrator's non-orchestrator stages. They are
+rendered into each harness's native agent format from one canonical
+definition:
+
+| Role | Stage | Can write | Covers |
+| --- | --- | --- | --- |
+| `agentbox-planner` | plan | no | Acceptance criteria, gate list, branch and implementer task spec. |
+| `agentbox-implementer` | implement | yes | Scoped implementation, tests, declared gates, commit and evidence. |
+| `agentbox-verifier` | verify | no | Gate rerun at the pull request head; returns only `gates` and `observations`. |
+| `agentbox-reviewer` | review | no | Delta-scoped review against the severity bar; returns the verdict artifact. |
 
 ## Layout: one canonical copy plus links
 {: #skills-layout }
@@ -43,6 +55,13 @@ ship several files, installed together as siblings:
 | OpenCode link | `~/.config/opencode/skills/<name>` → `../../../.agents/skills/<name>` (or `./.opencode/skills/<name>` with `--local`) |
 | Manifest | `~/.agents/skills/.agentbox-managed.json` (or `./.agents/skills/.agentbox-managed.json`) |
 | Backups | `~/.agents/.agentbox-skill-backups/<timestamp>/` (or `./.agents/.agentbox-skill-backups/<timestamp>/`); `--dir` installs back up under `<dir>/.agentbox-skill-backups/<timestamp>/` |
+| Codex role | `~/.codex/agents/<role>.toml` |
+| Claude role | `~/.claude/agents/<role>.md` |
+| OpenCode role | `~/.config/opencode/agents/<role>.md` |
+
+Roles are global-only. They are native agent definitions discovered at
+session start, so `--local` and `--dir` report them as skipped and write no
+agent file.
 
 Claude and OpenCode do not read the shared `.agents/skills` root, so they get
 a relative symlink to the canonical copy. **Nothing is ever written into
@@ -52,7 +71,10 @@ Codex only enables reporting and the legacy migration described below.
 
 The manifest records, per skill, the version, the canonical `SKILL.md` path,
 the links created, and one entry per managed file with its installed relative
-path, absolute path, and rendered `sha256`. Version 2 manifests use that
+path, absolute path, and rendered `sha256`. It also carries a `roles` section
+with the path and `sha256` of each harness rendering. The section is additive,
+so a manifest written before roles existed loads with no role records and
+needs no migration. Version 2 manifests use that
 per-file shape; a version 1 manifest is migrated in place on the next
 `install` or `update`, keeping the recorded `SKILL.md` hash so an existing
 install is recognised rather than treated as modified. `update` and `remove`
@@ -83,7 +105,7 @@ The canonical layout is the shared `.agents/skills` convention that
 Install the embedded skills and create the links for the selected harnesses.
 
 ```text
-agentbox skills install [--agent a,b|--target T] [--all] [--local] [--dir PATH] [--force] [--dry-run] [--json]
+agentbox skills install [--agent a,b|--target T] [--all] [--local] [--dir PATH] [--skip-roles] [--force] [--dry-run] [--json]
 ```
 
 | Flag | Default | Description |
@@ -94,6 +116,7 @@ agentbox skills install [--agent a,b|--target T] [--all] [--local] [--dir PATH] 
 | `--local` | `false` | Put the canonical root at `./.agents/skills` for the current project and link into `./.claude/skills` and `./.opencode/skills`. |
 | `--dir` | — | Escape hatch: write plain copies of every shipped skill file under this directory with no links, manifest, or lifecycle. Refused inside `~/.codex/skills`. With `--force`, a replaced file is first moved to `<dir>/.agentbox-skill-backups/<timestamp>/`; an unreadable path is refused and left in place. |
 | `--force` | `false` | Replace modified copies, unreadable managed files, and foreign destinations, backing up the previous content first. |
+| `--skip-roles` | `false` | Install only the usage skills; leave the harness agent roles untouched. |
 | `--dry-run` | `false` | Report the planned changes without touching the filesystem. |
 | `--json` | `false` | Print the result list as JSON. |
 
@@ -117,6 +140,15 @@ symlink occupies the canonical skill directory itself: without `--force` it is
 refused, and with `--force` it is backed up and the directory is recreated. A
 `--dir` install refuses an unreadable path without touching it.
 
+The same invocation writes the four agent roles for every selected harness in
+its native format: Codex TOML with `name`, `description`, and
+`developer_instructions`; Claude and OpenCode Markdown frontmatter. A role with
+`write: false` omits `Edit` and `Write` from the Claude `tools` list and denies
+the `edit` action for OpenCode. Codex cannot narrow write capabilities in an
+agent file, so the rule is rendered as instruction text and the result says
+so; do not read it as enforcement. `--local` and `--dir` report every role as
+`skipped` because agent roles are global-only.
+
 On the first `install` or `update`, AgentBox also migrates copies that older
 releases wrote into `~/.codex/skills/agentbox-*`: directories containing
 nothing but a byte-identical `SKILL.md` are removed; anything else is
@@ -130,6 +162,7 @@ agentbox skills install --agent claude,opencode
 agentbox skills install --target codex        # deprecated; canonical copy + Codex reporting
 agentbox skills install --local
 agentbox skills install --dir ./project/.skills
+agentbox skills install --skip-roles
 agentbox skills install --force
 ```
 
@@ -140,7 +173,7 @@ Refresh the managed copies after upgrading AgentBox, and recreate their
 links.
 
 ```text
-agentbox skills update [--agent a,b] [--all] [--local] [--force] [--dry-run] [--json]
+agentbox skills update [--agent a,b] [--all] [--local] [--skip-roles] [--force] [--dry-run] [--json]
 ```
 
 | Flag | Default | Description |
@@ -148,6 +181,7 @@ agentbox skills update [--agent a,b] [--all] [--local] [--force] [--dry-run] [--
 | `--agent` | detected | Comma-separated harnesses to relink for. |
 | `--all` | `false` | Relink for every harness regardless of detection. |
 | `--local` | `false` | Update the project-scoped `./.agents/skills` root. |
+| `--skip-roles` | `false` | Update only the usage skills; leave the harness agent roles untouched. |
 | `--force` | `false` | Replace modified copies after a backup. |
 | `--dry-run` | `false` | Report the planned changes without touching the filesystem. |
 | `--json` | `false` | Print the result list as JSON. |
@@ -165,7 +199,8 @@ gone, so use `agentbox skills install --force`. With `--force`, a symlink at
 the canonical skill path is moved into the backup as the link entry itself;
 its target is never changed. Dangling harness links are repaired without
 `--force`, and the legacy `~/.codex/skills` migration runs on `update` as
-well.
+well. Stale roles are rendered again at the new binary version; a role file
+that was never installed is reported instead of created.
 
 ## remove
 {: #skills-remove }
@@ -173,7 +208,7 @@ well.
 Delete the copies and links recorded in the manifest.
 
 ```text
-agentbox skills remove [--agent a,b] [--all] [--local] [--force] [--dry-run] [--json]
+agentbox skills remove [--agent a,b] [--all] [--local] [--skip-roles] [--force] [--dry-run] [--json]
 ```
 
 | Flag | Default | Description |
@@ -181,6 +216,7 @@ agentbox skills remove [--agent a,b] [--all] [--local] [--force] [--dry-run] [--
 | `--agent` | — | Remove only the links of these harnesses; the canonical copies and the other links stay. |
 | `--all` | `false` | Remove every recorded copy and link (same as the default). |
 | `--local` | `false` | Remove from the project-scoped `./.agents/skills` root. |
+| `--skip-roles` | `false` | Remove only the usage skills; leave the harness agent roles untouched. |
 | `--force` | `false` | Remove modified copies after a backup. |
 | `--dry-run` | `false` | Report the planned removals without touching the filesystem. |
 | `--json` | `false` | Print the result list as JSON. |
@@ -194,13 +230,17 @@ record is kept while such a file remains. Foreign files and directories
 sitting at recorded link paths, and files at shipped template paths that
 AgentBox never recorded, are always left alone, even when such a template file
 is byte-identical to the shipped template. When the manifest runs empty, the
-manifest file itself is removed. `remove --agent codex` is a no-op by design:
+manifest file itself is removed. `remove --agent codex` is a no-op for skills by design:
 Codex reads the canonical copy directly, so there is no Codex link to remove.
+For roles, `--agent` selects the harness renderings to delete. A role file that
+no longer matches its recorded hash is refused unless `--force` backs it up
+and removes it.
 
 ## list
 {: #skills-list }
 
-Show the embedded version of each skill and the state of every copy on disk.
+Show the embedded version of each skill and role and the state of every copy
+on disk.
 
 ```text
 agentbox skills list [--local] [--json]
@@ -245,6 +285,17 @@ from the same hashes:
 The `agents` row still describes `SKILL.md`, so existing `SKILL.md` and link
 rows keep their meaning.
 
+Roles follow every skill in the same output. The role header is marked
+`(role)` in text output, and each role reports one row per harness:
+
+| Row | State | Meaning |
+| --- | --- | --- |
+| `claude`, `codex`, `opencode` | `current` | Byte-identical to the embedded role rendered for this binary. |
+| `claude`, `codex`, `opencode` | `stale` | Byte-identical to the manifest record, but the binary is newer. |
+| `claude`, `codex`, `opencode` | `modified` | Differs from both the manifest and the embedded role. |
+| `claude`, `codex`, `opencode` | `missing` | No agent file at the role path. |
+| `claude`, `codex`, `opencode` | `unreadable` | The path exists but cannot be read. |
+
 `list` only reads, so it works when the home directory is read-only or
 unavailable.
 
@@ -258,15 +309,39 @@ agentbox skills show NAME [--json]
 ```
 
 `--json` prints `{name, version, description, content}` instead of the raw
-markdown. Valid names are `agentbox-cli`, `agentbox-api`, and
-`agentbox-orchestrator`. `show` performs no writes and does not need a home
-directory.
+markdown. Valid skill names are `agentbox-cli`, `agentbox-api`, and
+`agentbox-orchestrator`. `show` also accepts a role name
+(`agentbox-planner`, `agentbox-implementer`, `agentbox-verifier`, or
+`agentbox-reviewer`) and prints its canonical YAML definition; `--json` then
+prints `{name, kind: "role", description, content}`. `show` performs no writes
+and does not need a home directory.
 
 **Example**
 
 ```sh
 agentbox skills show agentbox-cli
 agentbox skills show --json agentbox-api
+agentbox skills show agentbox-reviewer
+```
+
+## roles render
+{: #skills-roles-render }
+
+Render one role in a harness's native format without touching the installed
+files.
+
+```text
+agentbox skills roles render <role> --harness claude|codex|opencode [--model MODEL] [--effort EFFORT]
+```
+
+`--model` and `--effort` override the role's optional per-harness selection
+for this rendering only. A role with no model selection renders no model field
+and inherits the harness default. The output goes to standard output, so a
+project can keep a per-issue copy without editing the global agent file:
+
+```sh
+agentbox skills roles render agentbox-reviewer --harness codex \
+  --model MODEL --effort high > /tmp/issue-reviewer.toml
 ```
 
 ## JSON output
@@ -287,18 +362,20 @@ agentbox skills show --json agentbox-api
 ```
 
 `target` is `agents` (canonical copy), a harness name (`claude`, `opencode`,
-`codex`), or `dir` for `--dir` installs. `file` names the acted-on file
+`codex`) for a role or link, `roles` for a role row skipped because the scope
+is global-only, or `dir` for `--dir` installs. `file` names the acted-on file
 relative to the skill directory, such as `SKILL.md` or `issue.md`; it is
 omitted on link results. `action` is one of `installed`, `updated`,
 `unchanged`, `linked`, `migrated`, `removed`, or `skipped`, with `would-`
 prefixed counterparts in dry runs. `list` prints the status tree described
 above, including a `files` array of template states for skills that ship
-templates, and `show` prints the single-skill object.
+templates and role entries marked `kind: "role"`, and `show` prints the
+single-skill or single-role object.
 
-`agentbox doctor` reports the same states: stale copies, modified copies,
-invalid front matter, unreadable canonical paths, missing and unreadable
-template files, broken links, and legacy Codex copies each come with the exact
-command that fixes them. An unreadable canonical path is a path that exists but
+`agentbox doctor` reports the same states for skills and roles: stale copies,
+modified copies, invalid front matter, unreadable canonical paths, missing and
+unreadable template or agent files, broken links, and legacy Codex copies each
+come with the exact command that fixes them. An unreadable canonical path is a path that exists but
 cannot be read as a skill directory, such as a regular file, a dangling
 symlink, or a symlink to another directory at `~/.agents/skills/<name>`; the
 doctor recommends `agentbox skills install --force`, which backs up the link or
