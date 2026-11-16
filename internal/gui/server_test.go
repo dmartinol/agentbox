@@ -779,6 +779,53 @@ func TestRunHostEndpointAppliesLivePolicy(t *testing.T) {
 	}
 }
 
+func TestRunHostEndpointRejectsBlankHostWithoutEditorOrMutation(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "editor-invoked")
+	editor := filepath.Join(t.TempDir(), "editor.sh")
+	if err := os.WriteFile(editor, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("EDITOR", editor)
+	calls := 0
+	runner := testRunner()
+	runner.policySet = func() error {
+		calls++
+		return nil
+	}
+	server, store := newTestServerAndStore(t, runner)
+	run, err := store.LoadRun("run-active")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(run.Policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, body := range []string{`{"host":""}`, `{"host":"   "}`, `{}`} {
+		response, content := postRunHost(t, server.URL+"/api/runs/run-active/policy/host", body)
+		if response.StatusCode != http.StatusBadRequest {
+			t.Fatalf("body %s: status = %d response = %s", body, response.StatusCode, content)
+		}
+		var payload map[string]string
+		if err := json.Unmarshal(content, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload["error"] != "Host is required." {
+			t.Fatalf("body %s: error = %q", body, payload["error"])
+		}
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("policy editor was invoked (marker stat err = %v)", err)
+	}
+	after, err := os.ReadFile(run.Policy)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("policy mutated: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("policy set calls = %d", calls)
+	}
+}
+
 func TestRunHostEndpointRejectsTerminalRunWithoutMutation(t *testing.T) {
 	calls := 0
 	runner := testRunner()

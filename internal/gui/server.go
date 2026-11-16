@@ -653,7 +653,12 @@ func (s *Server) allowRunHost(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &request) {
 		return
 	}
-	result, err := s.app.PolicyEdit(r.Context(), r.PathValue("id"), strings.TrimSpace(request.Host), "", false)
+	host := strings.TrimSpace(request.Host)
+	if host == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Host is required."})
+		return
+	}
+	result, err := s.app.PolicyEdit(r.Context(), r.PathValue("id"), host, "", false)
 	writeRunHostResult(w, result, err)
 }
 
