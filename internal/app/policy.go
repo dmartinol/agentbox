@@ -54,6 +54,26 @@ type PolicyConfiguration struct {
 	DefaultFor string   `json:"default_for,omitempty"`
 }
 
+// PolicyEditOutcome describes what a policy edit did, or would do in a dry run.
+type PolicyEditOutcome string
+
+const (
+	PolicyEditNetworkPreview    PolicyEditOutcome = "network-preview"
+	PolicyEditStaticPreview     PolicyEditOutcome = "static-preview"
+	PolicyEditLiveApplied       PolicyEditOutcome = "live-applied"
+	PolicyEditStaticPending     PolicyEditOutcome = "static-pending"
+	PolicyEditNoLiveSandbox     PolicyEditOutcome = "no-live-sandbox"
+	PolicyEditOpenShellRejected PolicyEditOutcome = "openshell-rejected"
+)
+
+// PolicyEditResult carries the computed policy diff and the edit outcome so
+// callers can report exactly what happened.
+type PolicyEditResult struct {
+	Diff       string            `json:"diff,omitempty"`
+	Outcome    PolicyEditOutcome `json:"outcome"`
+	RolledBack bool              `json:"rolledBack"`
+}
+
 func ParsePolicy(b []byte) (Policy, error) {
 	var p Policy
 	dec := yaml.NewDecoder(bytes.NewReader(b))
@@ -388,71 +408,94 @@ func (a *App) PolicyShow(ctx context.Context, runID string) (map[string]json.Raw
 	return out, nil
 }
 
-func (a *App) PolicyEdit(ctx context.Context, runID, allowHost, binary string, dry bool) error {
+func (a *App) PolicyEdit(ctx context.Context, runID, allowHost, binary string, dry bool) (PolicyEditResult, error) {
+	var result PolicyEditResult
 	r, err := a.Store.LoadRun(runID)
 	if err != nil {
-		return err
+		return result, err
+	}
+	if !dry && allowHost != "" {
+		current, err := a.GetRun(ctx, runID)
+		if err != nil {
+			return result, err
+		}
+		if !current.Status.IsAttachable() {
+			result.Outcome = PolicyEditNoLiveSandbox
+			return result, &NoLiveSandboxError{}
+		}
+		r = current
 	}
 	old, err := os.ReadFile(r.Policy)
 	if err != nil {
-		return err
+		return result, err
 	}
 	oldP, err := ParsePolicy(old)
 	if err != nil {
-		return err
+		return result, err
 	}
 	tmp, err := os.CreateTemp(a.Store.PolicyDir(), "edit-*.yaml")
 	if err != nil {
-		return err
+		return result, err
 	}
 	defer os.Remove(tmp.Name())
 	if err := tmp.Chmod(0600); err != nil {
 		tmp.Close()
-		return err
+		return result, err
 	}
 	if _, err := tmp.Write(old); err != nil {
 		tmp.Close()
-		return err
+		return result, err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return result, err
 	}
 	if allowHost != "" {
 		next, err := addNetworkRule(old, r.Agent, allowHost, binary)
 		if err != nil {
-			return err
+			return result, err
 		}
 		if err := os.WriteFile(tmp.Name(), next, 0600); err != nil {
-			return err
+			return result, err
 		}
-	} else if !dry {
+	} else {
 		if err := RunEditor(ctx, tmp.Name()); err != nil {
-			return err
+			return result, err
 		}
 	}
 	next, err := os.ReadFile(tmp.Name())
 	if err != nil {
-		return err
+		return result, err
 	}
 	newP, err := ParsePolicy(next)
 	if err != nil {
-		return err
+		return result, err
 	}
-	fmt.Print(simpleDiff(old, next))
+	result.Diff = simpleDiff(old, next)
 	staticChanged := policyHasStaticChanges(oldP, newP)
 	if dry {
 		if staticChanged {
-			fmt.Println("static change: pending for a future sandbox")
+			result.Outcome = PolicyEditStaticPreview
 		} else {
-			fmt.Println("network change: apply live on save")
+			result.Outcome = PolicyEditNetworkPreview
 		}
-		return nil
+		return result, nil
 	}
-	return a.savePolicyEdit(ctx, r, old, next)
+	saved, err := a.savePolicyEdit(ctx, r, old, next)
+	if saved.Outcome != "" {
+		result.Outcome = saved.Outcome
+		result.RolledBack = saved.RolledBack
+	}
+	if saved.Diff != "" {
+		result.Diff = saved.Diff
+	}
+	return result, err
 }
 
 func addNetworkRule(old []byte, agent, host, binary string) ([]byte, error) {
-	paths := agentEgressBinaries(agent)
+	paths, err := agentEgressBinaries(agent)
+	if err != nil {
+		return nil, err
+	}
 	if binary != "" {
 		paths = []string{binary}
 	}
@@ -486,15 +529,28 @@ func addNetworkRule(old []byte, agent, host, binary string) ([]byte, error) {
 // run. The supported agents are Node applications, so matching only the
 // launcher path misses the node process, and git uses a separate HTTPS helper.
 // A host rule must include all of them to take effect.
-func agentEgressBinaries(agent string) []string {
+func agentEgressBinaries(agent string) ([]string, error) {
+	agentBinary, err := AgentBinary(agent)
+	if err != nil {
+		return nil, err
+	}
 	return []string{
-		"/usr/local/bin/" + agentCommand(agent),
+		agentBinary,
 		"/usr/local/bin/node",
 		"/usr/bin/git",
 		"/usr/lib/git-core/**",
 		"/usr/bin/curl",
 		"/usr/bin/git-lfs",
+	}, nil
+}
+
+// AgentBinary returns the launcher path for a supported agent inside its
+// sandbox image.
+func AgentBinary(agent string) (string, error) {
+	if _, err := agentPackage(agent); err != nil {
+		return "", err
 	}
+	return "/usr/local/bin/" + agentCommand(agent), nil
 }
 
 func PolicyForAgent(policy []byte, agent string) ([]byte, error) {
@@ -502,10 +558,10 @@ func PolicyForAgent(policy []byte, agent string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := agentPackage(agent); err != nil {
+	agentBinary, err := AgentBinary(agent)
+	if err != nil {
 		return nil, err
 	}
-	agentBinary := "/usr/local/bin/" + agentCommand(agent)
 	for _, rule := range parsed.Network {
 		for i := range rule.Binaries {
 			if isAgentBinary(rule.Binaries[i].Path) {
@@ -547,7 +603,8 @@ func (a *App) ApplyPolicyConfiguration(ctx context.Context, policyName, runID st
 	if _, err := ParsePolicy(old); err != nil {
 		return err
 	}
-	return a.savePolicyEdit(ctx, run, old, next)
+	_, err = a.savePolicyEdit(ctx, run, old, next)
+	return err
 }
 
 func policyHasStaticChanges(oldPolicy, newPolicy Policy) bool {
@@ -556,36 +613,44 @@ func policyHasStaticChanges(oldPolicy, newPolicy Policy) bool {
 		!reflect.DeepEqual(oldPolicy.Process, newPolicy.Process)
 }
 
-func (a *App) savePolicyEdit(ctx context.Context, r Run, old, next []byte) error {
+func (a *App) savePolicyEdit(ctx context.Context, r Run, old, next []byte) (PolicyEditResult, error) {
+	result := PolicyEditResult{Diff: simpleDiff(old, next)}
 	oldPolicy, err := ParsePolicy(old)
 	if err != nil {
-		return err
+		return result, err
 	}
 	newPolicy, err := ParsePolicy(next)
 	if err != nil {
-		return err
+		return result, err
 	}
 	if policyHasStaticChanges(oldPolicy, newPolicy) {
 		path := filepath.Join(a.Store.PolicyDir(), r.ID+"-pending.yaml")
 		if err := atomicWrite(path, next); err != nil {
-			return err
+			return result, err
 		}
 		r.PendingPolicy = path
-		return a.Store.SaveRun(r)
+		result.Outcome = PolicyEditStaticPending
+		return result, a.Store.SaveRun(r)
 	}
 	// The original remains available for rollback if OpenShell rejects the update.
 	if err := atomicWrite(r.Policy, next); err != nil {
-		return err
+		return result, err
 	}
 	args := []string{"policy", "set", r.Sandbox, "--policy", r.Policy, "--wait"}
 	if r.Gateway != "" {
 		args = append(args, "--gateway", r.Gateway)
 	}
-	if _, err := a.Runner.Output(ctx, "openshell", args...); err != nil {
-		_ = atomicWrite(r.Policy, old)
-		return fmt.Errorf("policy apply failed; local policy restored: %w", err)
+	if _, applyErr := a.Runner.Output(ctx, "openshell", args...); applyErr != nil {
+		result.Outcome = PolicyEditOpenShellRejected
+		if restoreErr := atomicWrite(r.Policy, old); restoreErr != nil {
+			result.RolledBack = false
+			return result, fmt.Errorf("OpenShell rejected the policy update; local policy rollback failed: %w; %v", applyErr, restoreErr)
+		}
+		result.RolledBack = true
+		return result, fmt.Errorf("OpenShell rejected the policy update; the local policy was restored: %w", applyErr)
 	}
-	return nil
+	result.Outcome = PolicyEditLiveApplied
+	return result, nil
 }
 
 func simpleDiff(a, b []byte) string {

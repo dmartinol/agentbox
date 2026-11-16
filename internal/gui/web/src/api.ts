@@ -8,6 +8,8 @@ import type {
   SkillStatus,
   SkillsEntry,
   Overview,
+  PolicyHostError,
+  PolicyHostResponse,
   PolicyConfiguration,
   Profile,
   Project,
@@ -35,6 +37,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const post = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) });
 
+async function allowRunHost(id: string, host: string): Promise<PolicyHostResponse> {
+  const response = await fetch(`/api/runs/${id}/policy/host`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(
+      typeof body.error === 'string' ? body.error : `Request failed (${response.status})`
+    ) as PolicyHostError;
+    error.outcome = body.outcome;
+    error.diff = body.diff;
+    error.rolledBack = body.rolledBack;
+    throw error;
+  }
+  return body as PolicyHostResponse;
+}
+
 export const api = {
   overview: () => request<Overview>('/api/overview'),
   runs: () => request<Run[]>('/api/runs'),
@@ -49,6 +70,7 @@ export const api = {
   deleteShell: (id: string, name: string) => post<{ deleted: true }>(`/api/runs/${id}/shells/${encodeURIComponent(name)}/delete`),
   diff: (id: string) => request<{ diff: string }>(`/api/runs/${id}/diff`),
   policy: (id: string) => request<Record<string, unknown>>(`/api/runs/${id}/policy`),
+  allowHost: (id: string, host: string) => allowRunHost(id, host),
 
   projects: () => request<Project[]>('/api/projects'),
   saveProject: (project: Project) => post<Project>('/api/projects', project),

@@ -865,3 +865,115 @@ func TestSkillsInstallJSONReportsOneRoleRowPerHarness(t *testing.T) {
 		t.Fatalf("role rows = %d, want %d", count, want)
 	}
 }
+
+type policyCLIRunner struct{ reject bool }
+
+func argPresent(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
+}
+
+func (r policyCLIRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	switch {
+	case name == "openshell" && argPresent(args, "sandbox") && argPresent(args, "get"):
+		return []byte(`{"phase":"running"}`), nil
+	case name == "openshell" && argPresent(args, "sandbox") && argPresent(args, "exec"):
+		return []byte("session=1\ndead=0\ncommand=codex\nplan=0\nidle=0\nfinished=0\nexit=\nactivity=\nmtime=\n"), nil
+	case name == "openshell" && argPresent(args, "policy") && argPresent(args, "set"):
+		if r.reject {
+			return nil, errors.New("policy rejected")
+		}
+		return nil, nil
+	default:
+		return []byte(`{}`), nil
+	}
+}
+
+func (policyCLIRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error {
+	return nil
+}
+
+func policyCLIFixture(t *testing.T) (*app.App, string) {
+	t.Helper()
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := store.CreatePolicyConfiguration("unit-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := app.Run{
+		ID: "run-policy", Policy: policy.Path, Sandbox: "sandbox-policy",
+		Gateway: "gateway-one", Agent: "codex", Status: app.StatusWorking,
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	return &app.App{Store: store, Runner: &appfakeRunner{}}, run.ID
+}
+
+func TestPolicyEditCLIPrintsNetworkPreviewDiff(t *testing.T) {
+	a, runID := policyCLIFixture(t)
+	preview, err := a.PolicyEdit(context.Background(), runID, "api.example.test", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"policy", "edit", "--allow-host", "api.example.test", "--dry-run", runID})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.TrimSpace(preview.Diff) + "\nnetwork change: apply live on save"
+	if output != want {
+		t.Fatalf("stdout = %q; want %q", output, want)
+	}
+}
+
+func TestPolicyEditCLIPrintsStaticPreviewDiff(t *testing.T) {
+	a, runID := policyCLIFixture(t)
+	editor := filepath.Join(t.TempDir(), "editor.sh")
+	script := "#!/bin/sh\nperl -0pi -e 's|    - /tmp\\n|    - /tmp\\n    - /srv\\n|' \"$1\"\n"
+	if err := os.WriteFile(editor, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("EDITOR", editor)
+	preview, err := a.PolicyEdit(context.Background(), runID, "", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"policy", "edit", "--dry-run", runID})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.TrimSpace(preview.Diff) + "\nstatic change: pending for a future sandbox"
+	if output != want {
+		t.Fatalf("stdout = %q; want %q", output, want)
+	}
+}
+
+func TestPolicyEditCLIPrintsDiffBeforeOpenShellError(t *testing.T) {
+	a, runID := policyCLIFixture(t)
+	a.Runner = policyCLIRunner{reject: true}
+	preview, err := a.PolicyEdit(context.Background(), runID, "api.example.test", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Runner = policyCLIRunner{reject: true}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"policy", "edit", "--allow-host", "api.example.test", runID})
+	})
+	if err == nil || !strings.Contains(err.Error(), "the local policy was restored") {
+		t.Fatalf("error = %v", err)
+	}
+	if output != strings.TrimSpace(preview.Diff) {
+		t.Fatalf("stdout = %q; want diff %q", output, strings.TrimSpace(preview.Diff))
+	}
+}

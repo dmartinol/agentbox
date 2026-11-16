@@ -76,20 +76,27 @@ curl -fsS -X POST "$BASE/api/runs/RUN_ID/shells/SHELL_NAME/delete"
 
 ## Fix a blocked host
 
-The GUI's policy editor and the CLI share this path. Add the host to the run's
-policy, then apply it:
+The Fleet **Allow host** action and the CLI share this one-step run-scoped path.
+Send only the host; the run supplies the agent, binary, and policy:
 
 ```sh
-curl -fsS -X POST "$BASE/api/policies/POLICY_NAME/host" \
+curl -fsS -X POST "$BASE/api/runs/RUN_ID/policy/host" \
   -H 'Content-Type: application/json' \
-  -d '{"agent": "codex", "host": "api.example.com"}'
-
-curl -fsS -X POST "$BASE/api/policies/POLICY_NAME/apply" \
-  -H 'Content-Type: application/json' -d '{"runId": "RUN_ID"}'
+  -d '{"host": "api.example.com"}'
 ```
 
-Rules are binary-scoped. Network-only changes apply live; static changes stay
-pending until the next sandbox. Read the effective policy with
+The response carries the computed diff and the outcome:
+
+| Status | Body | Meaning |
+| --- | --- | --- |
+| `200` | `{"outcome":"live-applied","diff":"..."}` | Network rule applied to the live sandbox. |
+| `202` | `{"outcome":"static-pending","diff":"..."}` | Change saved for the next sandbox. |
+| `409` | `{"outcome":"no-live-sandbox","error":"..."}` | Run is not Ready, Working, or Waiting; nothing changed. |
+| `500` | `{"outcome":"openshell-rejected","error":"...","diff":"...","rolledBack":true}` | OpenShell rejected the update and the local policy was restored. `rolledBack` is `false` when restore also failed. |
+
+Rules are binary-scoped: the rule names the agent launcher derived by
+`GET /api/runs/RUN_ID` (`agent_binary`) plus `node`, `git`, git's HTTPS helper,
+`curl`, and `git-lfs`. Read the effective policy with
 `GET /api/runs/RUN_ID/policy`. Never weaken hard isolation or bypass the
 sandbox to make a command run.
 

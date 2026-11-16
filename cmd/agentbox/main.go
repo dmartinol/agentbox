@@ -728,7 +728,17 @@ func policyCmd(ctx context.Context, a *app.App, args []string) error {
 		if err := need(f.Args(), 1); err != nil {
 			return err
 		}
-		return a.PolicyEdit(ctx, f.Args()[0], *host, *binary, *dry)
+		result, err := a.PolicyEdit(ctx, f.Args()[0], *host, *binary, *dry)
+		if result.Diff != "" {
+			fmt.Print(result.Diff)
+		}
+		switch result.Outcome {
+		case app.PolicyEditNetworkPreview:
+			fmt.Println("network change: apply live on save")
+		case app.PolicyEditStaticPreview:
+			fmt.Println("static change: pending for a future sandbox")
+		}
+		return err
 	default:
 		return fmt.Errorf("unknown policy command")
 	}
