@@ -128,6 +128,7 @@ export function FleetView({
   }, [filtered]);
 
   const selectedProfile: Profile | undefined = overview?.profiles.find((profile) => profile.name === startForm.profile);
+  const canStart = Boolean(overview && startForm.project && startForm.gateway);
 
   useEffect(() => {
     if (!startOpen || approvalExplicit.current) return;
@@ -246,7 +247,7 @@ export function FleetView({
     }
   };
 
-  const openStart = async () => {
+  const openStart = () => {
     const nextProfile = startForm.profile || overview?.profiles[0]?.name || '';
     setStartError('');
     setStartWarnings([]);
@@ -265,8 +266,10 @@ export function FleetView({
     setUseOverrides(false);
     setOverrides({ image: '', model: '', approval: approvalForProfile(overview?.profiles.find((profile) => profile.name === nextProfile)) });
     approvalExplicit.current = false;
-    await load();
+    // Open first so the click always responds. The catalog refresh can settle
+    // behind the dialog and fill in project/profile/MCP/skills options.
     setStartOpen(true);
+    void load();
   };
 
   const copyAgent = (run: Run) => {
@@ -451,7 +454,7 @@ export function FleetView({
           <Button variant="ghost" size="icon" aria-label="Refresh agents" onClick={() => void load()}>
             {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
           </Button>
-          <Button onClick={() => void openStart()}><Bot className="size-3.5" /> New agent</Button>
+          <Button onClick={openStart}><Bot className="size-3.5" /> New agent</Button>
         </div>
       </div>
 
@@ -465,7 +468,7 @@ export function FleetView({
             <EmptyState
               title="No agents yet"
               description="Create a project and profile in Setup, then start your first agent."
-              action={<Button className="mt-2" onClick={() => void openStart()}>New agent</Button>}
+              action={<Button className="mt-2" onClick={openStart}>New agent</Button>}
             />
           ) : filtered.length === 0 ? (
             <EmptyState title="No matching agents" description="Adjust search or project filters." />
@@ -484,7 +487,7 @@ export function FleetView({
                     </Button>
                   </div>
                 </CardHeader>
-                <Table aria-label={`Agents in ${project}`}>
+                <Table aria-label={`Agents in ${project}`} className="agentbox-fleet-table">
                   <THead>
                     <TR>
                       <TH className="w-[21%]">Agent</TH>
@@ -500,6 +503,8 @@ export function FleetView({
                       const busy = pending[agent.id];
                       const attachable = canAttachRun(agent.status);
                       const label = agent.name || agent.id;
+                      const status = inFlightStatus(agent);
+                      const syncLabel = busy === 'sync' ? 'Syncing' : agent.synced ? 'Synced' : 'Unsynced';
                       return (
                         <TR
                           key={agent.id}
@@ -509,10 +514,14 @@ export function FleetView({
                           <TD className="truncate font-medium" onClick={(event) => { event.stopPropagation(); setSelected(agent); }}>
                             <span title={label}>{label}</span>
                           </TD>
-                          <TD label="Type">{agent.agent}</TD>
-                          <TD label="Status"><StatusBadge status={inFlightStatus(agent)} /></TD>
-                          <TD label="Sync" className={busy === 'sync' ? 'text-info' : agent.synced ? 'text-success' : 'text-warning'}>
-                            {busy === 'sync' ? 'Syncing' : agent.synced ? 'Synced' : 'Unsynced'}
+                          <TD label="Type" aria-label={`Type: ${agent.agent}`}>{agent.agent}</TD>
+                          <TD label="Status" aria-label={`Status: ${statusLabel(status)}`}><StatusBadge status={status} /></TD>
+                          <TD
+                            label="Sync"
+                            aria-label={`Sync: ${syncLabel}`}
+                            className={busy === 'sync' ? 'text-info' : agent.synced ? 'text-success' : 'text-warning'}
+                          >
+                            {syncLabel}
                           </TD>
                           <TD label="Branch">
                             <ExpandableValue value={agent.branch} label={`branch for ${label}`} max={28} />
@@ -706,11 +715,15 @@ export function FleetView({
         footer={
           <>
             <Button variant="ghost" onClick={closeStart}>Cancel</Button>
-            <Button loading={startSubmitting} onClick={() => void startAgent()}>{startSubmitting ? 'Starting' : 'Start'}</Button>
+            <Button loading={startSubmitting} disabled={!canStart} onClick={() => void startAgent()}>{startSubmitting ? 'Starting' : 'Start'}</Button>
           </>
         }
       >
         {startError ? <Alert variant="danger" title="Unable to start agent" className="mb-3">{startError}</Alert> : null}
+        {!overview ? <Alert variant="info" title="Loading configuration" className="mb-3">Fetching projects, profiles, and gateways.</Alert> : null}
+        {overview && (!overview.projects.length || !overview.gateways.length) ? (
+          <Alert variant="warning" title="No startable configuration" className="mb-3">Create a project and gateway in Setup, then try again.</Alert>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Project" htmlFor="new-agent-project" required>
             <Select id="new-agent-project" value={startForm.project} onChange={(event) => setStartForm({ ...startForm, project: event.target.value })}>

@@ -23,10 +23,12 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 - **Action hierarchy**: one visible primary action; secondary actions grouped by
   task; destructive actions separated and named.
 - **Responsive tables**: when a table's own container is narrower than 960px it
-  becomes stacked cards with visible field labels. Wider containers keep the
-  same DOM as a table, so there is no duplicate markup or duplicate action
-  cluster. The container query, rather than a viewport width, also accounts for
-  the Fleet detail sidebar and the Setup sheet.
+  becomes stacked cards. Setup cards show visible field labels; Fleet cards use
+  a compact scan line (name, type, status, sync) with actions beneath and the
+  branch left to the detail panel. Wider containers keep the same DOM as a
+  table, so there is no duplicate markup or duplicate action cluster. The
+  container query, rather than a viewport width, also accounts for the Fleet
+  detail sidebar and the Setup sheet.
 
 ## Fleet and agent flows
 
@@ -34,7 +36,7 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 | --- | --- | --- | --- |
 | Fleet toolbar | Search, project filter, Needs You count, refresh, New agent | — | Wrapping rows; search and filter span the width |
 | Project group | Project name, counts, Workspace entry | Agent rows | Wrapping header badges and actions |
-| Agent row | Name, type, status, sync, branch, primary action | Details button opens the detail panel | Stacked cells with labels; primary and secondary actions wrap |
+| Agent row | Name, type, status, sync, branch, primary action | Details button opens the detail panel | Name plus type/status/sync on one line; actions beneath; branch in the detail panel |
 | Agent detail panel | Identity, status, project | Open, Manage, and destructive action groups; expandable metadata | Bottom sheet with close control; same grouped actions |
 | Workspace | Project, agent tabs, shell tabs | Terminal or cached log tail | Horizontally scrollable tabs; terminal fills the surface |
 | New agent | Project, profile, gateway, name, MCP, skills, prompt | Resolved image/model/provider/approval disclosure; optional overrides | Single-column form; actions wrap |

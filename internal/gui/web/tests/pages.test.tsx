@@ -112,6 +112,33 @@ describe('fleet shell', () => {
     expect(screen.getAllByRole('button', { name: /setup/i })).toHaveLength(1);
   });
 
+  it('keeps start disabled until the start configuration loads', async () => {
+    mockRoutes({ ...defaultRoutes(), 'GET /api/overview': () => new Promise(() => {}) });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'New agent' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Loading configuration')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Start' })).toBeDisabled();
+  });
+
+  it('opens the new agent dialog while catalog data is still refreshing', async () => {
+    let mcpsRequests = 0;
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/mcps': () => {
+        mcpsRequests += 1;
+        return mcpsRequests === 1 ? mcps : new Promise(() => {});
+      }
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    expect(await screen.findByText('Doctor OK')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'New agent' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText(/^Profile/)).toHaveValue('codex-default');
+  });
+
   it('refreshes a starting agent without a page reload', async () => {
     const starting = { ...runs[0], id: 'run-creating', name: 'fresh-run', status: 'creating' as const, status_detail: 'sandbox is warming up' };
     const ready = { ...starting, status: 'ready' as const, status_detail: '' };
@@ -1209,6 +1236,9 @@ describe('readable fleet layout', () => {
     if (!row) throw new Error('agent row missing');
     const labels = within(row).getAllByRole('cell').map((cell) => cell.getAttribute('data-label'));
     expect(labels).toEqual(expect.arrayContaining(['Type', 'Status', 'Sync', 'Branch', 'Actions']));
+    expect(within(row).getByLabelText('Type: codex')).toBeInTheDocument();
+    expect(within(row).getByLabelText('Status: Working')).toBeInTheDocument();
+    expect(within(row).getByLabelText('Sync: Synced')).toBeInTheDocument();
 
     await user.click(within(row).getByRole('button', { name: 'Details for active-run' }));
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
