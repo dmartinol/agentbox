@@ -36,6 +36,119 @@ Assembling a context packet for a worker, reading a returned artifact, and
 checking tracker or forge state are orchestration, not stage work. A resumed
 run redispatches the stage; it never continues a previous worker's session.
 
+## Launch topology and visibility (MUST)
+
+Three different objects must never be conflated:
+
+- the **controller**: the agent session that runs this skill and the
+  `agentbox-orchestrator` role instructions;
+- the **worktree**: an Orca-managed checkout of a branch at a path; creating
+  one starts no agent and runs no prompt;
+- the **worker**: the agent process launched inside a worktree to run one
+  stage.
+
+Creating a worktree is preparation, not dispatch. The stage worker is the
+agent process: send it the task spec as its own prompt, `--spec-file`, or
+terminal input. Do not start an agent and then have that agent launch a second
+non-interactive agent process to do the same stage. That nested launch adds a
+hop, hides the real worker, and makes its output unobservable. A controller
+that must exist only because the host harness starts custom roles as
+subagents never duplicates the stage and never performs stage work.
+
+### Supported controller launch paths
+
+| Harness | Start the controller | Topology |
+| --- | --- | --- |
+| Claude Code | `claude --agent agentbox-orchestrator` | one process; no launcher |
+| OpenCode | `opencode run --agent agentbox-orchestrator`, or select the primary agent in a session | one process; no launcher |
+| Codex | ask the top-level session to use the `agentbox-orchestrator` custom agent | top-level parent plus controller subagent; Codex has no top-level `--agent` switch |
+| Orca | `--agent` selects only the host runtime; assign the role through the started harness | runtime plus harness role assignment |
+
+Rules:
+
+- Start the assigned controller directly when the harness supports it. Do not
+  add a launcher session whose only job is to spawn the controller and relay
+  its answer.
+- When Codex requires a top-level parent to start the custom controller
+  subagent, keep that parent lightweight and visible. Run it in a visible
+  terminal, give it the issue and the role instruction, and let the user
+  follow the parent and the controller separately. Never run that parent as a
+  hidden non-interactive process whose output exists only in a temporary file.
+- From Orca, never pass `agentbox-orchestrator` as the `--agent` runtime ID.
+  `orca orchestration worker-start --agent <id>` and `orca agent launch
+  --agent <id>` accept only a host runtime such as `codex`, `claude`, or
+  `opencode`; assign the custom role afterwards through that harness.
+- A harness that cannot assign the role from an Orca-started session is a
+  documented limitation. Start that harness directly, or record the
+  limitation and set `blocked`; never add an Orca-specific role flag or imply
+  that a runtime ID selected the role.
+
+### Runtime, profile, and model constraints
+
+Record the tested launch path in the state record and report it to the user.
+A profile is a harness-level setting, not an Orca runtime ID.
+
+- `orca orchestration worker-start` and `orca agent launch` accept `--model`
+  and `--effort` but have no `--profile` flag. They cannot apply a Codex
+  profile.
+- `orca worktree create --agent ... --model ... --effort ...` creates the
+  checkout and starts the agent, but it also cannot set a harness profile.
+- When the user requires a profile, create the worktree first, then start the
+  stage agent in a visible Orca terminal whose command sets the harness
+  profile and model, for example `orca terminal create --worktree <selector>
+  --title "<stage>" --command "codex -p PROFILE -m MODEL" --json`. Record the
+  returned terminal handle, follow it with `orca terminal read`, and drive the
+  stage through that terminal.
+- Never drop a requested profile, model, effort, or runtime to make a worker
+  start. If no supported path can honour the selection under the runtime's
+  normal sandbox and approval controls, set `blocked` with the exact
+  unsupported selection and the single action that unblocks the flow.
+
+### Worker visibility, retention, and cleanup
+
+When Orca is selected for workers, the default worker path is an Orca-visible
+supervised worker or terminal, not a headless `codex exec` whose only output
+is redirected to a temporary file.
+
+- Start each Orca stage with `orca orchestration worker-start ... --json` and
+  record the returned worker handle, worktree, and branch. Start a
+  profile-bound harness in a visible `orca terminal create` session and record
+  its terminal handle. `worker-start` is the default because it is supervised
+  and `worker-read` works even when the runtime opens a chat instead of a
+  terminal.
+- Report a stage-start update with the stage, worktree, branch, and worker or
+  terminal handle so the user can follow the run. Report completion or a
+  blocker with the same handle and the evidence location. The user must be
+  able to inspect the worker with `orca orchestration worker-show`,
+  `orca orchestration worker-read`, `orca terminal read`, or
+  `orca worktree show`.
+- If a non-interactive command is unavoidable, run it in a visible terminal
+  or teeing process and keep a durable log outside `/tmp`, for example under
+  `~/.agentbox/orchestrator/<workflow_id>/<stage>.log`. Report the path and
+  the handle; never make a temporary log the only way to follow the worker.
+- Retain every worker session and worktree until the stage evidence is
+  captured and the final report is delivered. Honour an explicit request to
+  keep them. Otherwise clean up only after the final report, and never delete
+  a branch whose commit SHA is not recorded.
+
+### Worktree creation verification
+
+Creating a worktree is a mutation with an ambiguous failure mode. Verify the
+raw result before recording or retrying:
+
+- Read the worktree path from the raw create response, not from a display or
+  projection layer that may rename or omit the field. Confirm the path exists
+  and that `orca worktree list` or `git worktree list` contains it before
+  recording the handle.
+- If the response is missing a path or cannot be confirmed, do not issue a
+  second create. Re-read the original raw response or list the worktrees
+  first; a missing field is ambiguous, not a failure.
+- Record the worktree identity and branch only after confirmation. If it still
+  cannot be confirmed, set `blocked` with the exact response and the next
+  inspection step.
+- Never retry a create with a new name or stage suffix until the first outcome
+  is resolved. One stage gets one worktree.
+
 ## Ground rules
 
 - One issue, one writer, one branch at a time. Never run two writers on one
@@ -44,6 +157,12 @@ run redispatches the stage; it never continues a previous worker's session.
   substitute another value.
 - The orchestrator is the only actor that merges and closes, and the only
   actor that posts review verdicts, for every worker type.
+- Never bypass sandbox or approval controls. Never pass
+  `--dangerously-bypass-approvals-and-sandbox`, `--yolo`, or an equivalent to
+  make a stage run; report a blocker when the workflow cannot proceed under
+  the runtime's normal controls.
+- One stage is one agent process. A worker performs the stage itself and never
+  launches another agent or a nested non-interactive agent for the same work.
 - Never bypass branch protection, required checks, or review requirements.
 - On any doubt, set `blocked` with a reason instead of improvising.
 
@@ -96,8 +215,8 @@ Never record an effort that was not applied.
 | --- | --- | --- | --- |
 | triage | worker of the selected type, tracker-blind | its own new worktree | none; it returns a disposition artifact |
 | plan | worker of the selected type | its own new worktree | none |
-| implement | worker of the selected type, branch `orchestrator/<issue>-<slug>` | its own new worktree | see the forge capability matrix |
-| fix | worker of the selected type, existing issue branch | its own worktree at the current pull request head | push only to the existing pull request branch; no PR creation, no tracker |
+| implement | worker of the selected type, branch `orchestrator/<issue>-<slug>` | its own new worktree | the `implement` row of the stage-aware forge matrix |
+| fix | worker of the selected type, existing issue branch | its own worktree at the current pull request head | the `fix` row of the stage-aware forge matrix |
 | verify | fresh worker | fresh detached worktree at the full pull request head SHA | none |
 | review | fresh worker | fresh detached worktree at the full pull request head SHA | none; it returns a verdict artifact |
 | retro | fresh worker, tracker-blind | its own new worktree | none; it returns zero or more issue drafts |
@@ -113,6 +232,9 @@ the orchestrator turn.
   full 40-character pull request head SHA. They must not share the
   implementer's worktree and must not see uncommitted state; a verdict about a
   working tree that is not the pushed head is invalid.
+- Every stage worker runs in its own worktree and is the only agent process in
+  that checkout for the stage. A stage spec never tells a worker to start
+  another agent.
 - A fix cycle dispatches a fresh fixer and then a fresh reviewer at the new
   head. Previous approvals carry forward only when the diff is unaffected.
 - Cycle 1 reviews the full pull request diff against the base. Cycle N>1
@@ -129,18 +251,28 @@ the orchestrator turn.
   tracker, forge, or repository. Only the orchestrator applies their results.
 - Retro is post-terminal. It runs once after merge/close for a workflow that
   reached implementation and never blocks either.
+- Worktrees and worker sessions are evidence. Retain them until the stage
+  evidence is captured and the final report is delivered; clean up afterwards
+  unless the user asked to keep them.
 
-## Forge capability matrix
+## Stage-aware forge matrix
 
-One table decides every forge write. Capability belongs to the worker type,
-not to a particular stage.
+One table decides every forge write. Each row is a stage; the host/sandbox
+split appears only where worker capability differs. "Workflow comments" means
+comments on the issue or pull request that carry the workflow marker.
 
-| Worker type | Can commit | Can push | Can open the PR | Can post comments or verdicts | Can merge or close |
-| --- | --- | --- | --- | --- | --- |
-| AgentBox sandbox worker | yes, local only | no | no | no | no |
-| Orca child worktree (host) | yes | yes | yes | yes, except verdicts and state | no |
-| Harness subagent (host) | yes | yes | yes | yes, except verdicts and state | no |
-| Orchestrator | only when a worker cannot | only for a sandbox worker | only for a sandbox worker | yes, including verdicts and state | yes |
+| Stage | Worker | Local commit | Remote push | Open the PR | Workflow comments / verdicts | Merge / close | Tracker labels, state comment, issue close |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| triage | tracker-blind worker | no | no | no | no | no | no |
+| plan | worker | no | no | no | no | no | no |
+| implement (sandbox) | sandbox worker | yes, local only | no; the orchestrator syncs and pushes | no; the orchestrator creates it | no | no | no |
+| implement (host) | Orca child worktree or harness host worker | yes | yes, only `orchestrator/<issue>-<slug>` | yes, with `pr.md` | no | no | no |
+| fix (sandbox) | fixer | yes, local only | no; the orchestrator syncs and pushes | no | no | no | no |
+| fix (host) | fixer | yes | yes, only the existing pull request branch | no | no | no | no |
+| verify | fresh worker | no | no | no | no; it returns gates and observations | no | no |
+| review | fresh worker | no | no | no | no; it returns the verdict artifact | no | no |
+| merge / close | orchestrator | no | no | no | yes | yes | yes |
+| retro | tracker-blind worker | no | no | no | no | no | no |
 
 Applying the matrix:
 
@@ -155,12 +287,18 @@ Applying the matrix:
   is a host worker, push that commit only to the existing pull request branch.
   A sandbox fixer leaves the commit local; the orchestrator syncs and pushes
   it. The fixer never opens a pull request, merges, closes, or accesses the
-  tracker. The orchestrator remains the only PR creator and tracker writer.
-- **Every worker type:** merge, close, the state comment, and review verdicts
-  remain orchestrator-authored. A reviewer returns its verdict artifact; the
-  orchestrator posts it, so a verdict has one writer and one provenance path.
-- **Plan and verify:** they perform no forge writes. If their evidence must
-  reach the tracker, the orchestrator posts it with the correct provenance.
+  tracker.
+- **Verify and review:** they perform no git or forge writes. A reviewer
+  returns its verdict artifact; the orchestrator posts it, so a verdict has
+  one writer and one provenance path. If verifier evidence must reach the
+  tracker, the orchestrator posts it with the correct provenance.
+- **Tracker authority:** only the orchestrator applies labels, writes the
+  state comment, posts workflow comments and verdicts, links the pull request,
+  merges, and closes. No worker gains tracker authority, including a capable
+  host implementer; opening the pull request is the only implement-stage forge
+  write a host worker may perform.
+- **Triage, plan, and retro:** they perform no forge or tracker writes and
+  only return artifacts. Triage and retro also have no shell.
 
 ## Worker contract
 
@@ -169,16 +307,65 @@ run gates, and commit on its branch. It returns one result the orchestrator
 consumes: branch name, HEAD SHA, changed paths, gate output, and any blockers.
 A fixer result additionally lists every addressed finding id with evidence at
 the returned commit and any unresolved finding.
-Its forge capability is exactly the row for its worker type in the matrix
-above; a worker that needs a write it lacks reports that instead of attempting
-it.
+Its forge capability is exactly its stage row in the matrix above; a worker
+that needs a write it lacks reports that instead of attempting it. The worker
+performs the stage itself and never launches another agent or a nested
+non-interactive agent for the same work; if it lacks a required capability, it
+returns a blocker.
 
 - Sandbox commits need an explicit identity: AgentBox configures only the host
   baseline commit today (`AgentBox <agentbox@local.invalid>`), so the task
   spec must set one and the orchestrator must preserve authorship on push.
 - A worker result is advisory. The orchestrator checks the commit it actually
   received before it records evidence or starts the next stage.
+- The orchestrator records the worker handle, worktree, branch, model, effort,
+  and returned commit in the state record so a resumed run and the user can
+  find the same worker without guessing.
 - Task specs are self-contained: the worker never sees this conversation.
+
+## Stage role contracts
+
+The shipped harness roles implement these contracts. For every stage the
+orchestrator supplies a self-contained packet, validates the returned
+structure, and performs every tracker mutation. A role that cannot complete
+its contract returns a blocker instead of widening its own scope.
+
+| Stage | Role | Inputs | Outputs | Tool limits |
+| --- | --- | --- | --- | --- |
+| triage | `agentbox-triage` | issue title, body, labels, and relevant comments; repository scope and policy; duplicate-search results; preflight and environment checks | `decision`, `reason`, `evidence`, `questions`, and `risks` covering unresolved assumptions | no tracker or forge access, no shell, no writes; uses only the supplied snapshot |
+| fix | `agentbox-fixer` | current pull request head; relevant diff; acceptance criteria; accepted open `blocker` and `major` findings with stable ledger ids; required gates | addressed finding ids with evidence, full commit SHA and changed paths, gate results, unresolved findings, and blockers | own worktree only; no tracker access; no PR creation, merge, close, or verdict; a host push is limited to the existing pull request branch |
+| retro | `agentbox-retro` | sanitized workflow record: stage outcomes, state transitions, gate results, review and fix cycles, blockers, and relevant worker reports | zero or more drafts, each with `observation`, `evidence`, `impact` (user impact or recurrence risk), `context`, `acceptance_criteria`, and `related` | no tracker or forge access, no shell, no writes; post-terminal only; never infers a cross-run pattern from one workflow |
+
+Triage details:
+
+- `ready` means actionable, in scope, and one issue. The orchestrator
+  rechecks current tracker state before applying the result.
+- `needs-info` leaves the issue open, posts the specific questions with
+  provenance, records the wait reason, and resumes triage after a response.
+- `out-of-scope` rejects with the reported evidence; `blocked` records the
+  reason and the single action that unblocks it.
+- The orchestrator, not the triage role, applies every label, comment, and
+  close.
+
+Fixer details:
+
+- Inputs are limited to the existing pull request head, the reviewed delta,
+  the acceptance criteria, the accepted open `blocker` and `major` findings
+  with their ledger ids, and the required gates.
+- The fixer addresses only those findings. It never broadens scope, adds
+  requirements, reopens a deferred finding, or treats a `minor` or `nit` as
+  fixer work.
+- Verification and an independent review run again on the fixer's resulting
+  head before merge.
+
+Retro details:
+
+- Run retro once after a terminal workflow that reached implementation. Skip
+  it when triage rejected the issue or a preflight blocked the workflow before
+  any work started.
+- Retro never blocks merge or close and never mutates the tracker. The
+  orchestrator scope-checks and deduplicates every draft before creating any
+  follow-up.
 
 ## Comment provenance
 
@@ -320,6 +507,11 @@ tracker references, and gate results only.
 the selected runtime cannot apply one, such as an AgentBox worker; never
 record a requested effort that the worker did not apply.
 
+`worker_id` is the user-visible worker or terminal handle, and `worktree` is
+the checkout the stage ran in. Record both for every stage so the user can
+follow the run and a resumed orchestrator can find the same worker. A
+temporary log path is never the only recorded location.
+
 ## Workflow gates
 
 Advance one gate at a time; record the result in the state record before
@@ -340,6 +532,10 @@ stage work runs inline.
      role sets `blocked` with "restart the harness session after
      `agentbox skills install`"; harnesses scan agent directories only at
      session start.
+   - Record the tested launch path and the worker visibility method for every
+     stage. When a runtime cannot honour the selected profile, model, or
+     effort under its normal controls, set `blocked` with the exact
+     unsupported selection before dispatching any worker.
    - Validate the disposition. `ready` accepts to `ready`. `out-of-scope`
      rejects with the reported evidence and closes. `blocked` sets `blocked`
      with the reason and the single unblocking action. `needs-info` keeps the
@@ -348,18 +544,20 @@ stage work runs inline.
      rerun triage after a response without adding another workflow label.
    - The orchestrator rechecks current tracker state and applies every label
      and state change itself. The triage role never does.
-2. **Plan.** Dispatch a plan worker in its own worktree to write measurable
-   acceptance criteria and the gate list — the commands that must pass.
+2. **Plan.** Dispatch a plan worker in its own worktree as a visible Orca
+   worker or terminal to write measurable acceptance criteria and the gate
+   list — the commands that must pass.
    Normalize the issue with `issue.md`. Define the branch
    `orchestrator/<issue>-<slug>`, the implement worktree, and a
    self-contained task spec for the next worker. The orchestrator posts the
    plan with provenance; it does not write it.
 3. **Implement.** Dispatch exactly one writer of the selected type in its own
-   worktree with the task spec. The orchestrator does not edit the branch
-   while a writer owns it.
+   worktree with the task spec, as a visible Orca worker or terminal. The
+   orchestrator does not edit the branch while a writer owns it.
 4. **Verify.** After the worker finishes and the branch head is known,
    dispatch a fresh verify worker in a fresh worktree checked out at the pull
-   request head. It reruns every gate on that commit and returns only `gates`
+   request head, as a visible Orca worker or terminal. It reruns every gate on
+   that commit and returns only `gates`
    and `observations`; it never returns required changes, findings, or a
    verdict, and it is not a second reviewer. Worker-reported results are
    advisory; only evidence at the recorded commit counts. Any gate failure
@@ -373,8 +571,9 @@ stage work runs inline.
    results and SHAs), `Closes #<issue>`, Risks, and the marker and footer.
    Wait for checks to finish before review.
 6. **Independent review.** Dispatch a reviewer that is not the writer, in its
-   own worktree at the pull request head, using the selection recorded for the
-   first pass; later cycles reuse that reviewer selection. It returns
+   own worktree at the pull request head, as a visible Orca worker or
+   terminal, using the selection recorded for the first pass; later cycles
+   reuse that reviewer selection. It returns
    `verdict.md` because one GitHub identity cannot approve its own pull
    request. The orchestrator posts the verdict with provenance and refuses a
    second verdict for the same `(workflow, stage, commit)`. Code changes after
@@ -397,9 +596,10 @@ stage work runs inline.
      merge with follow-ups, authorize one more cycle, or stop.
 7. **Fix cycle.** When review returns `request-changes` and the cycle budget
    remains, dispatch a fresh `agentbox-fixer` in its own worktree at the
-   current pull request head with only the accepted open `blocker` and `major`
-   findings, their stable ids, the acceptance criteria, and the required
-   gates. The fixer works only those findings and never expands scope, adds
+   current pull request head, as a visible Orca worker or terminal, with only
+   the accepted open `blocker` and `major` findings, their stable ids, the
+   acceptance criteria, and the required gates. The fixer works only those
+   findings and never expands scope, adds
    requirements, opens a PR, or accesses the tracker. A host fixer may push
    its commit only to the existing pull request branch; the orchestrator syncs
    and pushes a sandbox fixer's commit. Increment `review_cycles`, record the
@@ -411,8 +611,9 @@ stage work runs inline.
    gates and review. Use the repository's merge strategy; prefer a merge
    commit when unspecified.
 9. **Close.** Confirm `Closes #<issue>` closed the issue, comment the outcome
-   with provenance, remove all `orchestrator:*` labels, and clean up
-   worktrees and runs.
+   with provenance, and remove all `orchestrator:*` labels. Capture the final
+   evidence and deliver the report before cleanup, then remove worktrees,
+   runs, and sessions unless the user asked to keep them.
 10. **Retro.** After a terminal outcome, and only when the workflow reached
     implementation, dispatch `agentbox-retro` once with a sanitized record:
     stage outcomes, state transitions, gate results, review and fix cycles,
@@ -443,11 +644,12 @@ merge risk from open `blocker` and `major` findings.
 
 ## Worker runtimes
 
-Dispatch a self-contained task spec to a worker of the selected type. Record
-the runtime, agent, model, worker identifier, worktree, and commit in the
-state record for every stage, plus the effort actually applied: a concrete
-level for Orca, and `not-applicable` for AgentBox, which has no effort
-control.
+Dispatch a self-contained task spec to a worker of the selected type. Start
+the worker agent itself; never wrap a stage in another agent that launches it.
+Record the runtime, agent, model, worker identifier or terminal handle,
+worktree, and commit in the state record for every stage, plus the effort
+actually applied: a concrete level for Orca, and `not-applicable` for
+AgentBox, which has no effort control.
 
 ### AgentBox worker loop
 
@@ -462,8 +664,10 @@ deadline. On completion or stall: `agentbox agent diff RUN_ID` and
 `agentbox agent logs RUN_ID` to review the changes and the outcome, then
 `agentbox agent sync RUN_ID` so the commits land in the host run worktree. The
 orchestrator verifies the synced branch, pushes it from the host, opens the
-pull request, and deletes the run with `agentbox agent delete RUN_ID`; never
-reuse a run for a second task.
+pull request, and keeps the run and its worktree until the stage evidence is
+captured and the final report is delivered. Honor an explicit request to keep
+the run; otherwise delete it with `agentbox agent delete RUN_ID` after the
+final report. Never reuse a run for a second task.
 
 For verify and review, never dispatch with `--project`: that uses the
 registered project's current checkout, whose HEAD may not be the pull request
@@ -483,20 +687,33 @@ agentbox agent start --profile PROFILE --source REVIEW_WORKTREE --gateway GATEWA
   --approval unattended
 ```
 
-Record the same full SHA in each stage entry, and remove each worktree after
-the stage returns.
+Record the same full SHA in each stage entry. Keep both worktrees until the
+verify and review evidence is captured and the final report is delivered;
+clean up afterwards unless the user asked to keep them.
 
 ### Orca worker
 
+Use an Orca-visible supervised worker by default. `--spec-file -` sends the
+stage spec to the worker as its own task; the worker is the stage agent and
+must not launch another agent.
+
 ```sh
 orca orchestration worker-start --worktree new-child --agent AGENT \
-  --model MODEL --effort EFFORT --spec-file - --json
+  --model MODEL --effort EFFORT --spec-file - --keep-open --json
 ```
 
-Then use `worker-show`, `worker-read`, and wait with a per-stage deadline.
-An Orca child worktree is a host process sharing host credentials, so it may
-commit, push, and open the pull request itself; the orchestrator validates
-the returned head SHA before review and still owns the merge.
+Record the returned worker handle, worktree, and branch, and report the handle
+to the user at stage start and completion. Follow it with `worker-show`,
+`worker-read`, and `worker-list` under a per-stage deadline. `--keep-open`
+retains the session; keep the worktree until the stage evidence is captured
+and the final report is delivered.
+
+An Orca child worktree is a host process sharing host credentials, so a host
+implementer may commit, push, and open the pull request itself; the
+orchestrator validates the returned head SHA before review and still owns the
+merge. When the user requires a harness profile, `worker-start` cannot apply
+it; use the visible terminal path in "Profile-bound Orca workers" below
+instead of dropping the profile.
 
 For verify and review, start each stage in its own fresh child worktree pinned
 to the full pull request head SHA. Never reuse the implementer's worktree or
@@ -506,16 +723,42 @@ the project checkout, whose HEAD may not be the pull request head:
 HEAD_SHA=$(gh pr view PR --json headRefOid --jq .headRefOid)
 orca orchestration worker-start --worktree new-child --base-branch "$HEAD_SHA" \
   --name ISSUE-verify --agent AGENT --model MODEL --effort EFFORT \
-  --spec-file - --json
+  --spec-file - --keep-open --json
 orca orchestration worker-start --worktree new-child --base-branch "$HEAD_SHA" \
   --name ISSUE-review --agent AGENT --model MODEL --effort EFFORT \
-  --spec-file - --json
+  --spec-file - --keep-open --json
 ```
 
 `--worktree new-child` with `--base-branch "$HEAD_SHA"` creates a separate
 fresh worktree for each command, so neither stage sees uncommitted state.
-Record the same full SHA in each stage entry and remove each worktree after
-the stage returns.
+Record the same full SHA and each worker handle in the stage entries. Keep
+both worktrees until the verify and review evidence is captured and the final
+report is delivered; clean up afterwards unless the user asked to keep them.
+
+#### Profile-bound Orca workers
+
+`orca orchestration worker-start`, `orca agent launch`, and
+`orca worktree create --agent` have no `--profile` flag. When the user
+requires a harness profile, create the checkout and then start the stage agent
+in a visible terminal:
+
+```sh
+orca worktree create --repo REPO --name ISSUE-verify \
+  --base-branch "$HEAD_SHA" --json
+orca terminal create --worktree name:ISSUE-verify --title ISSUE-verify \
+  --command "codex -p PROFILE -m MODEL" --json
+```
+
+Record the terminal handle, follow it with `orca terminal read`, and send the
+rendered stage spec with `orca terminal send`. The terminal command is the
+stage agent itself; do not start a second agent inside it. A non-interactive
+harness command inside that same visible terminal is allowed when the stage
+needs one, for example `codex -p PROFILE -m MODEL exec - < SPEC`; it is still
+the stage worker, and its output stays in the terminal or a durable log
+outside `/tmp`. If the selected harness has no supported profile-bound path
+under its normal sandbox and approval controls, set `blocked` with the exact
+unsupported selection. Never use `--dangerously-bypass-approvals-and-sandbox`
+or an equivalent to make the worker start.
 
 ### Harness agent roles
 
@@ -537,14 +780,22 @@ the tool limits and stage rules for its harness.
 Triage and retro render without a shell: Claude omits `Bash`, OpenCode denies
 the `shell` action, and Codex carries the rule as instruction text with a
 reported limitation, so neither role can reach the tracker or forge. The
-fixer has a shell and can commit, but only the orchestrator opens pull
-requests and writes to the tracker.
+fixer has a shell and can commit, but only a host implementer or the
+orchestrator opens the pull request, and only the orchestrator writes to the
+tracker.
 
 | Harness | Agent file | Invocation |
 | --- | --- | --- |
 | Codex | `~/.codex/agents/<role>.toml` | select the role as the subagent, or pass the role name in the spawn request |
 | Claude Code | `~/.claude/agents/<role>.md` | pass `<role>` as the subagent type |
 | OpenCode | `~/.config/opencode/agents/<role>.md` | select the subagent `<role>` |
+
+Start a stage role directly when the harness supports it: Claude runs
+`claude --agent agentbox-verifier` (or the role for the stage), and OpenCode
+runs `opencode run --agent agentbox-verifier` or selects that subagent. Codex
+dispatches the role as a subagent from a top-level session, because Codex has
+no top-level `--agent` switch. Never add a launcher agent whose only job is to
+start a stage role and relay its result.
 
 The controller role is not a stage. A user assigns it explicitly, it never
 starts itself, and it never dispatches another `agentbox-orchestrator`:
@@ -603,15 +854,33 @@ project checkout:
 ```sh
 HEAD_SHA=$(gh pr view PR --json headRefOid --jq .headRefOid)
 git -C REPO worktree add --detach VERIFY_WORKTREE "$HEAD_SHA"
-codex exec -C VERIFY_WORKTREE --model MODEL - < VERIFY_SPEC
+orca orchestration worker-start --worktree path:VERIFY_WORKTREE --agent codex \
+  --model MODEL --effort EFFORT --spec-file - --keep-open --json
 git -C REPO worktree add --detach REVIEW_WORKTREE "$HEAD_SHA"
+orca orchestration worker-start --worktree path:REVIEW_WORKTREE --agent codex \
+  --model MODEL --effort EFFORT --spec-file - --keep-open --json
+```
+
+For a harness role that must be selected directly, start it in a visible
+terminal in the same worktree instead, for example
+`orca terminal create --worktree path:VERIFY_WORKTREE --command "claude
+--agent agentbox-verifier" --json`. Substitute the harness's own role
+invocation where it is not Claude.
+
+A non-interactive harness command is a fallback, not the default. If one is
+unavoidable, run it in a visible terminal and keep its output there or in a
+durable log outside `/tmp`:
+
+```sh
+codex exec -C VERIFY_WORKTREE --model MODEL - < VERIFY_SPEC
 codex exec -C REVIEW_WORKTREE --model MODEL - < REVIEW_SPEC
 ```
 
-Substitute the harness's own non-interactive command where it is not Codex,
-and do not add the host repo or the implementer's worktree as an additional
-writable root. Record the same full SHA in each stage entry and remove each
-worktree after the stage returns.
+Do not add the host repo or the implementer's worktree as an additional
+writable root. Record the same full SHA and each worker or terminal handle in
+the stage entries. Keep both worktrees until the verify and review evidence is
+captured and the final report is delivered; clean up afterwards unless the
+user asked to keep them.
 
 ## Tracker adapter contract
 
@@ -661,9 +930,13 @@ tracker APIs directly for them.
 
 Report the issue number and state, the `workflow_id`, the recorded orchestrator
 runtime/agent/model/effort, the triage disposition, each stage's worker and
-commit, the branch and PR, gate results with commit SHAs, review verdicts with
-the open finding ledger and cycle count, each fix cycle's addressed finding ids,
-any retro proposals and created follow-ups, and the merge SHA. For stops, quote
-`blocked_reason`, the open ledger, and the single next action that unblocks the
-flow; at `review_cycles_max` that action is exactly one maintainer decision, not
-an open-ended instruction to keep iterating.
+commit, the tested launch path, the worker or terminal handle and worktree the
+user can inspect, the branch and PR, gate results with commit SHAs, review
+verdicts with the open finding ledger and cycle count, each fix cycle's
+addressed finding ids, any retro proposals and created follow-ups, and the
+merge SHA. State whether worktrees and sessions were retained or cleaned up.
+For stops, quote `blocked_reason`, the open ledger, the unsupported selection
+when a runtime, profile, model, or effort could not be honoured, and the single
+next action that unblocks the flow; at `review_cycles_max` that action is
+exactly one maintainer decision, not an open-ended instruction to keep
+iterating.

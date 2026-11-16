@@ -321,6 +321,8 @@ func TestEmbeddedRoleContracts(t *testing.T) {
 		"`questions`",
 		"`risks`",
 		"The orchestrator, not you, applies every label and state change",
+		"without adding another workflow label",
+		"single action that unblocks it",
 	)
 
 	fixer, err := RoleByName("agentbox-fixer")
@@ -341,6 +343,7 @@ func TestEmbeddedRoleContracts(t *testing.T) {
 		"`gates`",
 		"`unresolved`",
 		"`blockers`",
+		"never launch another agent",
 	)
 
 	retro, err := RoleByName("agentbox-retro")
@@ -361,6 +364,7 @@ func TestEmbeddedRoleContracts(t *testing.T) {
 		"`context`",
 		"`acceptance_criteria`",
 		"`related`",
+		"skips you when triage rejected the issue or a preflight failure blocked the workflow before any work started",
 	)
 
 	orchestrator, err := RoleByName("agentbox-orchestrator")
@@ -379,6 +383,10 @@ func TestEmbeddedRoleContracts(t *testing.T) {
 		"or hand the workflow to another coordination layer",
 		"stop and report the exact missing capability",
 		"does not start a second orchestrator",
+		"Start each stage worker as the stage agent in a visible Orca worker or terminal",
+		"Never nest one agent inside another to run the same stage",
+		"never bypass a runtime's sandbox or approval controls",
+		"Retain worker sessions and worktrees until the stage evidence is captured and the final report is delivered",
 	)
 }
 

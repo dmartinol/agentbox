@@ -156,7 +156,9 @@ func TestOrchestratorSkillAgentBoxVerifyAndReviewUsePRHead(t *testing.T) {
 		`git -C REPO worktree add --detach REVIEW_WORKTREE "$HEAD_SHA"`,
 		"agentbox agent start --profile PROFILE --source VERIFY_WORKTREE --gateway GATEWAY",
 		"agentbox agent start --profile PROFILE --source REVIEW_WORKTREE --gateway GATEWAY",
-		"Record the same full SHA in each stage entry, and remove each worktree after the stage returns",
+		"Record the same full SHA in each stage entry",
+		"Keep both worktrees until the verify and review evidence is captured and the final report is delivered",
+		"clean up afterwards unless the user asked to keep them",
 	)
 }
 
@@ -173,7 +175,9 @@ func TestOrchestratorSkillOrcaVerifyAndReviewUsePRHead(t *testing.T) {
 		"--name ISSUE-verify --agent AGENT --model MODEL --effort EFFORT",
 		"--name ISSUE-review --agent AGENT --model MODEL --effort EFFORT",
 		"creates a separate fresh worktree for each command",
-		"Record the same full SHA in each stage entry and remove each worktree after the stage returns",
+		"Record the same full SHA and each worker handle in the stage entries",
+		"Keep both worktrees until the verify and review evidence is captured and the final report is delivered",
+		"clean up afterwards unless the user asked to keep them",
 	)
 	if got := strings.Count(body, `worker-start --worktree new-child --base-branch "$HEAD_SHA"`); got != 2 {
 		t.Fatalf("expected one pinned worktree per verify and review stage, got %d", got)
@@ -194,8 +198,10 @@ func TestOrchestratorSkillHarnessVerifyAndReviewUseDetachedWorktree(t *testing.T
 		`codex exec -C VERIFY_WORKTREE --model MODEL - < VERIFY_SPEC`,
 		`git -C REPO worktree add --detach REVIEW_WORKTREE "$HEAD_SHA"`,
 		`codex exec -C REVIEW_WORKTREE --model MODEL - < REVIEW_SPEC`,
-		"do not add the host repo or the implementer's worktree as an additional writable root",
-		"Record the same full SHA in each stage entry and remove each worktree after the stage returns",
+		"Do not add the host repo or the implementer's worktree as an additional writable root",
+		"Record the same full SHA and each worker or terminal handle in the stage entries",
+		"Keep both worktrees until the verify and review evidence is captured and the final report is delivered",
+		"clean up afterwards unless the user asked to keep them",
 	)
 }
 
@@ -213,22 +219,165 @@ func TestOrchestratorSkillGateDispatchRule(t *testing.T) {
 	}
 }
 
-// TestOrchestratorSkillForgeMatrix pins the single stage-aware capability
-// matrix and its consequences for sandbox and host workers.
-func TestOrchestratorSkillForgeMatrix(t *testing.T) {
+// TestOrchestratorSkillStageForgeMatrix pins the single stage-aware forge
+// matrix: one row per stage, no worker gains tracker authority, and only a
+// host implementer may open the pull request besides the orchestrator.
+func TestOrchestratorSkillStageForgeMatrix(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
-		"## Forge capability matrix",
-		"| Worker type | Can commit | Can push | Can open the PR | Can post comments or verdicts | Can merge or close |",
-		"| AgentBox sandbox worker | yes, local only | no | no | no | no |",
-		"| Orca child worktree (host) | yes | yes | yes | yes, except verdicts and state | no |",
-		"| Harness subagent (host) | yes | yes | yes | yes, except verdicts and state | no |",
-		"| Orchestrator | only when a worker cannot | only for a sandbox worker | only for a sandbox worker | yes, including verdicts and state | yes |",
+		"## Stage-aware forge matrix",
+		"| Stage | Worker | Local commit | Remote push | Open the PR | Workflow comments / verdicts | Merge / close | Tracker labels, state comment, issue close |",
+		"| triage | tracker-blind worker | no | no | no | no | no | no |",
+		"| plan | worker | no | no | no | no | no | no |",
+		"| implement (sandbox) | sandbox worker | yes, local only |",
+		"| implement (host) | Orca child worktree or harness host worker | yes | yes, only `orchestrator/<issue>-<slug>` | yes, with `pr.md` | no | no | no |",
+		"| fix (sandbox) | fixer |",
+		"| fix (host) | fixer | yes | yes, only the existing pull request branch | no |",
+		"| verify | fresh worker | no | no | no | no; it returns gates and observations |",
+		"| review | fresh worker | no | no | no | no; it returns the verdict artifact |",
+		"| merge / close | orchestrator | no | no | no | yes | yes | yes |",
+		"| retro | tracker-blind worker | no | no | no | no | no | no |",
 		"the orchestrator syncs the run into the host worktree, verifies the branch head, pushes it, and opens the pull request",
 		"it may commit, push, and open the pull request itself",
 		"a push somewhere other than `orchestrator/<issue>-<slug>` is a blocked outcome",
-		"merge, close, the state comment, and review verdicts remain orchestrator-authored",
-		"A reviewer returns its verdict artifact; the orchestrator posts it",
+		"No worker gains tracker authority, including a capable host implementer",
+		"opening the pull request is the only implement-stage forge write a host worker may perform",
+		"**Triage, plan, and retro:** they perform no forge or tracker writes",
+	)
+	if strings.Contains(body, "## Forge capability matrix") {
+		t.Fatal("forge ownership still uses the old worker-type capability matrix")
+	}
+	if strings.Contains(body, "orchestrator remains the only PR creator") {
+		t.Fatal("forge ownership still claims the orchestrator is the only PR creator")
+	}
+}
+
+// TestOrchestratorSkillLaunchTopology pins the controller/worktree/worker
+// distinction and the supported direct-start paths, so no extra launcher hop
+// is documented as the default.
+func TestOrchestratorSkillLaunchTopology(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"## Launch topology and visibility (MUST)",
+		"the **controller**: the agent session that runs this skill",
+		"the **worktree**: an Orca-managed checkout of a branch at a path; creating one starts no agent and runs no prompt",
+		"the **worker**: the agent process launched inside a worktree to run one stage",
+		"Creating a worktree is preparation, not dispatch",
+		"Do not start an agent and then have that agent launch a second non-interactive agent process to do the same stage",
+		"That nested launch adds a hop, hides the real worker, and makes its output unobservable",
+		"| Claude Code | `claude --agent agentbox-orchestrator` | one process; no launcher |",
+		"| OpenCode | `opencode run --agent agentbox-orchestrator`, or select the primary agent in a session | one process; no launcher |",
+		"| Codex | ask the top-level session to use the `agentbox-orchestrator` custom agent | top-level parent plus controller subagent; Codex has no top-level `--agent` switch |",
+		"| Orca | `--agent` selects only the host runtime; assign the role through the started harness | runtime plus harness role assignment |",
+		"Start the assigned controller directly when the harness supports it",
+		"Do not add a launcher session whose only job is to spawn the controller and relay its answer",
+		"keep that parent lightweight and visible",
+		"hidden non-interactive process whose output exists only in a temporary file",
+		"never pass `agentbox-orchestrator` as the `--agent` runtime ID",
+		"assign the custom role afterwards through that harness",
+		"documented limitation. Start that harness directly",
+	)
+}
+
+// TestOrchestratorSkillRuntimeProfileConstraints pins the tested Orca paths
+// and the rule that an unavailable profile or model is a blocker, not a silent
+// downgrade.
+func TestOrchestratorSkillRuntimeProfileConstraints(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"### Runtime, profile, and model constraints",
+		"A profile is a harness-level setting, not an Orca runtime ID",
+		"`orca orchestration worker-start` and `orca agent launch` accept `--model` and `--effort` but have no `--profile` flag",
+		"They cannot apply a Codex profile",
+		"`orca worktree create --agent ... --model ... --effort ...` creates the checkout and starts the agent, but it also cannot set a harness profile",
+		`orca terminal create --worktree <selector> --title "<stage>" --command "codex -p PROFILE -m MODEL" --json`,
+		"Record the returned terminal handle, follow it with `orca terminal read`",
+		"Never drop a requested profile, model, effort, or runtime to make a worker start",
+		"set `blocked` with the exact unsupported selection and the single action that unblocks the flow",
+	)
+}
+
+// TestOrchestratorSkillWorkerVisibilityAndRetention pins the default visible
+// worker path, the stage updates a user can follow, and retention until the
+// final report.
+func TestOrchestratorSkillWorkerVisibilityAndRetention(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"### Worker visibility, retention, and cleanup",
+		"When Orca is selected for workers, the default worker path is an Orca-visible supervised worker or terminal",
+		"not a headless `codex exec` whose only output is redirected to a temporary file",
+		"Start each Orca stage with `orca orchestration worker-start ... --json` and record the returned worker handle, worktree, and branch",
+		"Report a stage-start update with the stage, worktree, branch, and worker or terminal handle",
+		"Report completion or a blocker with the same handle and the evidence location",
+		"`orca orchestration worker-show`, `orca orchestration worker-read`, `orca terminal read`, or `orca worktree show`",
+		"keep a durable log outside `/tmp`",
+		"`~/.agentbox/orchestrator/<workflow_id>/<stage>.log`",
+		"never make a temporary log the only way to follow the worker",
+		"Retain every worker session and worktree until the stage evidence is captured and the final report is delivered",
+		"Honour an explicit request to keep them",
+		"clean up only after the final report",
+		"never delete a branch whose commit SHA is not recorded",
+	)
+}
+
+// TestOrchestratorSkillSafetyAndWorktreeCreation pins the no-bypass rule and
+// the create-verification sequence that prevents duplicate worktrees after an
+// ambiguous wrapper response.
+func TestOrchestratorSkillSafetyAndWorktreeCreation(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"Never bypass sandbox or approval controls",
+		"`--dangerously-bypass-approvals-and-sandbox`, `--yolo`, or an equivalent to make a stage run",
+		"One stage is one agent process",
+		"### Worktree creation verification",
+		"Read the worktree path from the raw create response, not from a display or projection layer",
+		"Confirm the path exists and that `orca worktree list` or `git worktree list` contains it before recording the handle",
+		"If the response is missing a path or cannot be confirmed, do not issue a second create",
+		"a missing field is ambiguous, not a failure",
+		"If it still cannot be confirmed, set `blocked` with the exact response and the next inspection step",
+		"Never retry a create with a new name or stage suffix until the first outcome is resolved. One stage gets one worktree",
+	)
+}
+
+// TestOrchestratorSkillStageRoleContracts pins the complete triage, fixer, and
+// retro inputs, outputs, tool limits, and stage placement.
+func TestOrchestratorSkillStageRoleContracts(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"## Stage role contracts",
+		"| triage | `agentbox-triage` |",
+		"| fix | `agentbox-fixer` |",
+		"| retro | `agentbox-retro` |",
+		"issue title, body, labels, and relevant comments; repository scope and policy; duplicate-search results; preflight and environment checks",
+		"`decision`, `reason`, `evidence`, `questions`, and `risks` covering unresolved assumptions",
+		"no tracker or forge access, no shell, no writes; uses only the supplied snapshot",
+		"current pull request head; relevant diff; acceptance criteria; accepted open `blocker` and `major` findings with stable ledger ids; required gates",
+		"addressed finding ids with evidence, full commit SHA and changed paths, gate results, unresolved findings, and blockers",
+		"own worktree only; no tracker access; no PR creation, merge, close, or verdict",
+		"sanitized workflow record",
+		"zero or more drafts, each with `observation`, `evidence`, `impact` (user impact or recurrence risk), `context`, `acceptance_criteria`, and `related`",
+		"post-terminal only; never infers a cross-run pattern from one workflow",
+		"`needs-info` leaves the issue open",
+		"resumes triage after a response",
+		"The fixer addresses only those findings",
+		"Verification and an independent review run again on the fixer's resulting head before merge",
+		"Skip it when triage rejected the issue or a preflight blocked the workflow before any work started",
+		"Retro never blocks merge or close",
+		"orchestrator scope-checks and deduplicates every draft before creating any follow-up",
+	)
+}
+
+// TestOrchestratorSkillNoNestedWorker pins the single-agent-per-stage rule for
+// workers and the no-relay-launcher rule for direct harness roles.
+func TestOrchestratorSkillNoNestedWorker(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"Do not start an agent and then have that agent launch a second non-interactive agent process",
+		"A worker performs the stage itself and never launches another agent or a nested non-interactive agent for the same work",
+		"The worker performs the stage itself and never launches another agent or a nested non-interactive agent for the same work",
+		"The terminal command is the stage agent itself; do not start a second agent inside it",
+		"it is still the stage worker",
+		"Never add a launcher agent whose only job is to start a stage role and relay its result",
 	)
 }
 
@@ -734,5 +883,10 @@ func TestOrchestratorSkillDocumentsRoleAssignment(t *testing.T) {
 		"a shell-based source write remains instruction-only",
 		"never starts itself",
 		"never dispatches another `agentbox-orchestrator`",
+		"Start a stage role directly when the harness supports it",
+		"claude --agent agentbox-verifier",
+		"opencode run --agent agentbox-verifier",
+		"Codex dispatches the role as a subagent from a top-level session",
+		"Never add a launcher agent whose only job is to start a stage role and relay its result",
 	)
 }

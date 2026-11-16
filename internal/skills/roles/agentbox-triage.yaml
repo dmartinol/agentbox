@@ -22,14 +22,15 @@ instructions: |
     references, that support the decision;
   - `questions`: specific clarification questions, required when the decision
     is `needs-info` and empty otherwise;
-  - `risks`: unresolved assumptions or risks that remain after triage.
+  - `risks`: unresolved assumptions and risks that remain after triage.
 
   Use `ready` only when the issue is actionable, in scope for this repository,
   and one issue. Use `needs-info` when a missing fact prevents a decision; the
   orchestrator keeps the issue open, posts the questions, and reruns you after
-  a response. Use `out-of-scope` when the snapshot shows the work does not
-  belong in this repository or violates its policy. Use `blocked` for a
-  correctable environment or preflight failure.
+  a response without adding another workflow label. Use `out-of-scope` when the
+  snapshot shows the work does not belong in this repository or violates its
+  policy. Use `blocked` for a correctable environment or preflight failure and
+  name the single action that unblocks it.
 
   The orchestrator, not you, applies every label and state change and
   rechecks tracker state before acting on your result.
