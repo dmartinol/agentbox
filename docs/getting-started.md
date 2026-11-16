@@ -82,11 +82,16 @@ agentbox profile create \
   --provider my-gateway \
   --base-url https://models.example.com/v1 \
   --api-key-env MODEL_GATEWAY_KEY \
-  --approval prompted \
   codex-gateway
 ```
 
 Replace `REPLACE_VERSION` with the version shown by `agentbox image list`. Make sure the named credential variable is available to the OpenShell gateway process. Leave `--policy` out to create and use the profile's default policy.
+
+New profiles default to `approval: unattended`, which runs without permission
+prompts. Add `--approval prompted` when creating a profile if you want
+interactive permission prompts. The default applies only at profile creation:
+existing profiles and runs keep their recorded approval, and an explicit
+`agent start --approval` overrides the profile for one run only.
 
 See [the OpenShell architecture guide](architecture/) for provider types, direct-provider profiles, gateway configuration, and policy behavior.
 

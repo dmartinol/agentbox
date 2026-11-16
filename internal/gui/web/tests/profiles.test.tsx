@@ -276,3 +276,26 @@ describe('profile image selection', () => {
     expect(savedProfiles[0]?.image).toBe('localhost/openshell:codex-1.0.0-r3');
   });
 });
+
+describe('profile approval defaults', () => {
+  it('creates profiles with unattended approval and an explicit no-prompt label', async () => {
+    const { savedProfiles } = setupApi({ profiles: [], policies: [sharedPolicy] });
+    const user = await openCreate();
+    const approval = screen.getByRole('combobox', { name: 'Approval' });
+
+    expect(approval).toHaveValue('unattended');
+    expect(within(approval).getByRole('option', { name: 'unattended — no permission prompts' })).toBeInTheDocument();
+
+    await fillRequiredFields(user);
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(savedProfiles).toHaveLength(1));
+    expect(savedProfiles[0]?.approval).toBe('unattended');
+  });
+
+  it('keeps prompted approval when editing an existing profile', async () => {
+    setupApi({ profiles: [profile], policies: [sharedPolicy] });
+    await openEdit(profile);
+
+    expect(screen.getByRole('combobox', { name: 'Approval' })).toHaveValue('prompted');
+  });
+});

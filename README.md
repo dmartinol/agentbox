@@ -365,7 +365,6 @@ Then create a profile that uses the provider:
   --base-url https://models.example.com/v1 \
   --api-key-env MY_GATEWAY_KEY \
   --provider my-gateway \
-  --approval unattended \
   codex-gateway
 ```
 
@@ -374,6 +373,15 @@ If `--policy` is omitted, AgentBox creates and references a default policy at
 Policy field blank to get the same behavior; existing profiles that still use
 the old `~/.agentbox/policies/...` reference are migrated automatically when
 the profile list is loaded.
+
+New profiles default to `approval: unattended` (no permission prompts) from
+both `profile create` and the GUI. Pass `--approval prompted` to keep
+interactive permission prompts. The default applies only at creation: existing
+profiles and runs keep their recorded approval, and
+`agent start --approval prompted|unattended` overrides the profile for one run.
+The GUI run-start override is prefilled from the selected profile. Unattended
+runs still require an effective policy with hard Landlock enforcement and
+verified network policy.
 
 `--base-url` is the OpenAI-compatible API base (typically ending in `/v1`).
 `--api-key-env` names the environment variable that holds the gateway key in

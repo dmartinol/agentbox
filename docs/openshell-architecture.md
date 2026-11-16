@@ -183,6 +183,22 @@ An AgentBox profile selects:
 - policy;
 - optional model API base URL and credential environment name.
 
+### Approval defaults
+
+New profiles created through the CLI or GUI default to
+`approval: unattended`. This is a creation-time default only: AgentBox does not
+migrate or rewrite existing profile approvals, and run records keep the
+approval snapshot captured when the run started.
+
+At run startup, an explicit per-run approval override takes precedence over the
+profile approval. Otherwise the run uses the profile's approval. `prompted`
+keeps interactive permission prompts and rejects agent permission-bypass flags.
+`unattended` uses the agent's non-interactive permission flags, but AgentBox
+still creates the OpenShell sandbox with its manual approval mode and verifies
+the effective policy. An unattended run is refused unless the effective policy
+keeps `hard_requirement` Landlock compatibility and includes
+`network_policies`.
+
 ### Standard mode
 
 Standard mode uses a direct provider such as `openai` or `anthropic`.

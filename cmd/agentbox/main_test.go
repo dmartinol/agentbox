@@ -116,6 +116,40 @@ func TestVersionOutputIsParseable(t *testing.T) {
 	}
 }
 
+func TestProfileCreateDefaultsToUnattendedApproval(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	a := &app.App{Store: store, Runner: &appfakeRunner{}}
+	if _, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{
+			"profile", "create", "--agent", "codex", "--provider", "unit-provider", "default-approval",
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	created, err := store.LoadProfile("default-approval")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.DefaultApproval != "unattended" || created.Approval != app.DefaultApproval {
+		t.Fatalf("default profile approval = %q; want unattended", created.Approval)
+	}
+
+	if _, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{
+			"profile", "create", "--agent", "codex", "--provider", "unit-provider", "--approval", "prompted", "prompted-profile",
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	explicit, err := store.LoadProfile("prompted-profile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explicit.Approval != "prompted" {
+		t.Fatalf("explicit profile approval = %q; want prompted", explicit.Approval)
+	}
+}
+
 func TestSkillsInstallListAndShow(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

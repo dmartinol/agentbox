@@ -37,6 +37,10 @@ type Profile struct {
 	Args      []string `yaml:"args,omitempty" json:"args,omitempty"`
 }
 
+// DefaultApproval is the approval mode assigned to newly created profiles.
+// Existing profiles and runs retain the approval recorded in their records.
+const DefaultApproval = "unattended"
+
 func (p Profile) Validate() error {
 	if p.Version != 1 || !safeName.MatchString(p.Name) {
 		return fmt.Errorf("profile needs version 1 and a lower-case name")
