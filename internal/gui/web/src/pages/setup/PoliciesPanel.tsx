@@ -27,6 +27,8 @@ export function PoliciesPanel() {
   const [editorName, setEditorName] = useState('');
   const [editorContent, setEditorContent] = useState('');
   const [busy, setBusy] = useState<string>();
+  const [runPolicyView, setRunPolicyView] = useState<{ title: string; path: string; content: string } | null>(null);
+  const [runPolicyBusy, setRunPolicyBusy] = useState('');
   const [deletePolicy, setDeletePolicy] = useState<PolicyConfiguration | null>(null);
   const [deleteError, setDeleteError] = useState('');
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -56,6 +58,18 @@ export function PoliciesPanel() {
       setError(err as Error);
     } finally {
       setBusy(undefined);
+    }
+  };
+
+  const viewRunPolicy = async (run: Run) => {
+    setRunPolicyBusy(run.id);
+    try {
+      const result = await api.runPolicyContent(run.id);
+      setRunPolicyView({ title: run.name || run.id, path: result.path, content: result.content });
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setRunPolicyBusy('');
     }
   };
 
@@ -118,6 +132,37 @@ export function PoliciesPanel() {
         </Table>
       )}
 
+      {loading ? null : (
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-1">
+          <h3 className="text-sm font-semibold">Agent run policies</h3>
+          <span className="text-xs text-muted">Each run copies a reusable policy at start; later edits stay on that run.</span>
+        </div>
+        {runs.length === 0 ? (
+          <EmptyState title="No agent runs" description="A run's policy copy appears here after the agent starts." />
+        ) : (
+          <Table>
+            <THead><TR><TH className="w-[28%]">Run</TH><TH className="w-[12%]">Agent</TH><TH>Policy</TH><TH className="w-[14%]">Actions</TH></TR></THead>
+            <TBody>
+              {runs.map((run) => (
+                <TR key={run.id}>
+                  <TD className="truncate font-medium">{run.name || run.id}</TD>
+                  <TD className="truncate text-muted">{run.agent}</TD>
+                  <TD className="truncate font-mono text-xs text-muted">
+                    {run.policy}
+                    {run.pending_policy ? <div className="truncate text-warning">Pending for next sandbox: {run.pending_policy}</div> : null}
+                  </TD>
+                  <TD>
+                    <Button size="xs" variant="ghost" loading={runPolicyBusy === run.id} onClick={() => void viewRunPolicy(run)}>View</Button>
+                  </TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        )}
+      </div>
+      )}
+
       <Modal open={createOpen} onOpenChange={setCreateOpen} title="Create policy" footer={<><Button variant="ghost" onClick={() => setCreateOpen(false)}>Cancel</Button><Button loading={busy === 'create'} onClick={() => void action('create', async () => { await api.createPolicy(createName); setCreateOpen(false); }, 'Policy created')}>Create</Button></>}>
         <Field label="Name" htmlFor="policy-name" required><Input id="policy-name" value={createName} onChange={(event) => setCreateName(event.target.value)} /></Field>
       </Modal>
@@ -147,6 +192,21 @@ export function PoliciesPanel() {
 
       <Modal open={editorOpen} onOpenChange={setEditorOpen} title={`Edit ${editorName}`} className="w-[min(94vw,56rem)]" footer={<><Button variant="ghost" onClick={() => setEditorOpen(false)}>Cancel</Button><Button loading={busy === 'save'} onClick={() => void action('save', async () => { await api.savePolicyContent(editorName, editorContent); setEditorOpen(false); }, 'Policy saved')}>Save</Button></>}>
         <Textarea aria-label="Policy YAML" rows={20} value={editorContent} onChange={(event) => setEditorContent(event.target.value)} />
+      </Modal>
+
+      <Modal
+        open={Boolean(runPolicyView)}
+        onOpenChange={(open) => { if (!open) setRunPolicyView(null); }}
+        title={runPolicyView ? `Run policy · ${runPolicyView.title}` : 'Run policy'}
+        className="w-[min(94vw,56rem)]"
+        footer={<Button onClick={() => setRunPolicyView(null)}>Close</Button>}
+      >
+        {runPolicyView ? (
+          <div className="space-y-2">
+            <div className="break-all font-mono text-xs text-muted">{runPolicyView.path}</div>
+            <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface/50 p-2 font-mono text-xs leading-4">{runPolicyView.content}</pre>
+          </div>
+        ) : null}
       </Modal>
 
       <ConfirmDialog

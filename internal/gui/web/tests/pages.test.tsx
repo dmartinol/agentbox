@@ -5,6 +5,7 @@ import { App } from '../src/App';
 import { ProvidersPanel } from '../src/pages/setup/ProvidersPanel';
 import { ProfilesPanel } from '../src/pages/setup/ProfilesPanel';
 import { McpPanel } from '../src/pages/setup/McpPanel';
+import { PoliciesPanel } from '../src/pages/setup/PoliciesPanel';
 import { SkillsPanel } from '../src/pages/setup/SkillsPanel';
 import { mcps, overview, providers, runs, skillEntries, skillStatus } from './fixtures';
 
@@ -82,6 +83,7 @@ function defaultRoutes(): Record<string, unknown> {
     'POST /api/runs/run-active/shells/shell-1/delete': { deleted: true },
     'GET /api/runs/run-active/diff': { diff: 'diff --git a/file b/file' },
     'GET /api/runs/run-active/policy': { effective: { version: 1 } },
+    'GET /api/runs/run-active/policy/content': { path: '/policies/run-active.yaml', content: 'version: 1\nnetwork_policies: {}\n' },
     'GET /api/runs/run-active': runs[0],
     'POST /api/providers/model-gateway/update': { ok: true },
     'POST /api/providers/unused-gateway/delete?gateway=openshell': { deleted: true }
@@ -362,6 +364,28 @@ describe('setup sheet', () => {
     expect(await screen.findByText('model-gateway')).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: 'Profiles' }));
     expect(await screen.findByText('codex-default')).toBeInTheDocument();
+  });
+});
+
+describe('policies panel', () => {
+  it('lists run policy copies and shows their YAML', async () => {
+    mockRoutes({
+      'GET /api/policies': [{ name: 'codex-default', path: '/policies/codex-default.yaml', used_by: ['codex-default'] }],
+      'GET /api/runs': runs,
+      'GET /api/runs/run-active/policy/content': {
+        path: '/policies/run-active.yaml',
+        content: 'version: 1\nnetwork_policies:\n  host-api-example-com: {}\n'
+      }
+    });
+    const user = userEvent.setup();
+    render(<PoliciesPanel />);
+    expect((await screen.findAllByText('codex-default')).length).toBeGreaterThan(0);
+    expect(screen.getByText('Agent run policies')).toBeInTheDocument();
+    const row = screen.getByText('/policies/run-active.yaml').closest('tr');
+    if (!row) throw new Error('run policy row missing');
+    await user.click(within(row).getByRole('button', { name: 'View' }));
+    expect(await screen.findByText(/Run policy · active-run/)).toBeInTheDocument();
+    expect(screen.getByText(/host-api-example-com/)).toBeInTheDocument();
   });
 });
 
@@ -970,7 +994,11 @@ describe('allow host', () => {
   it('posts only the trimmed host and reports a live apply', async () => {
     mockRoutes({
       ...defaultRoutes(),
-      'POST /api/runs/run-active/policy/host': { outcome: 'live-applied', diff: '--- current\n+++ proposed\n+host-api-example-com' }
+      'POST /api/runs/run-active/policy/host': {
+        outcome: 'live-applied',
+        diff: '--- current\n+++ proposed\n+host-api-example-com',
+        policyPath: '/policies/run-active.yaml'
+      }
     });
     const user = userEvent.setup();
     const dialog = await openDialog(user);
@@ -978,6 +1006,11 @@ describe('allow host', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Allow host' }));
     expect(await within(dialog).findByText('Network rule applied live')).toBeInTheDocument();
     expect(within(dialog).getByText(/host-api-example-com/)).toBeInTheDocument();
+    expect(within(dialog).getByText('/policies/run-active.yaml')).toBeInTheDocument();
+    expect(within(dialog).getByText('Close')).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: 'Allow another host' })).toBeEnabled();
+    expect(within(dialog).queryByRole('button', { name: 'Allow host' })).toBeNull();
+    expect(within(dialog).getByLabelText(/^Host/)).toBeDisabled();
     const call = vi.mocked(fetch).mock.calls.find(([input, init]) =>
       input.toString() === '/api/runs/run-active/policy/host' && init?.method === 'POST'
     );
@@ -1044,7 +1077,7 @@ describe('allow host', () => {
     expect(await within(dialog).findByText('Network rule applied live')).toBeInTheDocument();
   });
 
-  it('refreshes fleet and policy data after success', async () => {
+  it('refreshes the fleet after success without opening the policy drawer', async () => {
     let overviewCalls = 0;
     let policyCalls = 0;
     mockRoutes({
@@ -1060,6 +1093,43 @@ describe('allow host', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Allow host' }));
     expect(await within(dialog).findByText('Network rule applied live')).toBeInTheDocument();
     await waitFor(() => expect(overviewCalls).toBeGreaterThan(baselineOverview));
-    expect(policyCalls).toBeGreaterThan(0);
+    expect(policyCalls).toBe(0);
+    expect(screen.queryByText(/Policy · active-run/)).toBeNull();
+  });
+
+  it('opens the policy drawer only when View policy is clicked', async () => {
+    let policyCalls = 0;
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/runs/run-active/policy': () => { policyCalls += 1; return { effective: { version: 1 } }; },
+      'POST /api/runs/run-active/policy/host': { outcome: 'live-applied', diff: '--- diff' }
+    });
+    const user = userEvent.setup();
+    const dialog = await openDialog(user);
+    await user.type(within(dialog).getByLabelText(/^Host/), 'api.example.com');
+    await user.click(within(dialog).getByRole('button', { name: 'Allow host' }));
+    await within(dialog).findByText('Network rule applied live');
+    await user.click(within(dialog).getByRole('button', { name: 'View policy' }));
+    expect(await screen.findByText(/Policy · active-run/)).toBeInTheDocument();
+    await waitFor(() => expect(policyCalls).toBe(1));
+    expect(screen.queryByText('Network rule applied live')).toBeNull();
+  });
+
+  it('resets to a fresh form with Allow another host', async () => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/runs/run-active/policy/host': { outcome: 'live-applied', diff: '--- diff' }
+    });
+    const user = userEvent.setup();
+    const dialog = await openDialog(user);
+    const input = within(dialog).getByLabelText(/^Host/);
+    await user.type(input, 'api.example.com');
+    await user.click(within(dialog).getByRole('button', { name: 'Allow host' }));
+    await within(dialog).findByText('Network rule applied live');
+    await user.click(within(dialog).getByRole('button', { name: 'Allow another host' }));
+    expect(within(dialog).queryByText('Network rule applied live')).toBeNull();
+    expect(within(dialog).getByLabelText(/^Host/)).toHaveValue('');
+    expect(within(dialog).getByLabelText(/^Host/)).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: 'Allow host' })).toBeDisabled();
   });
 });
