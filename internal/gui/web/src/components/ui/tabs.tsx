@@ -4,7 +4,7 @@ import { cn } from '../../lib/utils';
 
 export function TabList({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <Tabs.List className={cn('flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-2', className)}>
+    <Tabs.List className={cn('flex min-h-9 shrink-0 flex-wrap items-center gap-1 border-b border-border px-2 py-1', className)}>
       {children}
     </Tabs.List>
   );

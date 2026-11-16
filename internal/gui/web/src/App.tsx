@@ -37,13 +37,13 @@ export function App() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-surface px-3">
+      <header className="flex min-h-11 shrink-0 flex-wrap items-center gap-3 border-b border-border bg-surface px-3 py-1">
         <img src="/agentbox-logo.svg" alt="AgentBox" className="h-6 w-auto" />
-        <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted">
+        <div className="hidden min-w-0 items-center gap-1.5 text-sm text-muted sm:flex">
           <Activity className="size-3.5 text-info" />
           OpenShell fleet
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <ThemeToggle />
           <Badge tone={failed === 0 ? 'success' : failed > 1 ? 'danger' : 'warning'}>
             Doctor {failed === 0 ? 'OK' : `${failed} issue${failed === 1 ? '' : 's'}`}

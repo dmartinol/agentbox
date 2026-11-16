@@ -32,12 +32,12 @@ export function Modal({
         <Dialog.Content
           onEscapeKeyDown={onEscapeKeyDown}
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[min(92vw,44rem)] -translate-x-1/2 -translate-y-1/2',
+            'fixed left-1/2 top-1/2 z-50 flex max-h-[88vh] w-[min(92vw,44rem)] -translate-x-1/2 -translate-y-1/2 flex-col',
             'overflow-hidden rounded-xl border border-border bg-background shadow-2xl',
             className
           )}
         >
-          <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3">
             <div className="min-w-0">
               <Dialog.Title className="truncate text-sm font-semibold">{title}</Dialog.Title>
               {description ? <Dialog.Description className="mt-1 text-sm text-muted">{description}</Dialog.Description> : null}
@@ -46,8 +46,8 @@ export function Modal({
               <Button variant="ghost" size="icon" aria-label="Close"><X className="size-4" /></Button>
             </Dialog.Close>
           </div>
-          <div className={cn('max-h-[64vh] overflow-y-auto px-4 py-3 agentbox-scrollbar', bodyClassName)}>{children}</div>
-          {footer ? <div className="flex justify-end gap-2 border-t border-border px-4 py-3">{footer}</div> : null}
+          <div className={cn('min-h-0 flex-1 overflow-y-auto px-4 py-3 agentbox-scrollbar', bodyClassName)}>{children}</div>
+          {footer ? <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-4 py-3">{footer}</div> : null}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

@@ -1,0 +1,64 @@
+# GUI screen inventory and detail hierarchy
+
+This document records how Fleet and Setup divide scan-level content from
+on-demand detail. Keep it current when a screen changes. The general review
+checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
+
+## Shared patterns
+
+- **Scan row**: identity, status, blockers, and one primary action.
+- **Row-detail transition**: selecting an agent opens the 24rem detail panel;
+  on narrow screens the same panel becomes a bottom sheet with an explicit close
+  button. Do not create a second detail implementation. Opening the output
+  drawer on a narrow screen dismisses the detail sheet instead of stacking two
+  overlays.
+- **Expandable value**: long paths, IDs, references, and lists shorten in the
+  middle and reveal their full value inline. Every value has a copy control and
+  remains selectable.
+- **Disclosure**: resolved defaults, dependency explanations, and diagnostic
+  output sit behind a native `<details>`/`<summary>` pair.
+- **Output drawer**: logs, diffs, policies, and task output share one bottom
+  drawer with distinct loading, empty, error, and content states. ANSI control
+  sequences are normalized before display.
+- **Action hierarchy**: one visible primary action; secondary actions grouped by
+  task; destructive actions separated and named.
+- **Responsive tables**: when a table's own container is narrower than 960px it
+  becomes stacked cards with visible field labels. Wider containers keep the
+  same DOM as a table, so there is no duplicate markup or duplicate action
+  cluster. The container query, rather than a viewport width, also accounts for
+  the Fleet detail sidebar and the Setup sheet.
+
+## Fleet and agent flows
+
+| Surface | Scan level | Detail reveal | Narrow layout |
+| --- | --- | --- | --- |
+| Fleet toolbar | Search, project filter, Needs You count, refresh, New agent | — | Wrapping rows; search and filter span the width |
+| Project group | Project name, counts, Workspace entry | Agent rows | Wrapping header badges and actions |
+| Agent row | Name, type, status, sync, branch, primary action | Details button opens the detail panel | Stacked cells with labels; primary and secondary actions wrap |
+| Agent detail panel | Identity, status, project | Open, Manage, and destructive action groups; expandable metadata | Bottom sheet with close control; same grouped actions |
+| Workspace | Project, agent tabs, shell tabs | Terminal or cached log tail | Horizontally scrollable tabs; terminal fills the surface |
+| New agent | Project, profile, gateway, name, MCP, skills, prompt | Resolved image/model/provider/approval disclosure; optional overrides | Single-column form; actions wrap |
+| Logs / diff / policy drawer | Title and task status | Full output with copy action | Full-width drawer; text wraps and scrolls |
+
+## Setup tabs
+
+| Tab | Scan level | Detail reveal | Narrow layout |
+| --- | --- | --- | --- |
+| Providers | Name, type, credential-env name, usage count | Full credential names, full usage lists, edit/delete | Stacked rows with labels |
+| Profiles | Name, agent, mode, model, provider | Expandable model, edit/delete | Stacked rows with labels |
+| Projects | Name, isolation | Expandable Git root, edit/delete | Stacked rows with labels |
+| Images | Reference, agent, version, recipe, platform | Expandable reference, delete; registry matches | Stacked rows with labels |
+| Gateways | Name, status, type | Expandable endpoint, inspect payload, remove | Stacked rows; toolbar wraps |
+| Policies | Name, usage count | Expandable path, add host, apply, edit, delete; run-policy copies | Stacked rows with labels |
+| MCP Tools | Name, agent, server names | Expandable server list, edit/delete | Stacked rows; explanatory panel below |
+| Skills | Name, agent, skills, plugins | Expandable lists, role installations, edit/delete | Stacked rows; role table uses the same pattern |
+| Advanced | Worktree settings, Doctor summary | Doctor check disclosure with complete output, action, and copy | Single-column fields; check rows stack |
+
+## Dialog and state rules
+
+- Create/edit dialogs keep required inputs first; resolved or advanced values
+  belong in a disclosure. Destructive confirmations name the object, say what
+  is retained, and stay separate from secondary buttons.
+- Errors render in the dialog or drawer where the action happened.
+- Empty and loading states use explicit text, not an empty pane.
+- Status badges include text and a glyph; color is supplementary.

@@ -64,6 +64,42 @@ It is not a permanent fleet-management platform.
 - Run `npm --prefix internal/gui/web run build` after GUI changes and commit the
   resulting embedded assets.
 
+### Layout and accessibility checklist
+
+Use this during design and review. The screen inventory and the chosen
+summary-versus-detail pattern are recorded in
+[docs/gui-inventory.md](docs/gui-inventory.md).
+
+- Keep scan-level views focused on identity, status, blockers, and the primary
+  action. Move paths, IDs, dependency lists, resolved configuration, and raw
+  diagnostics into a disclosure, detail panel, or output drawer.
+- Never truncate an important value without a readable reveal and a copy or
+  select path. A tooltip alone is insufficient.
+- Choose a deliberate narrow-width layout (stacked rows, wrapping toolbars,
+  wrapping tabs). Nothing essential should overlap, clip, or require precision
+  horizontal scrolling. Check roughly 390px, 768px, and desktop widths.
+- Keep one primary action visible, group secondary actions, and separate and
+  name destructive actions. Avoid duplicate action clusters between a row and
+  its detail panel.
+- Preserve keyboard access and accessible names for controls, summaries, and
+  detail actions. Use semantic HTML and native elements before ARIA.
+- Render content for its type: normalize ANSI terminal output, wrap or scroll
+  long text, and pretty-print JSON/YAML. Keep loading, empty, and error states
+  visibly distinct from a blank result.
+- Keep status understandable from text as well as color, in both themes.
+
+References, used as guidance rather than conformance claims:
+
+- [Nielsen Norman Group: 10 usability heuristics](https://www.nngroup.com/articles/ten-usability-heuristics/)
+  — rules of thumb for system status, consistency, recognition, error
+  prevention, and minimalist design.
+- [W3C WCAG 2.2](https://www.w3.org/TR/WCAG22/) — accessibility reference for
+  reflow, contrast, keyboard access, and not relying on color alone. Do not
+  claim formal conformance without an audit.
+- [WAI-ARIA Authoring Practices Guide](https://www.w3.org/WAI/ARIA/apg/) —
+  informative widget and keyboard-interaction guidance; prefer semantic HTML
+  and native controls where they fit.
+
 ## Credential and configuration rules
 
 - Never log, serialize, or pass a secret value.

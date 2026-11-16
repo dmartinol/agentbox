@@ -6,6 +6,7 @@ import { Alert } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
 import { ActionButton } from '../../components/ui/action';
 import { ConfirmDialog } from '../../components/ui/confirm';
+import { ExpandableValue } from '../../components/ui/copy-value';
 import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input, Select } from '../../components/ui/input';
@@ -299,12 +300,12 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
           <TBody>
             {profiles.map((profile) => (
               <TR key={profile.name}>
-                <TD className="truncate font-medium">{profile.name}</TD>
-                <TD>{profile.agent}</TD>
-                <TD>{profile.mode}</TD>
-                <TD className="truncate font-mono text-xs text-muted">{profile.model || '—'}</TD>
-                <TD className="truncate">{profile.provider}</TD>
-                <TD>
+                <TD className="truncate font-medium"><span title={profile.name}>{profile.name}</span></TD>
+                <TD label="Agent">{profile.agent}</TD>
+                <TD label="Mode">{profile.mode}</TD>
+                <TD label="Model"><ExpandableValue value={profile.model || '—'} label={`model for ${profile.name}`} max={40} /></TD>
+                <TD label="Provider" className="truncate"><span title={profile.provider}>{profile.provider}</span></TD>
+                <TD label="Actions">
                   <div className="flex flex-wrap gap-1">
                     <Button size="xs" variant="ghost" onClick={() => openEdit(profile)}>Edit</Button>
                     <ActionButton

@@ -10,6 +10,7 @@ import { Field } from '../../components/ui/field';
 import { Input, Select } from '../../components/ui/input';
 import { Modal } from '../../components/ui/dialog';
 import { ConfirmDialog } from '../../components/ui/confirm';
+import { ExpandableValue } from '../../components/ui/copy-value';
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 
 const providerKinds = ['gateway-bearer', 'gateway-header'];
@@ -114,8 +115,8 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <Select aria-label="Provider gateway" className="w-40" value={gateway} onChange={(event) => { setGateway(event.target.value); setForm((current) => ({ ...current, gateway: event.target.value })); void load(event.target.value); }}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Select aria-label="Provider gateway" className="min-w-0 flex-1 sm:w-40 sm:flex-none" value={gateway} onChange={(event) => { setGateway(event.target.value); setForm((current) => ({ ...current, gateway: event.target.value })); void load(event.target.value); }}>
           {gatewayOptions.map((name) => <option key={name} value={name}>{name}</option>)}
         </Select>
         <Button size="sm" onClick={() => { setSetupError(''); setSetupOpen(true); }}>Set up provider</Button>
@@ -133,20 +134,36 @@ export function ProvidersPanel({ onChanged }: { onChanged?: () => void }) {
               return (
                 <TR key={`${provider.gateway ?? gateway}/${provider.name}`}>
                   <TD className="truncate font-medium">
-                    <span className="inline-flex items-center gap-1">
-                      {provider.name}
+                    <span className="inline-flex flex-wrap items-center gap-1">
+                      <span title={provider.name}>{provider.name}</span>
                       {provider.builtin ? <Badge tone="info">Built-in</Badge> : null}
                       {provider.builtin && provider.registered === false ? (
                         <Badge tone="warning" title={provider.error || `Set ${provider.credential ?? 'the credential environment'} in the environment where AgentBox and OpenShell run`}>Not registered</Badge>
                       ) : null}
                     </span>
+                    {provider.error ? (
+                      <span className="mt-1 block max-w-full text-xs font-normal text-warning">
+                        <ExpandableValue value={provider.error} label={`provider error for ${provider.name}`} max={40} mono={false} />
+                      </span>
+                    ) : null}
                   </TD>
-                  <TD className="truncate text-muted">{provider.type || '-'}</TD>
-                  <TD className="truncate font-mono text-xs">{provider.credential_keys?.length ? provider.credential_keys.join(', ') : provider.credential || '-'}</TD>
-                  <TD className="truncate">
-                    {usedCount ? <><Badge tone="warning">{usedCount}</Badge> <span className="text-muted">{provider.used_by?.join(', ')}</span></> : <span className="text-muted">—</span>}
+                  <TD label="Type" className="text-muted">{provider.type || '-'}</TD>
+                  <TD label="Credential">
+                    <ExpandableValue
+                      value={provider.credential_keys?.length ? provider.credential_keys.join(', ') : provider.credential || '—'}
+                      label={`credential for ${provider.name}`}
+                      max={36}
+                    />
                   </TD>
-                  <TD>
+                  <TD label="Used by">
+                    {usedCount ? (
+                      <span className="flex min-w-0 flex-wrap items-center gap-1">
+                        <Badge tone="warning">{usedCount}</Badge>
+                        <ExpandableValue value={provider.used_by?.join(', ')} label={`profiles using ${provider.name}`} max={40} mono={false} />
+                      </span>
+                    ) : <span className="text-muted">—</span>}
+                  </TD>
+                  <TD label="Actions">
                     <div className="flex gap-1">
                       <ActionButton
                         size="xs"

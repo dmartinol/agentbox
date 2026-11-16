@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CircleHelp, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal } from 'lucide-react';
+import { Bot, ChevronRight, CircleHelp, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal, X } from 'lucide-react';
 import { api } from '../api';
 import { approvalForProfile, approvalLabel, approvalOptions, defaultApproval } from '../approvals';
 import type { MCPTools, Overview, PolicyHostError, PolicyHostResponse, Profile, Run, SkillsEntry, StartRunRequest } from '../types';
@@ -14,6 +14,9 @@ import { Modal } from '../components/ui/dialog';
 import { ConfirmDialog } from '../components/ui/confirm';
 import { Table, TBody, TD, TH, THead, TR } from '../components/ui/table';
 import { AgentWorkspace } from '../components/AgentWorkspace';
+import { Disclosure } from '../components/ui/disclosure';
+import { ExpandableValue } from '../components/ui/copy-value';
+import { cn } from '../lib/utils';
 import { StatusBadge, canAttachRun, isActiveRun, canStopRun, isWaitingRun, statusLabel } from '../components/StatusBadge';
 import type { LogDrawerState } from '../components/LogDrawer';
 
@@ -331,30 +334,33 @@ export function FleetView({
 
 
   const openDetail = async (agent: Run, kind: 'logs' | 'diff' | 'policy') => {
-    setSelected(agent);
+    // Below md the details sidebar becomes a bottom sheet. Opening the output
+    // drawer on top of it stacks two overlays, so the drawer takes over.
+    const narrow = typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 767.98px)').matches;
+    setSelected(narrow ? undefined : agent);
     if (kind === 'logs') {
       openLog({ title: `Logs · ${agent.name || agent.id}`, content: '', loading: true });
       try {
-        updateLog({ content: (await api.logs(agent.id)).logs, loading: false });
+        updateLog({ content: (await api.logs(agent.id)).logs, loading: false, error: undefined });
       } catch (err) {
-        updateLog({ content: (err as Error).message, loading: false });
+        updateLog({ content: '', loading: false, error: (err as Error).message });
       }
       return;
     }
     if (kind === 'diff') {
       openLog({ title: `Diff · ${agent.name || agent.id}`, content: '', loading: true });
       try {
-        updateLog({ content: (await api.diff(agent.id)).diff, loading: false });
+        updateLog({ content: (await api.diff(agent.id)).diff, loading: false, error: undefined });
       } catch (err) {
-        updateLog({ content: (err as Error).message, loading: false });
+        updateLog({ content: '', loading: false, error: (err as Error).message });
       }
       return;
     }
     openLog({ title: `Policy · ${agent.name || agent.id}`, content: '', loading: true });
     try {
-      updateLog({ content: JSON.stringify(await api.policy(agent.id), null, 2), loading: false });
+      updateLog({ content: JSON.stringify(await api.policy(agent.id), null, 2), loading: false, error: undefined });
     } catch (err) {
-      updateLog({ content: (err as Error).message, loading: false });
+      updateLog({ content: '', loading: false, error: (err as Error).message });
     }
   };
 
@@ -422,8 +428,8 @@ export function FleetView({
         />
       ) : (
       <>
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background/90 px-3">
-        <div className="relative min-w-56 flex-1">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-background/90 px-3 py-2">
+        <div className="relative min-w-0 flex-1 basis-full sm:basis-56">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
           <Input
             aria-label="Search agents"
@@ -433,7 +439,7 @@ export function FleetView({
             onChange={(event) => setSearch(event.target.value)}
           />
         </div>
-        <Select aria-label="Filter by project" className="w-44" value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
+        <Select aria-label="Filter by project" className="min-w-0 flex-1 sm:w-44 sm:flex-none" value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
           {projects.map((project) => <option key={project} value={project}>{project}</option>)}
         </Select>
         {needsYouCount > 0 ? (
@@ -441,10 +447,12 @@ export function FleetView({
             <CircleHelp className="size-3" /> Needs You {needsYouCount}
           </Badge>
         ) : null}
-        <Button variant="ghost" size="icon" aria-label="Refresh agents" onClick={() => void load()}>
-          {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-        </Button>
-        <Button onClick={() => void openStart()}><Bot className="size-3.5" /> New agent</Button>
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="ghost" size="icon" aria-label="Refresh agents" onClick={() => void load()}>
+            {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+          </Button>
+          <Button onClick={() => void openStart()}><Bot className="size-3.5" /> New agent</Button>
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1">
@@ -464,9 +472,9 @@ export function FleetView({
           ) : (
             grouped.map(([project, projectAgents]) => (
               <Card key={project} className="mx-3 my-3 overflow-hidden">
-                <CardHeader>
-                  <CardTitle className="truncate">{project}</CardTitle>
-                  <div className="flex items-center gap-1.5">
+                <CardHeader className="h-auto flex-wrap py-2">
+                  <CardTitle className="min-w-0 [overflow-wrap:anywhere]" title={project}>{project}</CardTitle>
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <Badge tone="neutral">{projectAgents.length}</Badge>
                     <Badge tone={projectAgents.some((agent) => isActiveRun(agent.status)) ? 'success' : 'neutral'}>
                       {projectAgents.filter((agent) => isActiveRun(agent.status)).length} active
@@ -479,52 +487,63 @@ export function FleetView({
                 <Table aria-label={`Agents in ${project}`}>
                   <THead>
                     <TR>
-                      <TH className="w-[22%]">Agent</TH>
-                      <TH className="w-[11%]">Type</TH>
-                      <TH className="w-[10%]">Status</TH>
-                      <TH className="w-[10%]">Sync</TH>
-                      <TH className="w-[22%]">Branch</TH>
-                      <TH>Actions</TH>
+                      <TH className="w-[21%]">Agent</TH>
+                      <TH className="w-[8%]">Type</TH>
+                      <TH className="w-[11%]">Status</TH>
+                      <TH className="w-[8%]">Sync</TH>
+                      <TH className="w-[30%]">Branch</TH>
+                      <TH className="w-[22%]">Actions</TH>
                     </TR>
                   </THead>
                   <TBody>
                     {projectAgents.map((agent) => {
                       const busy = pending[agent.id];
+                      const attachable = canAttachRun(agent.status);
+                      const label = agent.name || agent.id;
                       return (
                         <TR
                           key={agent.id}
                           className={selected?.id === agent.id ? 'bg-accent/10' : undefined}
                           onClick={() => setSelected(agent)}
                         >
-                          <TD className="truncate font-medium" onClick={(event) => { event.stopPropagation(); setSelected(agent); }}>{agent.name || agent.id}</TD>
-                          <TD>{agent.agent}</TD>
-                          <TD><StatusBadge status={inFlightStatus(agent)} /></TD>
-                          <TD className={busy === 'sync' ? 'text-info' : agent.synced ? 'text-success' : 'text-warning'}>
+                          <TD className="truncate font-medium" onClick={(event) => { event.stopPropagation(); setSelected(agent); }}>
+                            <span title={label}>{label}</span>
+                          </TD>
+                          <TD label="Type">{agent.agent}</TD>
+                          <TD label="Status"><StatusBadge status={inFlightStatus(agent)} /></TD>
+                          <TD label="Sync" className={busy === 'sync' ? 'text-info' : agent.synced ? 'text-success' : 'text-warning'}>
                             {busy === 'sync' ? 'Syncing' : agent.synced ? 'Synced' : 'Unsynced'}
                           </TD>
-                          <TD className="truncate font-mono text-xs text-muted">{agent.branch}</TD>
-                          <TD>
-                            <div className="flex flex-wrap gap-1">
-                              <Button size="xs" variant="ghost" disabled={!canAttachRun(agent.status)} onClick={(event) => { event.stopPropagation(); openWorkspace(agent); }}><Monitor className="size-3" /> Attach</Button>
-                              <Button size="xs" variant="ghost" onClick={(event) => { event.stopPropagation(); void openDetail(agent, 'logs'); }}><Terminal className="size-3" /> Logs</Button>
-                              <Button size="xs" variant="ghost" onClick={(event) => { event.stopPropagation(); void openDetail(agent, 'diff'); }}>Diff</Button>
+                          <TD label="Branch">
+                            <ExpandableValue value={agent.branch} label={`branch for ${label}`} max={28} />
+                          </TD>
+                          <TD label="Actions">
+                            <div className="flex flex-wrap items-center gap-1">
                               <Button
                                 size="xs"
-                                variant="ghost"
-                                loading={busy === 'sync'}
-                                disabled={Boolean(busy)}
-                                onClick={(event) => { event.stopPropagation(); void runAgentAction(agent, 'sync', () => api.syncRun(agent.id), `Sync requested for ${agent.name || agent.id}`); }}
+                                variant="secondary"
+                                disabled={!attachable}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  if (attachable) openWorkspace(agent);
+                                  else void openDetail(agent, 'logs');
+                                }}
                               >
-                                {busy === 'sync' ? 'Syncing' : 'Sync'}
+                                {attachable ? <><Monitor className="size-3" /> Attach</> : <><Terminal className="size-3" /> Logs</>}
                               </Button>
+                              {attachable ? (
+                                <Button size="xs" variant="ghost" onClick={(event) => { event.stopPropagation(); void openDetail(agent, 'logs'); }}>
+                                  <Terminal className="size-3" /> Logs
+                                </Button>
+                              ) : null}
                               <Button
                                 size="xs"
                                 variant="ghost"
-                                loading={busy === 'stop'}
-                                disabled={Boolean(busy) || !canStopRun(agent.status)}
-                                onClick={(event) => { event.stopPropagation(); void runAgentAction(agent, 'stop', () => api.stopRun(agent.id), `Stop requested for ${agent.name || agent.id}`); }}
+                                className="ml-auto sm:ml-0"
+                                aria-label={`Details for ${label}`}
+                                onClick={(event) => { event.stopPropagation(); setSelected(agent); }}
                               >
-                                {busy === 'stop' ? 'Stopping' : 'Stop'}
+                                Details <ChevronRight className="size-3" aria-hidden />
                               </Button>
                             </div>
                           </TD>
@@ -538,51 +557,105 @@ export function FleetView({
           )}
         </div>
 
-        <aside className="hidden w-80 shrink-0 border-l border-border bg-background/70 md:block">
+        <aside
+          aria-label="Agent details"
+          className={cn(
+            'border-border bg-background/95',
+            selected
+              ? 'fixed inset-x-0 bottom-0 z-30 max-h-[72vh] overflow-y-auto rounded-t-xl border-t shadow-2xl agentbox-scrollbar md:static md:z-auto md:max-h-none md:w-96 md:shrink-0 md:rounded-none md:border-l md:border-t-0 md:bg-background/70 md:shadow-none'
+              : 'hidden md:block md:w-96 md:shrink-0 md:border-l'
+          )}
+        >
           {selected ? (
             <div className="space-y-3 p-3">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{selected.name || selected.id}</div>
+                  <div className="text-sm font-semibold [overflow-wrap:anywhere]">{selected.name || selected.id}</div>
                   <div className="text-sm text-muted">{selected.project || 'Unassigned'} · {selected.agent}</div>
                 </div>
-                <StatusBadge status={inFlightStatus(selected)} />
+                <div className="flex shrink-0 items-center gap-1">
+                  <StatusBadge status={inFlightStatus(selected)} />
+                  <Button size="icon" variant="ghost" className="md:hidden" aria-label="Close agent details" onClick={() => setSelected(undefined)}>
+                    <X className="size-4" />
+                  </Button>
+                </div>
               </div>
+
               <dl className="space-y-1.5 rounded-lg border border-border bg-surface/50 p-2.5 text-sm">
-                {[
-                  ['ID', selected.id],
-                  ['Agent type', selected.agent],
-                  ['Branch', selected.branch],
-                  ['Sandbox', selected.sandbox],
-                  ['Image', selected.image],
-                  ['Mode', selected.mode],
-                  ['Approval', approvalLabel(selected.approval)],
-                  ['Worktree', selected.worktree],
-                  ...(selected.status_detail ? [['Detail', selected.status_detail]] : [])
-                ].map(([label, value]) => (
-                  <div key={label} className="grid grid-cols-[5.5rem_1fr] gap-2">
+                {([
+                  ['ID', selected.id, 18],
+                  ['Agent type', selected.agent, 18],
+                  ['Branch', selected.branch, 18],
+                  ['Sandbox', selected.sandbox, 18],
+                  ['Image', selected.image, 18],
+                  ['Mode', selected.mode, 18],
+                  ['Approval', approvalLabel(selected.approval), 18],
+                  ['Worktree', selected.worktree, 18],
+                  ...(selected.status_detail ? [['Detail', selected.status_detail, 40] as const] : [])
+                ] as const).map(([label, value, max]) => (
+                  <div key={label} className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-start gap-2">
                     <dt className="text-muted">{label}</dt>
-                    <dd className="min-w-0 truncate text-foreground">{value}</dd>
+                    <dd className="min-w-0 text-foreground">
+                      <ExpandableValue value={value} label={`${label} for ${selected.name || selected.id}`} max={max} />
+                    </dd>
                   </div>
                 ))}
               </dl>
-              <div className="grid gap-1.5">
-                <Button variant="outline" disabled={!canAttachRun(selected.status)} onClick={() => openWorkspace(selected)}>Attach</Button>
-                <Button variant="outline" onClick={() => void openDetail(selected, 'logs')}>View logs</Button>
-                <Button variant="outline" onClick={() => void openDetail(selected, 'diff')}>View diff</Button>
-                <Button variant="outline" onClick={() => void openDetail(selected, 'policy')}>View policy</Button>
-                <Button
-                  variant="outline"
-                  loading={hostSubmitting && hostTarget?.id === selected.id}
-                  disabled={!canAttachRun(selected.status) || Boolean(pending[selected.id])}
-                  title={!canAttachRun(selected.status) ? 'Allow host is available only for Ready, Working, and Waiting agents.' : undefined}
-                  onClick={() => void openHostDialog(selected)}
-                >
-                  {hostSubmitting && hostTarget?.id === selected.id ? 'Allowing' : 'Allow host'}
-                </Button>
-                <Button variant="outline" onClick={() => copyAgent(selected)}>Copy agent</Button>
+
+              <section aria-label="Open agent" className="space-y-1.5 rounded-lg border border-border p-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Open</h3>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Button
+                    variant="outline"
+                    disabled={!canAttachRun(selected.status)}
+                    onClick={() => openWorkspace(selected)}
+                  >
+                    Attach
+                  </Button>
+                  <Button variant="outline" onClick={() => void openDetail(selected, 'logs')}>View logs</Button>
+                  <Button variant="outline" onClick={() => void openDetail(selected, 'diff')}>View diff</Button>
+                  <Button variant="outline" onClick={() => void openDetail(selected, 'policy')}>View policy</Button>
+                </div>
+              </section>
+
+              <section aria-label="Manage agent" className="space-y-1.5 rounded-lg border border-border p-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Manage</h3>
+                <div className="grid gap-1.5">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Button
+                      variant="outline"
+                      loading={pending[selected.id] === 'sync'}
+                      disabled={Boolean(pending[selected.id])}
+                      onClick={() => void runAgentAction(selected, 'sync', () => api.syncRun(selected.id), `Sync requested for ${selected.name || selected.id}`)}
+                    >
+                      {pending[selected.id] === 'sync' ? 'Syncing' : 'Sync'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      loading={pending[selected.id] === 'stop'}
+                      disabled={Boolean(pending[selected.id]) || !canStopRun(selected.status)}
+                      onClick={() => void runAgentAction(selected, 'stop', () => api.stopRun(selected.id), `Stop requested for ${selected.name || selected.id}`)}
+                    >
+                      {pending[selected.id] === 'stop' ? 'Stopping' : 'Stop'}
+                    </Button>
+                  </div>
+                  <Button
+                    variant="outline"
+                    loading={hostSubmitting && hostTarget?.id === selected.id}
+                    disabled={!canAttachRun(selected.status) || Boolean(pending[selected.id])}
+                    title={!canAttachRun(selected.status) ? 'Allow host is available only for Ready, Working, and Waiting agents.' : undefined}
+                    onClick={() => void openHostDialog(selected)}
+                  >
+                    {hostSubmitting && hostTarget?.id === selected.id ? 'Allowing' : 'Allow host'}
+                  </Button>
+                  <Button variant="outline" onClick={() => copyAgent(selected)}>Copy agent</Button>
+                </div>
+              </section>
+
+              <div className="border-t border-border pt-2">
                 <Button
                   variant="danger"
+                  className="w-full"
                   loading={pending[selected.id] === 'delete'}
                   disabled={Boolean(pending[selected.id])}
                   onClick={() => setDeleteTarget(selected)}
@@ -685,15 +758,35 @@ export function FleetView({
           <Field label="Prompt" htmlFor="new-agent-prompt" className="sm:col-span-2">
             <Textarea id="new-agent-prompt" rows={4} value={startForm.prompt} onChange={(event) => setStartForm({ ...startForm, prompt: event.target.value })} />
           </Field>
-          <div className="sm:col-span-2 rounded-lg border border-border bg-surface/40 p-2.5 text-sm text-muted">
-            {selectedProfile ? (
-              <div className="space-y-1">
-                <div>Image: <span className="text-foreground">{selectedProfile.image}</span></div>
-                <div>Model: <span className="text-foreground">{selectedProfile.model || '-'}</span></div>
-                <div>Provider: <span className="text-foreground">{selectedProfile.provider}</span></div>
-                <div>Approval: <span className="text-foreground">{approvalLabel(selectedProfile.approval)}</span></div>
-              </div>
-            ) : 'Select a profile to see defaults.'}
+          <div className="sm:col-span-2">
+            <Disclosure
+              summary={(
+                <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                  <span>Resolved configuration</span>
+                  <span className="min-w-0 text-xs font-normal text-muted">
+                    {selectedProfile ? `${selectedProfile.name} · ${selectedProfile.agent}` : 'Select a profile to see defaults'}
+                  </span>
+                </span>
+              )}
+            >
+              {selectedProfile ? (
+                <dl className="grid gap-1.5 text-sm sm:grid-cols-2">
+                  {([
+                    ['Image', selectedProfile.image, `image for ${selectedProfile.name}`],
+                    ['Model', selectedProfile.model || '—', `model for ${selectedProfile.name}`],
+                    ['Provider', selectedProfile.provider, `provider for ${selectedProfile.name}`],
+                    ['Approval', approvalLabel(selectedProfile.approval), `approval for ${selectedProfile.name}`]
+                  ] as const).map(([label, value, copyLabel]) => (
+                    <div key={label} className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-start gap-2">
+                      <dt className="text-muted">{label}</dt>
+                      <dd className="min-w-0 text-foreground"><ExpandableValue value={value} label={copyLabel} max={38} /></dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="text-sm text-muted">Select a profile to see its image, model, provider, and approval defaults.</p>
+              )}
+            </Disclosure>
           </div>
           <label className="flex items-center gap-2 text-sm text-muted sm:col-span-2">
             <input type="checkbox" checked={useOverrides} onChange={(event) => setUseOverrides(event.target.checked)} className="size-3.5 accent-accent" />

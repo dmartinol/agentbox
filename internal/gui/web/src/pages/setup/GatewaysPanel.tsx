@@ -6,6 +6,7 @@ import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { ActionButton } from '../../components/ui/action';
 import { ConfirmDialog } from '../../components/ui/confirm';
+import { ExpandableValue } from '../../components/ui/copy-value';
 import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
@@ -69,7 +70,7 @@ export function GatewaysPanel() {
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap justify-end gap-2">
         <Button size="sm" variant="outline" loading={busy === 'start'} onClick={() => void action('start', () => api.startGateway(), 'Gateway start requested')}>
           {busy === 'start' ? 'Starting' : 'Start service'}
         </Button>
@@ -85,11 +86,11 @@ export function GatewaysPanel() {
           <TBody>
             {gateways.map((gateway) => (
               <TR key={gateway.name}>
-                <TD className="truncate font-medium">{gateway.name}</TD>
-                <TD><Badge tone={gateway.active ? 'success' : 'neutral'}>{gateway.active ? 'Active' : 'Inactive'}</Badge></TD>
-                <TD className="truncate font-mono text-xs text-muted">{gateway.endpoint}</TD>
-                <TD>{gateway.type}</TD>
-                <TD>
+                <TD className="truncate font-medium"><span title={gateway.name}>{gateway.name}</span></TD>
+                <TD label="Status"><Badge tone={gateway.active ? 'success' : 'neutral'}>{gateway.active ? 'Active' : 'Inactive'}</Badge></TD>
+                <TD label="Endpoint"><ExpandableValue value={gateway.endpoint} label={`endpoint for ${gateway.name}`} max={40} /></TD>
+                <TD label="Type">{gateway.type}</TD>
+                <TD label="Actions">
                   <div className="flex flex-wrap gap-1">
                     <Button size="xs" variant="ghost" loading={busy === `inspect:${gateway.name}`} onClick={() => void action(`inspect:${gateway.name}`, async () => setInfo(await api.gatewayInfo(gateway.name)), 'Gateway inspected')}>Inspect</Button>
                     <ActionButton
@@ -107,7 +108,7 @@ export function GatewaysPanel() {
           </TBody>
         </Table>
       )}
-      {info !== undefined ? <pre className="agentbox-scrollbar max-h-64 overflow-auto rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs text-foreground">{JSON.stringify(info, null, 2)}</pre> : null}
+      {info !== undefined ? <pre className="agentbox-output agentbox-scrollbar max-h-64 overflow-auto rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs text-foreground">{JSON.stringify(info, null, 2)}</pre> : null}
 
       <Modal
         open={connectOpen}

@@ -1,0 +1,45 @@
+// Terminal streams arrive with SGR color codes, cursor controls, and carriage
+// returns. The drawer is a text view, so keep the content and drop the control
+// bytes instead of rendering escape sequences verbatim.
+const OSC = /\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)/g;
+const CSI = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
+const CHARSET = /\u001B[()][A-Za-z0-9]/g;
+
+function applyCarriageReturns(line: string): string {
+  const parts = line.split('\r');
+  let output = '';
+  for (const part of parts) {
+    output = part.length >= output.length ? part : part + output.slice(part.length);
+  }
+  return output;
+}
+
+function applyBackspaces(line: string): string {
+  const output: string[] = [];
+  for (const character of line) {
+    if (character === '\b') output.pop();
+    else output.push(character);
+  }
+  return output.join('');
+}
+
+export function normalizeTerminalText(input: string | undefined): string {
+  if (!input) return '';
+  const text = input
+    .replace(/\r\n/g, '\n')
+    .replace(OSC, '')
+    .replace(CHARSET, '')
+    .replace(CSI, '')
+    .split('\n')
+    .map((line) => applyBackspaces(applyCarriageReturns(line)))
+    .join('\n');
+  // Drop remaining control characters except tab and newline.
+  return text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+}
+
+export function middleEllipsis(value: string, max = 44): string {
+  if (value.length <= max) return value;
+  const head = Math.ceil((max - 1) / 2);
+  const tail = Math.floor((max - 1) / 2);
+  return `${value.slice(0, head)}…${value.slice(-tail)}`;
+}

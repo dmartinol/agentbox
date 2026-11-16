@@ -2,7 +2,11 @@ import type { HTMLAttributes, TableHTMLAttributes, TdHTMLAttributes, ThHTMLAttri
 import { cn } from '../../lib/utils';
 
 export function Table({ className, ...props }: TableHTMLAttributes<HTMLTableElement>) {
-  return <table className={cn('w-full table-fixed border-collapse text-sm', className)} {...props} />;
+  return (
+    <div className={cn('agentbox-table-frame', className)}>
+      <table className="agentbox-table w-full table-fixed border-collapse text-sm" {...props} />
+    </div>
+  );
 }
 
 export function THead({ className, ...props }: HTMLAttributes<HTMLTableSectionElement>) {
@@ -21,6 +25,10 @@ export function TH({ className, ...props }: ThHTMLAttributes<HTMLTableCellElemen
   return <th className={cn('h-9 px-2 font-medium', className)} {...props} />;
 }
 
-export function TD({ className, ...props }: TdHTMLAttributes<HTMLTableCellElement>) {
-  return <td className={cn('h-10 px-2 align-middle', className)} {...props} />;
+/**
+ * `label` becomes a visible field caption when the table collapses into
+ * stacked cards on narrow screens; it is unused at desktop widths.
+ */
+export function TD({ label, className, ...props }: TdHTMLAttributes<HTMLTableCellElement> & { label?: string }) {
+  return <td data-label={label} className={cn('h-10 px-2 align-middle', className)} {...props} />;
 }

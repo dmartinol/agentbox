@@ -9,6 +9,7 @@ import { Field } from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
 import { Modal } from '../../components/ui/dialog';
 import { ConfirmDialog } from '../../components/ui/confirm';
+import { ExpandableValue } from '../../components/ui/copy-value';
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { LogDrawerState } from '../../components/LogDrawer';
@@ -171,12 +172,12 @@ export function ImagesPanel({
               const holders = image.used_by ?? [];
               return (
                 <TR key={image.reference}>
-                  <TD className="truncate font-mono text-xs">{image.reference}</TD>
-                  <TD>{image.agent}</TD>
-                  <TD>{image.version}</TD>
-                  <TD>r{image.recipe}</TD>
-                  <TD>{image.os || 'linux'}/{image.arch || 'arm64'}</TD>
-                  <TD>
+                  <TD className="truncate"><ExpandableValue value={image.reference} label="image reference" max={44} /></TD>
+                  <TD label="Agent">{image.agent}</TD>
+                  <TD label="Version">{image.version}</TD>
+                  <TD label="Recipe">r{image.recipe}</TD>
+                  <TD label="Platform">{image.os || 'linux'}/{image.arch || 'arm64'}</TD>
+                  <TD label="Actions">
                     <div className="flex items-center gap-2">
                       <ActionButton
                         size="sm"
@@ -196,8 +197,8 @@ export function ImagesPanel({
       )}
 
       <div className="rounded-lg border border-border p-3">
-        <div className="flex items-end gap-2">
-          <Field label="Registry repository" htmlFor="registry-reference" className="flex-1">
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="Registry repository" htmlFor="registry-reference" className="min-w-0 flex-1 basis-full sm:basis-48">
             <Input id="registry-reference" value={registry.reference} onChange={(event) => setRegistry({ reference: event.target.value })} />
           </Field>
           <Button
@@ -224,7 +225,11 @@ export function ImagesPanel({
             <THead><TR><TH className="w-[12%]">Agent</TH><TH className="w-[12%]">Version</TH><TH>Reference</TH></TR></THead>
             <TBody>
               {registryImages.map((image) => (
-                <TR key={image.reference}><TD>{image.agent}</TD><TD>{image.version}</TD><TD className="truncate font-mono text-xs">{image.reference}</TD></TR>
+                <TR key={image.reference}>
+                  <TD label="Agent">{image.agent}</TD>
+                  <TD label="Version">{image.version}</TD>
+                  <TD label="Reference"><ExpandableValue value={image.reference} label="registry image reference" max={44} /></TD>
+                </TR>
               ))}
             </TBody>
           </Table>

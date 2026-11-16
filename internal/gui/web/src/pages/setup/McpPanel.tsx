@@ -8,6 +8,7 @@ import { Field } from '../../components/ui/field';
 import { Input, Select } from '../../components/ui/input';
 import { Modal } from '../../components/ui/dialog';
 import { ConfirmDialog } from '../../components/ui/confirm';
+import { ExpandableValue } from '../../components/ui/copy-value';
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 
 const agents = ['claude', 'codex', 'opencode'];
@@ -116,7 +117,7 @@ export function McpPanel() {
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end"><Button size="sm" onClick={() => void openCreate()}>Create MCP tools</Button></div>
+      <div className="flex flex-wrap justify-end"><Button size="sm" onClick={() => void openCreate()}>Create MCP tools</Button></div>
       {notice ? <Alert variant="success" title={notice} /> : null}
       {error ? <Alert variant="danger" title="Unable to load MCP tools">{error.message}</Alert> : null}
       {loading ? <EmptyState title="Loading MCP tools" /> : entries.length === 0 ? (
@@ -127,10 +128,12 @@ export function McpPanel() {
           <TBody>
             {entries.map((entry) => (
               <TR key={entry.name}>
-                <TD className="truncate font-medium">{entry.name}</TD>
-                <TD className="truncate">{entry.agent}</TD>
-                <TD className="truncate text-muted">{entry.servers.join(', ')}</TD>
-                <TD>
+                <TD className="truncate font-medium"><span title={entry.name}>{entry.name}</span></TD>
+                <TD label="Agent" className="truncate">{entry.agent}</TD>
+                <TD label="Servers">
+                  <ExpandableValue value={entry.servers.join(', ')} label={`servers in ${entry.name}`} max={44} mono={false} />
+                </TD>
+                <TD label="Actions">
                   <div className="flex flex-wrap gap-1">
                     <Button size="xs" variant="ghost" onClick={() => void openEdit(entry)}>Edit</Button>
                     <Button size="xs" variant="ghost" loading={busy === entry.name} onClick={() => { setDeleteTarget(entry); setDeleteError(''); }}>Delete</Button>
