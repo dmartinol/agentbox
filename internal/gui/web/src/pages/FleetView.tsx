@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CircleHelp, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal } from 'lucide-react';
 import { api } from '../api';
-import type { MCPTools, Overview, Profile, Run, SkillsEntry, StartRunRequest } from '../types';
+import type { MCPTools, Overview, PolicyHostError, PolicyHostResponse, Profile, Run, SkillsEntry, StartRunRequest } from '../types';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '../components/ui/card';
@@ -64,6 +64,12 @@ export function FleetView({
   const [pending, setPending] = useState<Record<string, AgentAction>>({});
   const [deleteTarget, setDeleteTarget] = useState<Run>();
   const [copySource, setCopySource] = useState<Run>();
+  const [hostTarget, setHostTarget] = useState<Run>();
+  const [hostValue, setHostValue] = useState('');
+  const [hostError, setHostError] = useState('');
+  const [hostResult, setHostResult] = useState<PolicyHostResponse>();
+  const [hostRolledBack, setHostRolledBack] = useState<boolean>();
+  const [hostSubmitting, setHostSubmitting] = useState(false);
 
   const load = async () => {
     try {
@@ -342,6 +348,42 @@ export function FleetView({
     }
   };
 
+  const openHostDialog = async (agent: Run) => {
+    setSelected(agent);
+    setHostTarget(agent);
+    setHostValue('');
+    setHostError('');
+    setHostResult(undefined);
+    setHostRolledBack(undefined);
+    try {
+      setHostTarget(await api.run(agent.id));
+    } catch (err) {
+      setHostError((err as Error).message);
+    }
+  };
+
+  const submitHost = async () => {
+    const target = hostTarget;
+    const host = hostValue.trim();
+    if (!target || !host) return;
+    setHostSubmitting(true);
+    setHostError('');
+    setHostResult(undefined);
+    setHostRolledBack(undefined);
+    try {
+      const result = await api.allowHost(target.id, host);
+      setHostResult(result);
+      await load();
+      await openDetail(target, 'policy');
+    } catch (err) {
+      const failure = err as PolicyHostError;
+      setHostError(failure.message);
+      if (failure.outcome === 'openshell-rejected') setHostRolledBack(Boolean(failure.rolledBack));
+    } finally {
+      setHostSubmitting(false);
+    }
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {workspace ? (
@@ -512,6 +554,15 @@ export function FleetView({
                 <Button variant="outline" onClick={() => void openDetail(selected, 'logs')}>View logs</Button>
                 <Button variant="outline" onClick={() => void openDetail(selected, 'diff')}>View diff</Button>
                 <Button variant="outline" onClick={() => void openDetail(selected, 'policy')}>View policy</Button>
+                <Button
+                  variant="outline"
+                  loading={hostSubmitting && hostTarget?.id === selected.id}
+                  disabled={!canAttachRun(selected.status) || Boolean(pending[selected.id])}
+                  title={!canAttachRun(selected.status) ? 'Allow host is available only for Ready, Working, and Waiting agents.' : undefined}
+                  onClick={() => void openHostDialog(selected)}
+                >
+                  {hostSubmitting && hostTarget?.id === selected.id ? 'Allowing' : 'Allow host'}
+                </Button>
                 <Button variant="outline" onClick={() => copyAgent(selected)}>Copy agent</Button>
                 <Button
                   variant="danger"
@@ -647,6 +698,48 @@ export function FleetView({
                 </Select>
               </Field>
             </>
+          ) : null}
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(hostTarget)}
+        onOpenChange={(open) => { if (!open) setHostTarget(undefined); }}
+        title="Allow host"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setHostTarget(undefined)} disabled={hostSubmitting}>Cancel</Button>
+            <Button loading={hostSubmitting} disabled={!hostValue.trim()} onClick={() => void submitHost()}>
+              {hostSubmitting ? 'Allowing' : 'Allow host'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Field label="Run" htmlFor="allow-host-run">
+            <Input id="allow-host-run" readOnly value={hostTarget ? hostTarget.name || hostTarget.id : ''} />
+          </Field>
+          <Field label="Agent binary" htmlFor="allow-host-binary">
+            <Input id="allow-host-binary" readOnly value={hostTarget?.agent_binary || 'Loading…'} />
+          </Field>
+          <Field label="Host" htmlFor="allow-host-host" required>
+            <Input
+              id="allow-host-host"
+              value={hostValue}
+              onChange={(event) => setHostValue(event.target.value)}
+              placeholder="api.example.com"
+            />
+          </Field>
+          {hostResult ? (
+            <Alert variant="success" title={hostResult.outcome === 'live-applied' ? 'Network rule applied live' : 'Static change saved for a future sandbox'}>
+              {hostResult.diff ? <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap font-mono text-xs leading-4">{hostResult.diff}</pre> : null}
+            </Alert>
+          ) : null}
+          {hostError ? (
+            <Alert variant="danger" title="Unable to allow host">
+              <div>{hostError}</div>
+              {hostRolledBack !== undefined ? <div>Rolled back: {hostRolledBack ? 'yes' : 'no'}</div> : null}
+            </Alert>
           ) : null}
         </div>
       </Modal>

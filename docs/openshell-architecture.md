@@ -236,6 +236,40 @@ The supported agents are Node applications, so listing only the launcher path
 would miss the process that opens the socket; git reaches HTTPS through a
 separate helper binary.
 
+### Run-scoped host editing
+
+The Fleet **Allow host** action and `agentbox policy edit --allow-host` share
+the same edit path. A run-scoped edit loads the run policy, appends a
+`host-<hostname>` network rule, and writes the result through a temporary copy.
+The rule names the agent launcher derived by the shared `AgentBinary` helper
+plus `/usr/local/bin/node`, `/usr/bin/git`, `/usr/lib/git-core/**`,
+`/usr/bin/curl`, and `/usr/bin/git-lfs`. An explicit `--binary` override
+replaces that set for CLI compatibility.
+
+The GUI endpoint is `POST /api/runs/{id}/policy/host` with `{"host":"..."}`.
+It accepts no agent, binary, or policy name; the run record supplies all three.
+`GET /api/runs/{id}` includes the derived `agent_binary` so the dialog can show
+the launcher without duplicating policy-generation logic in React.
+
+The edit is allowed only when a non-dry host action reconciles the run to
+Ready, Working, or Waiting. Creating, Failed, Unreachable, Stopped, Completed,
+and normalized unknown statuses are rejected before any policy file changes.
+Interactive edits and dry-run previews do not require a live sandbox.
+
+Outcomes are explicit:
+
+- a dry run returns `network-preview` or `static-preview` and never mutates the policy;
+- a non-dry network-only change returns `live-applied` after OpenShell accepts it;
+- a non-dry static change returns `static-pending` and saves `*-pending.yaml` for the next sandbox;
+- a non-attachable run returns `no-live-sandbox` without mutating anything;
+- an OpenShell rejection returns `openshell-rejected` with the computed diff.
+
+Before applying, AgentBox writes the proposed policy locally so OpenShell can
+read it. If `openshell policy set ... --wait` fails, AgentBox restores the
+original local policy and reports `rolledBack: true`. If the restore also
+fails, it reports `rolledBack: false` and includes both errors, so the user
+knows the local policy may not match the running sandbox.
+
 The default policy grants write access to `/workspace`, `/tmp`, and
 `/var/tmp`.
 

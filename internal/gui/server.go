@@ -56,6 +56,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/runs/{id}/shells/{name}/delete", s.deleteRunShell)
 	mux.HandleFunc("GET /api/runs/{id}/diff", s.runDiff)
 	mux.HandleFunc("GET /api/runs/{id}/policy", s.runPolicy)
+	mux.HandleFunc("POST /api/runs/{id}/policy/host", s.allowRunHost)
 
 	mux.HandleFunc("GET /api/projects", s.listProjects)
 	mux.HandleFunc("POST /api/projects", s.saveProject)
@@ -156,6 +157,10 @@ func writeError(w http.ResponseWriter, err error) {
 	}
 	if errors.As(err, &missing) {
 		status = http.StatusNotFound
+	}
+	var noSandbox *app.NoLiveSandboxError
+	if errors.As(err, &noSandbox) {
+		status = http.StatusConflict
 	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
@@ -362,7 +367,17 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, run)
+	binary, err := app.AgentBinary(run.Agent)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, runResponse{Run: run, AgentBinary: binary})
+}
+
+type runResponse struct {
+	app.Run
+	AgentBinary string `json:"agent_binary"`
 }
 
 type startRunRequest struct {
@@ -615,6 +630,53 @@ func (s *Server) runPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, policy)
+}
+
+type runHostRequest struct {
+	Host string `json:"host"`
+}
+
+type runHostSuccess struct {
+	Outcome app.PolicyEditOutcome `json:"outcome"`
+	Diff    string                `json:"diff,omitempty"`
+}
+
+type runHostFailure struct {
+	Outcome    app.PolicyEditOutcome `json:"outcome,omitempty"`
+	Error      string                `json:"error"`
+	Diff       string                `json:"diff,omitempty"`
+	RolledBack *bool                 `json:"rolledBack,omitempty"`
+}
+
+func (s *Server) allowRunHost(w http.ResponseWriter, r *http.Request) {
+	var request runHostRequest
+	if !decode(w, r, &request) {
+		return
+	}
+	result, err := s.app.PolicyEdit(r.Context(), r.PathValue("id"), strings.TrimSpace(request.Host), "", false)
+	writeRunHostResult(w, result, err)
+}
+
+func writeRunHostResult(w http.ResponseWriter, result app.PolicyEditResult, err error) {
+	if err != nil {
+		switch result.Outcome {
+		case app.PolicyEditNoLiveSandbox:
+			writeJSON(w, http.StatusConflict, runHostFailure{Outcome: result.Outcome, Error: err.Error()})
+		case app.PolicyEditOpenShellRejected:
+			rolledBack := result.RolledBack
+			writeJSON(w, http.StatusInternalServerError, runHostFailure{
+				Outcome: result.Outcome, Error: err.Error(), Diff: result.Diff, RolledBack: &rolledBack,
+			})
+		default:
+			writeError(w, err)
+		}
+		return
+	}
+	status := http.StatusOK
+	if result.Outcome == app.PolicyEditStaticPending {
+		status = http.StatusAccepted
+	}
+	writeJSON(w, status, runHostSuccess{Outcome: result.Outcome, Diff: result.Diff})
 }
 
 type projectRequest struct {

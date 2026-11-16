@@ -22,6 +22,7 @@ export interface Run {
   sandbox: string;
   gateway: string;
   agent: string;
+  agent_binary?: string;
   image: string;
   mode: string;
   model: string;
@@ -240,4 +241,23 @@ export interface StartRunRequest {
   prompt?: string;
   mcp?: string;
   skills?: string;
+}
+
+export type PolicyEditOutcome =
+  | 'network-preview'
+  | 'static-preview'
+  | 'live-applied'
+  | 'static-pending'
+  | 'no-live-sandbox'
+  | 'openshell-rejected';
+
+export interface PolicyHostResponse {
+  outcome: 'live-applied' | 'static-pending';
+  diff?: string;
+}
+
+export interface PolicyHostError extends Error {
+  outcome?: PolicyEditOutcome;
+  diff?: string;
+  rolledBack?: boolean;
 }

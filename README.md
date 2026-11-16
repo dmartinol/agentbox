@@ -598,12 +598,30 @@ The GUI is a compact, Orca-inspired React single-page application built with Vit
 
 The two primary surfaces are:
 
-- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, a derived status glyph plus label per run, a **Needs You** count for agents waiting on input, inline lifecycle actions, and selected-agent metadata. The **Workspace** button on a project (or **Attach** on an agent) opens a workspace with one tab per agent plus optional shell tabs; only the visible tab holds a terminal. Logs, diffs, and effective policies open in a shared bottom drawer.
+- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, a derived status glyph plus label per run, a **Needs You** count for agents waiting on input, inline lifecycle actions, and selected-agent metadata. The **Workspace** button on a project (or **Attach** on an agent) opens a workspace with one tab per agent plus optional shell tabs; only the visible tab holds a terminal. Logs, diffs, and effective policies open in a shared bottom drawer. The selected agent also has an **Allow host** action for Ready, Working, and Waiting agents: it previews the policy diff, applies a network-only rule live, and reports OpenShell rejection and rollback without leaving the dialog.
 - **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, policies, MCP tools, skills, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. A blank profile policy automatically creates and references the default policy. Image build output and stop controls are also routed to the bottom drawer.
 
 The interface defaults to light mode and includes a header theme switcher; the selected theme is remembered locally.
 
 The GUI calls a local JSON API served by the same process. It does not expose the server on the network by default; bind explicitly if remote access is intended and protected.
+
+Fleet's **Allow host** action uses a single run-scoped endpoint. The request
+contains only the host; the run supplies the agent and policy:
+
+```http
+POST /api/runs/{id}/policy/host
+Content-Type: application/json
+
+{"host":"api.example.com"}
+```
+
+- `200` with `{"outcome":"live-applied","diff":"..."}` when the network rule was applied to the live sandbox.
+- `202` with `{"outcome":"static-pending","diff":"..."}` when the change is saved for the next sandbox.
+- `409` with `{"outcome":"no-live-sandbox","error":"Allow host is available only for Ready, Working, and Waiting agents."}` for any other status.
+- `500` with `{"outcome":"openshell-rejected","error":"...","diff":"...","rolledBack":true}` when OpenShell rejects the update; `rolledBack` is `false` when restoring the local policy also failed.
+
+The response diff is the computed policy change. OpenShell rejection leaves the
+dialog open so the user can read the error and retry after fixing the cause.
 
 Setup exposes guarded lifecycle actions for every resource. Destructive actions
 always open a confirmation dialog and state what is removed and what is kept:

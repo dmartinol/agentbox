@@ -34,3 +34,11 @@ type NotFoundError struct {
 func (e *NotFoundError) Error() string {
 	return fmt.Sprintf("%s %q not found", e.Resource, e.Name)
 }
+
+// NoLiveSandboxError reports that a host policy edit cannot be applied because
+// the run has no live sandbox to update. It maps to HTTP 409.
+type NoLiveSandboxError struct{}
+
+func (e *NoLiveSandboxError) Error() string {
+	return "Allow host is available only for Ready, Working, and Waiting agents."
+}

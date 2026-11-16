@@ -221,8 +221,12 @@ func TestSavePolicyEditDefersStaticChanges(t *testing.T) {
 	}
 	app := App{Store: store, Runner: &fakeRunner{}}
 	next := []byte(strings.Replace(string(old), "    - /tmp\n", "    - /var/tmp\n", 1))
-	if err := app.savePolicyEdit(context.Background(), run, old, next); err != nil {
+	result, err := app.savePolicyEdit(context.Background(), run, old, next)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result.Outcome != PolicyEditStaticPending {
+		t.Fatalf("outcome = %q; want %q", result.Outcome, PolicyEditStaticPending)
 	}
 	current, err := os.ReadFile(path)
 	if err != nil || string(current) != string(old) {
@@ -263,10 +267,13 @@ func TestSavePolicyEditAppliesNetworkChangeAndRollsBackOnFailure(t *testing.T) {
 				runner.output = func(recordedCommand) ([]byte, error) { return nil, errors.New("policy rejected") }
 			}
 			app := App{Store: store, Runner: runner}
-			err = app.savePolicyEdit(context.Background(), run, old, next)
+			result, err := app.savePolicyEdit(context.Background(), run, old, next)
 			if fail {
-				if err == nil || !strings.Contains(err.Error(), "local policy restored") {
+				if err == nil || !strings.Contains(err.Error(), "the local policy was restored") {
 					t.Fatalf("expected apply failure with rollback, got %v", err)
+				}
+				if result.Outcome != PolicyEditOpenShellRejected || !result.RolledBack {
+					t.Fatalf("rejection result = %+v", result)
 				}
 				got, readErr := os.ReadFile(path)
 				if readErr != nil || string(got) != string(old) {
@@ -275,6 +282,9 @@ func TestSavePolicyEditAppliesNetworkChangeAndRollsBackOnFailure(t *testing.T) {
 			} else {
 				if err != nil {
 					t.Fatal(err)
+				}
+				if result.Outcome != PolicyEditLiveApplied || result.RolledBack {
+					t.Fatalf("live result = %+v", result)
 				}
 				got, readErr := os.ReadFile(path)
 				if readErr != nil || string(got) != string(next) {
@@ -440,5 +450,240 @@ func TestDeletePolicyConfigurationRunGuards(t *testing.T) {
 	}
 	if _, err := os.Stat(pending.Path); err != nil {
 		t.Fatalf("pending run policy removed: %v", err)
+	}
+}
+
+func policyEditRunner(probe string, applyErr error) *fakeRunner {
+	return &fakeRunner{output: func(cmd recordedCommand) ([]byte, error) {
+		switch {
+		case cmd.name == "openshell" && slices.Contains(cmd.args, "sandbox") && slices.Contains(cmd.args, "get"):
+			return []byte(`{"phase":"running"}`), nil
+		case cmd.name == "openshell" && slices.Contains(cmd.args, "sandbox") && slices.Contains(cmd.args, "exec"):
+			return []byte(probe), nil
+		case cmd.name == "openshell" && slices.Contains(cmd.args, "policy") && slices.Contains(cmd.args, "set"):
+			return nil, applyErr
+		default:
+			return nil, nil
+		}
+	}}
+}
+
+func newPolicyEditTestRun(t *testing.T) (App, Run, string) {
+	t.Helper()
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(store.PolicyDir(), "run-unit123.yaml")
+	if err := os.WriteFile(path, DefaultPolicy(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run := Run{ID: "run-unit123", Policy: path, Sandbox: "sandbox-unit123", Gateway: "gateway-one", Agent: "codex", Status: StatusWorking}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	return App{Store: store}, run, path
+}
+
+func TestAgentBinaryDerivesSupportedLauncherOnly(t *testing.T) {
+	for agent, want := range map[string]string{
+		"claude":   "/usr/local/bin/claude",
+		"codex":    "/usr/local/bin/codex",
+		"opencode": "/usr/local/bin/opencode",
+	} {
+		got, err := AgentBinary(agent)
+		if err != nil || got != want {
+			t.Fatalf("AgentBinary(%q) = %q, %v; want %q", agent, got, err, want)
+		}
+	}
+	if _, err := AgentBinary("unknown"); err == nil {
+		t.Fatal("unsupported agent was accepted")
+	}
+	paths, err := agentEgressBinaries("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/usr/local/bin/codex", "/usr/local/bin/node", "/usr/bin/git", "/usr/lib/git-core/**", "/usr/bin/curl", "/usr/bin/git-lfs"}
+	if !slices.Equal(paths, want) {
+		t.Fatalf("egress binaries = %#v; want %#v", paths, want)
+	}
+	if _, err := agentEgressBinaries("unknown"); err == nil {
+		t.Fatal("egress binaries accepted an unsupported agent")
+	}
+}
+
+func TestPolicyEditDryRunPreviewsWithoutMutating(t *testing.T) {
+	app, run, path := newPolicyEditTestRun(t)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	app.Runner = runner
+
+	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != PolicyEditNetworkPreview {
+		t.Fatalf("outcome = %q; want %q", result.Outcome, PolicyEditNetworkPreview)
+	}
+	if !strings.Contains(result.Diff, "host-api-example-test") || !strings.Contains(result.Diff, "+") {
+		t.Fatalf("diff = %q", result.Diff)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("dry run mutated policy: %v", err)
+	}
+	if len(runner.outputs) != 0 {
+		t.Fatalf("dry run issued commands: %#v", runner.outputs)
+	}
+}
+
+func TestPolicyEditDryRunReportsStaticPreview(t *testing.T) {
+	app, run, path := newPolicyEditTestRun(t)
+	app.Runner = &fakeRunner{}
+	editor := filepath.Join(t.TempDir(), "editor.sh")
+	script := "#!/bin/sh\nperl -0pi -e 's|    - /tmp\\n|    - /tmp\\n    - /srv\\n|' \"$1\"\n"
+	if err := os.WriteFile(editor, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("EDITOR", editor)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := app.PolicyEdit(context.Background(), run.ID, "", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != PolicyEditStaticPreview {
+		t.Fatalf("outcome = %q; want %q", result.Outcome, PolicyEditStaticPreview)
+	}
+	if !strings.Contains(result.Diff, "+    - /srv") {
+		t.Fatalf("diff = %q", result.Diff)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("dry run mutated policy: %v", err)
+	}
+}
+
+func TestPolicyEditAppliesNetworkChangeLive(t *testing.T) {
+	app, run, path := newPolicyEditTestRun(t)
+	runner := policyEditRunner("session=1\ndead=0\ncommand=codex\nplan=0\nidle=0\nfinished=0\nexit=\nactivity=\nmtime=\n", nil)
+	app.Runner = runner
+
+	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != PolicyEditLiveApplied || result.RolledBack {
+		t.Fatalf("result = %+v", result)
+	}
+	if !strings.Contains(result.Diff, "host-api-example-test") {
+		t.Fatalf("diff = %q", result.Diff)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(content), "api.example.test") {
+		t.Fatalf("live policy not saved: %v\n%s", err, content)
+	}
+	var set *recordedCommand
+	for i := range runner.outputs {
+		if slices.Contains(runner.outputs[i].args, "policy") && slices.Contains(runner.outputs[i].args, "set") {
+			set = &runner.outputs[i]
+		}
+	}
+	if set == nil {
+		t.Fatalf("OpenShell policy set not invoked: %#v", runner.outputs)
+	}
+	for _, want := range []string{run.Sandbox, run.Policy, "--wait", run.Gateway} {
+		if !commandHasArg(*set, want) {
+			t.Fatalf("policy set missing %q: %#v", want, set.args)
+		}
+	}
+}
+
+func TestPolicyEditRejectsRunWithoutLiveSandbox(t *testing.T) {
+	app, run, path := newPolicyEditTestRun(t)
+	runner := policyEditRunner("session=0\ndead=1\ncommand=\nplan=0\nidle=0\nfinished=1\nexit=0\nactivity=\nmtime=\n", nil)
+	app.Runner = runner
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", "", false)
+	var noSandbox *NoLiveSandboxError
+	if err == nil || !errors.As(err, &noSandbox) {
+		t.Fatalf("error = %v", err)
+	}
+	if result.Outcome != PolicyEditNoLiveSandbox || result.Diff != "" {
+		t.Fatalf("result = %+v", result)
+	}
+	if err.Error() != "Allow host is available only for Ready, Working, and Waiting agents." {
+		t.Fatalf("error text = %q", err.Error())
+	}
+	after, readErr := os.ReadFile(path)
+	if readErr != nil || !bytes.Equal(before, after) {
+		t.Fatalf("policy mutated for non-attachable run: %v", readErr)
+	}
+	for _, call := range runner.outputs {
+		if slices.Contains(call.args, "policy") && slices.Contains(call.args, "set") {
+			t.Fatalf("policy set invoked for non-attachable run: %#v", call.args)
+		}
+	}
+}
+
+func TestPolicyEditReportsOpenShellRejectionAndRollback(t *testing.T) {
+	app, run, path := newPolicyEditTestRun(t)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.Runner = policyEditRunner("session=1\ndead=0\ncommand=codex\nplan=0\nidle=0\nfinished=0\nexit=\nactivity=\nmtime=\n", errors.New("policy rejected"))
+
+	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", "", false)
+	if err == nil || !strings.Contains(err.Error(), "the local policy was restored: policy rejected") {
+		t.Fatalf("error = %v", err)
+	}
+	if result.Outcome != PolicyEditOpenShellRejected || !result.RolledBack || result.Diff == "" {
+		t.Fatalf("result = %+v", result)
+	}
+	after, readErr := os.ReadFile(path)
+	if readErr != nil || !bytes.Equal(before, after) {
+		t.Fatalf("rollback did not restore policy: %v", readErr)
+	}
+}
+
+func TestPolicyEditReportsRollbackFailure(t *testing.T) {
+	app, run, path := newPolicyEditTestRun(t)
+	applyErr := errors.New("policy rejected")
+	runner := policyEditRunner("session=1\ndead=0\ncommand=codex\nplan=0\nidle=0\nfinished=0\nexit=\nactivity=\nmtime=\n", nil)
+	runner.output = func(cmd recordedCommand) ([]byte, error) {
+		switch {
+		case cmd.name == "openshell" && slices.Contains(cmd.args, "sandbox") && slices.Contains(cmd.args, "get"):
+			return []byte(`{"phase":"running"}`), nil
+		case cmd.name == "openshell" && slices.Contains(cmd.args, "sandbox") && slices.Contains(cmd.args, "exec"):
+			return []byte("session=1\ndead=0\ncommand=codex\nplan=0\nidle=0\nfinished=0\nexit=\nactivity=\nmtime=\n"), nil
+		case cmd.name == "openshell" && slices.Contains(cmd.args, "policy") && slices.Contains(cmd.args, "set"):
+			if err := os.Remove(path); err != nil {
+				return nil, err
+			}
+			if err := os.Mkdir(path, 0700); err != nil {
+				return nil, err
+			}
+			return nil, applyErr
+		default:
+			return nil, nil
+		}
+	}
+	app.Runner = runner
+
+	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", "", false)
+	if err == nil || !strings.Contains(err.Error(), "local policy rollback failed") || !strings.Contains(err.Error(), applyErr.Error()) {
+		t.Fatalf("error = %v", err)
+	}
+	if result.Outcome != PolicyEditOpenShellRejected || result.RolledBack || result.Diff == "" {
+		t.Fatalf("result = %+v", result)
 	}
 }
