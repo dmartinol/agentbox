@@ -167,8 +167,9 @@ Three skills ship: `agentbox-cli` (run lifecycle), `agentbox-api` (local HTTP
 API), and `agentbox-orchestrator` (the issue-to-PR orchestrator flow: triage,
 per-stage workers with the agent, model, and effort they actually applied
 (`not-applicable` for AgentBox workers, which cannot set an effort), isolated
-verify and review worktrees detached at the PR head, provenance-marked
-comments and PRs, gated merge, and close, with a GitHub tracker adapter). The
+verify and review worktrees detached at the PR head, visible and retained
+worker sessions, a stage-aware forge matrix, provenance-marked comments and
+PRs, gated merge, and close, with a GitHub tracker adapter). The
 orchestrator skill also installs
 `issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`, and
 `verify-task.md` beside its `SKILL.md`, so an installed copy carries the
@@ -204,7 +205,13 @@ OpenCode primary agent, or ask a Codex session to use the
 `agentbox-orchestrator` custom agent. Orca's `worker-start --agent` still
 takes only a runtime ID, so the installed skill documents the supported
 in-session assignment path for each Orca-started harness and the Claude
-limitation.
+limitation. Start a stage role directly where the harness supports it
+(`claude --agent agentbox-verifier`, `opencode run --agent
+agentbox-verifier`); Codex dispatches it as a subagent from a top-level
+session. When an Orca worker needs a Codex profile, `worker-start` cannot set
+one, so the skill's tested path is a visible `orca terminal create` session
+with `codex -p PROFILE -m MODEL`; an unsupported profile, model, or runtime is
+a blocker rather than a silent substitution.
 
 One canonical copy of each skill, including its shipped templates, is written
 to `~/.agents/skills` (or `./.agents/skills` with `--local`) and Claude and

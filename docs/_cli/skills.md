@@ -29,7 +29,7 @@ Three usage skills and eight harness agent roles are shipped:
 | --- | --- |
 | `agentbox-cli` | Starting, inspecting, attaching to, syncing, and deleting runs; project, profile, and policy basics; the blocked-host recovery path. |
 | `agentbox-api` | The local HTTP API at `http://127.0.0.1:8080/api/...` with `curl`, plus a map of the Fleet and Setup surfaces. |
-| `agentbox-orchestrator` | The issue-to-PR orchestrator flow: triage, a selected worker per stage with the agent, model, and effort it actually applied (`not-applicable` for AgentBox workers), isolated verify and review worktrees detached at the PR head, a capability-based forge matrix, provenance-marked comments and PRs, a severity-gated finding ledger with delta re-review and a bounded cycle cap, gated merge, and close, with a GitHub tracker adapter. It ships `issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`, and `verify-task.md` templates. |
+| `agentbox-orchestrator` | The issue-to-PR orchestrator flow: triage, a selected worker per stage with the agent, model, and effort it actually applied (`not-applicable` for AgentBox workers), visible and retained workers, isolated verify and review worktrees detached at the PR head, a stage-aware forge matrix, provenance-marked comments and PRs, a severity-gated finding ledger with delta re-review and a bounded cycle cap, gated merge, and close, with a GitHub tracker adapter. It ships `issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`, and `verify-task.md` templates. |
 
 The agent roles are one controller plus the orchestrator's stage roles. They
 are rendered into each harness's native agent format from one canonical
@@ -38,7 +38,7 @@ definition:
 | Role | Stage | Can write | Shell | Covers |
 | --- | --- | --- | --- | --- |
 | `agentbox-orchestrator` | orchestrate | no | yes | Follows the installed `agentbox-orchestrator` skill, dispatches every stage role, owns state, gates, merge, and close, and never performs stage work inline. |
-| `agentbox-triage` | triage | no | no | Tracker-blind disposition from a supplied issue, search, policy, and preflight snapshot: `ready`, `needs-info`, `out-of-scope`, or `blocked`, with evidence, questions, and risks. |
+| `agentbox-triage` | triage | no | no | Tracker-blind disposition from a supplied issue, search, policy, and preflight snapshot: `ready`, `needs-info`, `out-of-scope`, or `blocked`, with evidence, questions, and risks/unresolved assumptions. |
 | `agentbox-planner` | plan | no | yes | Acceptance criteria, gate list, branch and implementer task spec. |
 | `agentbox-implementer` | implement | yes | yes | Scoped implementation, tests, declared gates, commit and evidence. |
 | `agentbox-fixer` | fix | yes | yes | Only the accepted merge-blocking review findings, with addressed finding ids, commit, gates, and unresolved items. Never opens a PR or touches the tracker. |
@@ -56,8 +56,39 @@ inline. Assign it explicitly: start Claude with
 only a runtime ID; the installed skill documents the supported in-session
 assignment path for each Orca-started harness and the Claude limitation.
 Triage and retro have no shell, so they cannot call `gh` or `git`. The fixer
-may push only to the existing pull request branch, and the orchestrator
-remains the only PR creator and tracker writer.
+may push only to the existing pull request branch. A capable host implementer
+or the orchestrator opens the pull request; only the orchestrator writes to
+the tracker, posts verdicts, merges, and closes.
+
+## Launch paths and worker visibility
+{: #skills-orchestrator-launch }
+
+A controller, an Orca worktree, and a stage worker are different objects. An
+Orca worktree is a checkout: creating one starts no agent. The stage worker is
+the agent process launched inside that checkout, and it receives the stage
+spec as its own task. Do not start one agent and then have it launch another
+non-interactive agent for the same stage.
+
+| Path | When to use it | What the user can follow |
+| --- | --- | --- |
+| `orca orchestration worker-start --agent ... --spec-file - --keep-open --json` | Orca worker without a harness profile | the returned worker handle, with `worker-show` and `worker-read` |
+| `orca terminal create --worktree ... --command "codex -p PROFILE -m MODEL" --json` | Orca worker that needs a Codex profile; `worker-start` and `agent launch` have no `--profile` flag | the returned terminal handle, with `orca terminal read` |
+| `claude --agent agentbox-<role>` or `opencode run --agent agentbox-<role>` | direct harness role, no Orca wrapper | the visible session itself |
+| Codex top-level session | Codex custom agents run as subagents and Codex has no top-level `--agent` switch | the parent and the controller subagent separately |
+
+Orca worker starts are visible and retained by default. A headless
+`codex exec` whose only output is redirected to a temporary file is not the
+default worker path. Report the stage, worktree, branch, and worker or
+terminal handle at stage start and completion, and keep worktrees and
+sessions until the stage evidence is captured and the final report is
+delivered. Clean up afterwards unless the user asked to keep them.
+
+Worktree creation is verified from the raw response and by listing the
+worktrees before any retry. A missing field in a display or projection layer
+is ambiguous, not a reason to create a duplicate. Never use
+`--dangerously-bypass-approvals-and-sandbox` or an equivalent; an unsupported
+profile, model, effort, or runtime is a blocker rather than a silent
+substitution.
 
 ## Layout: one canonical copy plus links
 {: #skills-layout }
