@@ -56,6 +56,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/runs/{id}/shells/{name}/delete", s.deleteRunShell)
 	mux.HandleFunc("GET /api/runs/{id}/diff", s.runDiff)
 	mux.HandleFunc("GET /api/runs/{id}/policy", s.runPolicy)
+	mux.HandleFunc("GET /api/runs/{id}/policy/content", s.runPolicyContent)
 	mux.HandleFunc("POST /api/runs/{id}/policy/host", s.allowRunHost)
 
 	mux.HandleFunc("GET /api/projects", s.listProjects)
@@ -632,13 +633,23 @@ func (s *Server) runPolicy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, policy)
 }
 
+func (s *Server) runPolicyContent(w http.ResponseWriter, r *http.Request) {
+	path, content, err := s.app.RunPolicyFile(r.PathValue("id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"path": path, "content": content})
+}
+
 type runHostRequest struct {
 	Host string `json:"host"`
 }
 
 type runHostSuccess struct {
-	Outcome app.PolicyEditOutcome `json:"outcome"`
-	Diff    string                `json:"diff,omitempty"`
+	Outcome    app.PolicyEditOutcome `json:"outcome"`
+	Diff       string                `json:"diff,omitempty"`
+	PolicyPath string                `json:"policyPath,omitempty"`
 }
 
 type runHostFailure struct {
@@ -681,7 +692,7 @@ func writeRunHostResult(w http.ResponseWriter, result app.PolicyEditResult, err 
 	if result.Outcome == app.PolicyEditStaticPending {
 		status = http.StatusAccepted
 	}
-	writeJSON(w, status, runHostSuccess{Outcome: result.Outcome, Diff: result.Diff})
+	writeJSON(w, status, runHostSuccess{Outcome: result.Outcome, Diff: result.Diff, PolicyPath: result.PolicyPath})
 }
 
 type projectRequest struct {

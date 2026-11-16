@@ -89,15 +89,20 @@ The response carries the computed diff and the outcome:
 
 | Status | Body | Meaning |
 | --- | --- | --- |
-| `200` | `{"outcome":"live-applied","diff":"..."}` | Network rule applied to the live sandbox. |
-| `202` | `{"outcome":"static-pending","diff":"..."}` | Change saved for the next sandbox. |
+| `200` | `{"outcome":"live-applied","diff":"...","policyPath":"..."}` | Network rule applied to the live sandbox. |
+| `202` | `{"outcome":"static-pending","diff":"...","policyPath":"..."}` | Change saved for the next sandbox. |
 | `409` | `{"outcome":"no-live-sandbox","error":"..."}` | Run is not Ready, Working, or Waiting; nothing changed. |
 | `500` | `{"outcome":"openshell-rejected","error":"...","diff":"...","rolledBack":true}` | OpenShell rejected the update and the local policy was restored. `rolledBack` is `false` when restore also failed. |
 
+`policyPath` names the run-scoped file that received the rule: the run policy
+for `live-applied` or the `*-pending.yaml` copy for `static-pending`. `GET
+/api/policies` lists reusable templates only; run copies are separate. Read the
+run copy with `GET /api/runs/RUN_ID/policy/content` (`{"path":"...","content":"..."}`)
+and the effective policy with `GET /api/runs/RUN_ID/policy`.
+
 Rules are binary-scoped: the rule names the agent launcher derived by
 `GET /api/runs/RUN_ID` (`agent_binary`) plus `node`, `git`, git's HTTPS helper,
-`curl`, and `git-lfs`. Read the effective policy with
-`GET /api/runs/RUN_ID/policy`. Never weaken hard isolation or bypass the
+`curl`, and `git-lfs`. Never weaken hard isolation or bypass the
 sandbox to make a command run.
 
 ## Configuration endpoints

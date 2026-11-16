@@ -138,6 +138,8 @@ host, or the agent reports that a domain is blocked.
    ```
    Preview with `--dry-run` first when unsure. Rules are binary-scoped and
    AgentBox adds them for the known egress binaries, including node and git.
+   The rule is written to the run's own policy copy under
+   `$AGENTBOX_HOME/policies`, not to a reusable policy configuration.
    Use `--binary /absolute/path/to/binary` only when the block comes from a
    binary outside that set.
 4. Network-only changes apply live with `openshell policy set --wait`, so retry

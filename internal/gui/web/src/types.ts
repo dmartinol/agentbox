@@ -32,6 +32,7 @@ export interface Run {
   profile?: string;
   synced: boolean;
   policy: string;
+  pending_policy?: string;
   mcp?: string;
   mcp_warnings?: string[];
   skills?: string;
@@ -254,6 +255,12 @@ export type PolicyEditOutcome =
 export interface PolicyHostResponse {
   outcome: 'live-applied' | 'static-pending';
   diff?: string;
+  policyPath?: string;
+}
+
+export interface RunPolicyContent {
+  path: string;
+  content: string;
 }
 
 export interface PolicyHostError extends Error {

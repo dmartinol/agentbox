@@ -251,6 +251,19 @@ It accepts no agent, binary, or policy name; the run record supplies all three.
 `GET /api/runs/{id}` includes the derived `agent_binary` so the dialog can show
 the launcher without duplicating policy-generation logic in React.
 
+A successful edit returns the path it wrote as `policyPath`: the run policy for
+`live-applied`, or the `*-pending.yaml` copy for `static-pending`. Reusable
+policy configurations are only templates, so run copies are excluded from
+`GET /api/policies` and listed in Setup → Policies under **Agent run policies**.
+`GET /api/runs/{id}/policy/content` returns that run copy as
+`{"path":"...","content":"..."}` for inspection.
+
+After a successful allow, the dialog switches from **Cancel**/**Allow host** to
+**Allow another host**/**Close**, disables the host input, and shows the diff.
+It no longer opens the policy drawer automatically: **View policy** closes the
+dialog and opens the effective policy, so the dialog stays responsive while
+OpenShell is queried.
+
 The edit is allowed only when a non-dry host action reconciles the run to
 Ready, Working, or Waiting. Creating, Failed, Unreachable, Stopped, Completed,
 and normalized unknown statuses are rejected before any policy file changes.

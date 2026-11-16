@@ -50,3 +50,7 @@ Without `--binary`, a host rule allows the agent launcher plus the binaries
 that actually open the socket: `/usr/local/bin/node`, `/usr/bin/git`, and
 `/usr/lib/git-core/**`. The supported agents are Node applications, so a rule
 that lists only the launcher path does not cover the connecting process.
+
+The edit writes to the run's own policy copy under
+`$AGENTBOX_HOME/policies`, never to the reusable profile configuration. A
+static change is saved as `*-pending.yaml` for the next sandbox.

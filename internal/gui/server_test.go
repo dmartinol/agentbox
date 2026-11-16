@@ -761,7 +761,11 @@ func TestWriteRunHostResultMapsExactSuccessBodies(t *testing.T) {
 }
 
 func TestRunHostEndpointAppliesLivePolicy(t *testing.T) {
-	server := newTestServer(t)
+	server, store := newTestServerAndStore(t, testRunner())
+	run, err := store.LoadRun("run-active")
+	if err != nil {
+		t.Fatal(err)
+	}
 	response, body := postRunHost(t, server.URL+"/api/runs/run-active/policy/host", `{"host":"api.example.com"}`)
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d body = %s", response.StatusCode, body)
@@ -770,12 +774,38 @@ func TestRunHostEndpointAppliesLivePolicy(t *testing.T) {
 	if err := json.Unmarshal(body, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload) != 2 || payload["outcome"] != "live-applied" {
+	if len(payload) != 3 || payload["outcome"] != "live-applied" || payload["policyPath"] != run.Policy {
 		t.Fatalf("body = %s", body)
 	}
 	diff, _ := payload["diff"].(string)
 	if !strings.Contains(diff, "host-api-example-com") {
 		t.Fatalf("diff = %q", diff)
+	}
+}
+
+func TestRunPolicyContentEndpointReturnsTheRunCopy(t *testing.T) {
+	server, store := newTestServerAndStore(t, testRunner())
+	run, err := store.LoadRun("run-active")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.Get(server.URL + "/api/runs/run-active/policy/content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", response.StatusCode)
+	}
+	var payload map[string]string
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["path"] != run.Policy {
+		t.Fatalf("path = %q; want %q", payload["path"], run.Policy)
+	}
+	if !strings.Contains(payload["content"], "network_policies") {
+		t.Fatalf("content = %q", payload["content"])
 	}
 }
 

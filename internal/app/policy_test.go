@@ -240,6 +240,9 @@ func TestSavePolicyEditDefersStaticChanges(t *testing.T) {
 	if err != nil || string(pending) != string(next) {
 		t.Fatalf("pending policy contents mismatch: %v", err)
 	}
+	if result.PolicyPath != run.PendingPolicy {
+		t.Fatalf("result policy path = %q; want %q", result.PolicyPath, run.PendingPolicy)
+	}
 }
 
 func TestSavePolicyEditAppliesNetworkChangeAndRollsBackOnFailure(t *testing.T) {
@@ -285,6 +288,9 @@ func TestSavePolicyEditAppliesNetworkChangeAndRollsBackOnFailure(t *testing.T) {
 				}
 				if result.Outcome != PolicyEditLiveApplied || result.RolledBack {
 					t.Fatalf("live result = %+v", result)
+				}
+				if result.PolicyPath != path {
+					t.Fatalf("result policy path = %q; want %q", result.PolicyPath, path)
 				}
 				got, readErr := os.ReadFile(path)
 				if readErr != nil || string(got) != string(next) {
@@ -569,6 +575,20 @@ func TestPolicyEditDryRunReportsStaticPreview(t *testing.T) {
 	}
 }
 
+func TestRunPolicyFileReturnsTheRunCopy(t *testing.T) {
+	app, run, path := newPolicyEditTestRun(t)
+	gotPath, content, err := app.RunPolicyFile(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != path || content != string(DefaultPolicy()) {
+		t.Fatalf("RunPolicyFile = %q, %q; want %q with the default policy", gotPath, content, path)
+	}
+	if _, _, err := app.RunPolicyFile("missing-run"); err == nil {
+		t.Fatal("expected an error for an unknown run")
+	}
+}
+
 func TestPolicyEditAppliesNetworkChangeLive(t *testing.T) {
 	app, run, path := newPolicyEditTestRun(t)
 	runner := policyEditRunner("session=1\ndead=0\ncommand=codex\nplan=0\nidle=0\nfinished=0\nexit=\nactivity=\nmtime=\n", nil)
@@ -580,6 +600,9 @@ func TestPolicyEditAppliesNetworkChangeLive(t *testing.T) {
 	}
 	if result.Outcome != PolicyEditLiveApplied || result.RolledBack {
 		t.Fatalf("result = %+v", result)
+	}
+	if result.PolicyPath != path {
+		t.Fatalf("result policy path = %q; want %q", result.PolicyPath, path)
 	}
 	if !strings.Contains(result.Diff, "host-api-example-test") {
 		t.Fatalf("diff = %q", result.Diff)

@@ -72,6 +72,7 @@ type PolicyEditResult struct {
 	Diff       string            `json:"diff,omitempty"`
 	Outcome    PolicyEditOutcome `json:"outcome"`
 	RolledBack bool              `json:"rolledBack"`
+	PolicyPath string            `json:"policyPath,omitempty"`
 }
 
 func ParsePolicy(b []byte) (Policy, error) {
@@ -488,6 +489,7 @@ func (a *App) PolicyEdit(ctx context.Context, runID, allowHost, binary string, d
 	if saved.Diff != "" {
 		result.Diff = saved.Diff
 	}
+	result.PolicyPath = saved.PolicyPath
 	return result, err
 }
 
@@ -630,9 +632,11 @@ func (a *App) savePolicyEdit(ctx context.Context, r Run, old, next []byte) (Poli
 		}
 		r.PendingPolicy = path
 		result.Outcome = PolicyEditStaticPending
+		result.PolicyPath = path
 		return result, a.Store.SaveRun(r)
 	}
 	// The original remains available for rollback if OpenShell rejects the update.
+	result.PolicyPath = r.Policy
 	if err := atomicWrite(r.Policy, next); err != nil {
 		return result, err
 	}
@@ -651,6 +655,21 @@ func (a *App) savePolicyEdit(ctx context.Context, r Run, old, next []byte) (Poli
 	}
 	result.Outcome = PolicyEditLiveApplied
 	return result, nil
+}
+
+// RunPolicyFile returns the run-scoped policy YAML and its path. Reusable
+// policy configurations are templates; each run copies one at start and the
+// Allow host action edits that copy.
+func (a *App) RunPolicyFile(runID string) (string, string, error) {
+	r, err := a.Store.LoadRun(runID)
+	if err != nil {
+		return "", "", err
+	}
+	b, err := os.ReadFile(r.Policy)
+	if err != nil {
+		return r.Policy, "", err
+	}
+	return r.Policy, string(b), nil
 }
 
 func simpleDiff(a, b []byte) string {

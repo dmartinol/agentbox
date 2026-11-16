@@ -16,6 +16,7 @@ import type {
   Provider,
   Registry,
   Run,
+  RunPolicyContent,
   Settings,
   StartRunRequest,
   GuiTask
@@ -70,6 +71,7 @@ export const api = {
   deleteShell: (id: string, name: string) => post<{ deleted: true }>(`/api/runs/${id}/shells/${encodeURIComponent(name)}/delete`),
   diff: (id: string) => request<{ diff: string }>(`/api/runs/${id}/diff`),
   policy: (id: string) => request<Record<string, unknown>>(`/api/runs/${id}/policy`),
+  runPolicyContent: (id: string) => request<RunPolicyContent>(`/api/runs/${id}/policy/content`),
   allowHost: (id: string, host: string) => allowRunHost(id, host),
 
   projects: () => request<Project[]>('/api/projects'),
