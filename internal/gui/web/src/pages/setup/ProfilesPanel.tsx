@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
+import { approvalOptions, defaultApproval } from '../../approvals';
 import type { ImageArtifact, PolicyConfiguration, Profile, Provider } from '../../types';
 import { Alert } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
@@ -13,11 +14,10 @@ import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 
 const agents = ['codex', 'claude', 'opencode'];
 const modes = ['standard', 'gateway'];
-const approvals = ['prompted', 'unattended'];
 
 const emptyProfile: Profile = {
   version: 1, name: '', agent: 'codex', image: '', mode: 'gateway', model: '',
-  provider: '', policy: '', approval: 'prompted', base_url: '', api_key_env: ''
+  provider: '', policy: '', approval: defaultApproval, base_url: '', api_key_env: ''
 };
 
 function defaultImageFor(images: ImageArtifact[], agent: string, current = '') {
@@ -447,7 +447,7 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
           </Field>
           <Field label="Approval" htmlFor="profile-approval" required>
             <Select id="profile-approval" value={form.approval} onChange={(event) => setForm({ ...form, approval: event.target.value })}>
-              {approvals.map((approval) => <option key={approval} value={approval}>{approval}</option>)}
+              {approvalOptions.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
             </Select>
           </Field>
         </div>

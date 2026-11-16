@@ -45,7 +45,7 @@ function jsonResponse(value: unknown, status = 200) {
 }
 
 function mockRoutes(routes: Record<string, unknown>) {
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = input.toString();
     const method = init?.method ?? 'GET';
     const key = `${method} ${url}`;
@@ -57,7 +57,9 @@ function mockRoutes(routes: Record<string, unknown>) {
       return jsonResponse(response.body, response.mockStatus);
     }
     return jsonResponse(value);
-  }));
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
 }
 
 function defaultRoutes(): Record<string, unknown> {
@@ -627,6 +629,67 @@ describe('fleet actions', () => {
     expect(within(dialog).getByText('New agent')).toBeInTheDocument();
     expect(within(dialog).queryByLabelText(/^Image/)).toBeNull();
     expect(within(dialog).getByLabelText('Override image, model, and approval')).not.toBeChecked();
+  });
+
+  it('prefills run approval from the selected profile and preserves an explicit prompted override', async () => {
+    const promptedProfile = { ...overview.profiles[0], name: 'prompted-profile', approval: 'prompted' };
+    const unattendedProfile = { ...overview.profiles[0], name: 'unattended-profile', approval: 'unattended' };
+    const fetchMock = mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/overview': { ...overview, profiles: [promptedProfile, unattendedProfile] },
+      'POST /api/runs': runs[0]
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'New agent' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByLabelText('Override image, model, and approval'));
+
+    await waitFor(() => expect(within(dialog).getByLabelText(/^Approval/)).toHaveValue('prompted'));
+    await user.selectOptions(within(dialog).getByLabelText(/^Profile/), 'unattended-profile');
+    await waitFor(() => expect(within(dialog).getByLabelText(/^Approval/)).toHaveValue('unattended'));
+
+    await user.selectOptions(within(dialog).getByLabelText(/^Approval/), 'prompted');
+    await user.selectOptions(within(dialog).getByLabelText(/^Profile/), 'prompted-profile');
+    await user.selectOptions(within(dialog).getByLabelText(/^Profile/), 'unattended-profile');
+    expect(within(dialog).getByLabelText(/^Approval/)).toHaveValue('prompted');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Start' }));
+    const request = fetchMock.mock.calls.find(([input, init]) => input.toString() === '/api/runs' && init?.method === 'POST');
+    expect(request).toBeDefined();
+    expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({ profile: 'unattended-profile', approval: 'prompted' });
+  });
+
+  it('falls back to unattended when the start dialog has no profile', async () => {
+    const fetchMock = mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/overview': { ...overview, profiles: [] },
+      'POST /api/runs': runs[0]
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'New agent' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByLabelText('Override image, model, and approval'));
+
+    const approval = within(dialog).getByLabelText(/^Approval/);
+    expect(approval).toHaveValue('unattended');
+    expect(within(approval).getByRole('option', { name: 'unattended — no permission prompts' })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Start' }));
+
+    const request = fetchMock.mock.calls.find(([input, init]) => input.toString() === '/api/runs' && init?.method === 'POST');
+    expect(request).toBeDefined();
+    expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({ approval: 'unattended' });
+  });
+
+  it('preserves a prompted run approval when copying an agent', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText('idle-run'));
+    await user.click(screen.getByRole('button', { name: 'Copy agent' }));
+    const dialog = await screen.findByRole('dialog');
+
+    expect(within(dialog).getByLabelText(/^Approval/)).toHaveValue('prompted');
   });
 
   it('requires confirmation before deleting an agent', async () => {

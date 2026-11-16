@@ -176,6 +176,62 @@ func TestStartReportsMissingProfileAndPolicy(t *testing.T) {
 	}
 }
 
+func TestStartApprovalPrecedence(t *testing.T) {
+	ctx := context.Background()
+	source := t.TempDir()
+	store := Store{Base: t.TempDir()}
+	policy, err := store.CreatePolicyConfiguration("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		switch {
+		case call.name == "git":
+			return []byte(source), nil
+		case call.name == "openshell" && commandHasArg(call, "gateway"):
+			return []byte(`{"type":"podman"}`), nil
+		case call.name == "openshell" && commandHasArg(call, "provider"):
+			return []byte(`{}`), nil
+		case call.name == "podman" && commandHasArg(call, "inspect"):
+			return []byte(`{}`), nil
+		}
+		return []byte(`{}`), nil
+	}}
+	app := App{Store: store, Runner: runner}
+
+	for _, tc := range []struct {
+		name            string
+		profileApproval string
+		override        string
+		want            string
+	}{
+		{name: "existing prompted profile", profileApproval: "prompted", want: "prompted"},
+		{name: "new unattended profile", profileApproval: "unattended", want: "unattended"},
+		{name: "explicit per-run override", profileApproval: "unattended", override: "prompted", want: "prompted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			profile := testProfile("codex", "standard", tc.profileApproval)
+			profile.Policy = policy.Path
+			if err := store.SaveProfile(profile); err != nil {
+				t.Fatal(err)
+			}
+			run, err := app.Start(ctx, StartOptions{
+				Profile:  profile.Name,
+				Gateway:  "openshell",
+				Source:   source,
+				Approval: tc.override,
+				Dry:      true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if run.Approval != tc.want {
+				t.Fatalf("run approval = %q; want %q", run.Approval, tc.want)
+			}
+		})
+	}
+}
+
 func TestBootstrapKillsAgentSessionWhenAgentExits(t *testing.T) {
 	for _, want := range []string{"/workspace/state/session.sh", "touch /workspace/finished", "tmux kill-session -t agent", "exec sleep infinity", "export LANG=C.UTF-8", "export LC_ALL=C.UTF-8"} {
 		if !strings.Contains(bootstrapScript, want) {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CircleHelp, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal } from 'lucide-react';
 import { api } from '../api';
+import { approvalForProfile, approvalLabel, approvalOptions, defaultApproval } from '../approvals';
 import type { MCPTools, Overview, PolicyHostError, PolicyHostResponse, Profile, Run, SkillsEntry, StartRunRequest } from '../types';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -56,7 +57,8 @@ export function FleetView({
   const [startSubmitting, setStartSubmitting] = useState(false);
   const [startForm, setStartForm] = useState<StartRunRequest>({ project: '', profile: '', gateway: '', name: '', prompt: '', mcp: '', skills: '' });
   const [useOverrides, setUseOverrides] = useState(false);
-  const [overrides, setOverrides] = useState({ image: '', model: '', approval: 'prompted' });
+  const [overrides, setOverrides] = useState({ image: '', model: '', approval: defaultApproval });
+  const approvalExplicit = useRef(false);
   const [mcpEntries, setMcpEntries] = useState<MCPTools[]>([]);
   const [skillsEntries, setSkillsEntries] = useState<SkillsEntry[]>([]);
   const [startWarnings, setStartWarnings] = useState<string[]>([]);
@@ -123,6 +125,11 @@ export function FleetView({
   }, [filtered]);
 
   const selectedProfile: Profile | undefined = overview?.profiles.find((profile) => profile.name === startForm.profile);
+
+  useEffect(() => {
+    if (!startOpen || approvalExplicit.current) return;
+    setOverrides((current) => ({ ...current, approval: approvalForProfile(selectedProfile) }));
+  }, [startOpen, selectedProfile?.approval]);
 
   const openWorkspace = (agent: Run) => {
     setFocusedRunId(agent.id);
@@ -237,6 +244,7 @@ export function FleetView({
   };
 
   const openStart = async () => {
+    const nextProfile = startForm.profile || overview?.profiles[0]?.name || '';
     setStartError('');
     setStartWarnings([]);
     setSkillWarnings([]);
@@ -252,7 +260,8 @@ export function FleetView({
       skills: ''
     }));
     setUseOverrides(false);
-    setOverrides({ image: '', model: '', approval: 'prompted' });
+    setOverrides({ image: '', model: '', approval: approvalForProfile(overview?.profiles.find((profile) => profile.name === nextProfile)) });
+    approvalExplicit.current = false;
     await load();
     setStartOpen(true);
   };
@@ -274,7 +283,8 @@ export function FleetView({
     setStartWarnings([]);
     setSkillWarnings([]);
     setUseOverrides(true);
-    setOverrides({ image: run.image, model: run.model, approval: run.approval || 'prompted' });
+    setOverrides({ image: run.image, model: run.model, approval: run.approval || approvalForProfile(profile) });
+    approvalExplicit.current = true;
     setStartOpen(true);
   };
 
@@ -546,7 +556,7 @@ export function FleetView({
                   ['Sandbox', selected.sandbox],
                   ['Image', selected.image],
                   ['Mode', selected.mode],
-                  ['Approval', selected.approval],
+                  ['Approval', approvalLabel(selected.approval)],
                   ['Worktree', selected.worktree],
                   ...(selected.status_detail ? [['Detail', selected.status_detail]] : [])
                 ].map(([label, value]) => (
@@ -681,7 +691,7 @@ export function FleetView({
                 <div>Image: <span className="text-foreground">{selectedProfile.image}</span></div>
                 <div>Model: <span className="text-foreground">{selectedProfile.model || '-'}</span></div>
                 <div>Provider: <span className="text-foreground">{selectedProfile.provider}</span></div>
-                <div>Approval: <span className="text-foreground">{selectedProfile.approval}</span></div>
+                <div>Approval: <span className="text-foreground">{approvalLabel(selectedProfile.approval)}</span></div>
               </div>
             ) : 'Select a profile to see defaults.'}
           </div>
@@ -699,9 +709,11 @@ export function FleetView({
                 <Input id="new-agent-model" value={overrides.model} onChange={(event) => setOverrides({ ...overrides, model: event.target.value })} />
               </Field>
               <Field label="Approval" htmlFor="new-agent-approval">
-                <Select id="new-agent-approval" value={overrides.approval} onChange={(event) => setOverrides({ ...overrides, approval: event.target.value })}>
-                  <option value="prompted">prompted</option>
-                  <option value="unattended">unattended</option>
+                <Select id="new-agent-approval" value={overrides.approval} onChange={(event) => {
+                  approvalExplicit.current = true;
+                  setOverrides({ ...overrides, approval: event.target.value });
+                }}>
+                  {approvalOptions.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
                 </Select>
               </Field>
             </>
