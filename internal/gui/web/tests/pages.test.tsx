@@ -11,6 +11,7 @@ import { McpPanel } from '../src/pages/setup/McpPanel';
 import { PoliciesPanel } from '../src/pages/setup/PoliciesPanel';
 import { SkillsPanel } from '../src/pages/setup/SkillsPanel';
 import { mcps, overview, providers, runs, skillEntries, skillStatus } from './fixtures';
+import { formatSyncTimestamp } from '../src/lib/text';
 
 const xtermHooks = vi.hoisted(() => ({
   resize: undefined as undefined | ((size: { cols: number; rows: number }) => void)
@@ -616,7 +617,8 @@ describe('fleet actions', () => {
     if (!row) throw new Error('agent row missing');
     await user.click(within(row).getByRole('button', { name: 'Details for active-run' }));
     await user.click(within(await screen.findByRole('complementary', { name: 'Agent details' })).getByRole('button', { name: 'Sync' }));
-    expect(within(row).getByText('Syncing', { selector: 'td' })).toBeInTheDocument();
+    expect(within(row).getByText('Syncing…')).toBeInTheDocument();
+    expect(within(await screen.findByRole('complementary', { name: 'Agent details' })).getByRole('button', { name: 'Syncing…' })).toBeInTheDocument();
     expect(within(row).getByRole('button', { name: 'Details for active-run' })).toBeInTheDocument();
     resolveSync(runs[0]);
     await waitFor(() => expect(screen.getByText('Sync requested for active-run')).toBeInTheDocument());
@@ -1284,7 +1286,7 @@ describe('readable fleet layout', () => {
     expect(labels).toEqual(expect.arrayContaining(['Type', 'Status', 'Sync', 'Branch', 'Actions']));
     expect(within(row).getByLabelText('Type: codex')).toBeInTheDocument();
     expect(within(row).getByLabelText('Status: Working')).toBeInTheDocument();
-    expect(within(row).getByLabelText('Sync: Synced')).toBeInTheDocument();
+    expect(within(row).getByLabelText('Sync: Sync needed')).toBeInTheDocument();
 
     await user.click(within(row).getByRole('button', { name: 'Details for active-run' }));
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
@@ -1293,6 +1295,82 @@ describe('readable fleet layout', () => {
     expect(within(panel).getByRole('heading', { name: 'Manage' })).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Copy Image for active-run' })).toBeInTheDocument();
     expect(within(panel).getAllByText('Show full').length).toBeGreaterThan(0);
+  });
+
+  it('renders every sync state with text and a glyph in Fleet rows', async () => {
+    const states = ['no_changes', 'up_to_date', 'needs_sync', 'blocked', 'unknown'] as const;
+    const labels = {
+      no_changes: 'No changes',
+      up_to_date: 'Up to date',
+      needs_sync: 'Sync needed',
+      blocked: 'Sync blocked',
+      unknown: 'Unable to check'
+    } as const;
+    const stateRuns = states.map((state) => ({
+      ...runs[0],
+      id: `run-state-${state}`,
+      name: `state-${state}`,
+      status: 'ready' as const,
+      sync_state: state,
+      last_successful_sync_at: state === 'no_changes' ? undefined : '2026-02-03T04:05:00Z'
+    }));
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/overview': { ...overview, tree: [], runs: stateRuns },
+      'GET /api/runs': stateRuns
+    });
+    render(<App />);
+    const table = await screen.findByRole('table', { name: 'Agents in demo' });
+    for (const state of states) {
+      const row = within(table).getByText(`state-${state}`).closest('tr');
+      if (!row) throw new Error(`row for ${state} missing`);
+      const syncCell = within(row).getByLabelText(`Sync: ${labels[state]}`);
+      expect(syncCell).toHaveAttribute('data-label', 'Sync');
+      expect(within(row).getByText(labels[state])).toBeInTheDocument();
+      expect(within(row).getByLabelText('Status: Ready')).toBeInTheDocument();
+      expect(syncCell.querySelector('svg')).not.toBeNull();
+    }
+  });
+
+  it('shows sync state, explanation, localized timestamp, and Never in agent details', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within((await screen.findByText('active-run')).closest('tr') as HTMLElement).getByRole('button', { name: 'Details for active-run' }));
+    let panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    expect(within(panel).getByText('Sync state')).toBeInTheDocument();
+    expect(within(panel).getByText('Sync needed')).toBeInTheDocument();
+    expect(within(panel).getByText('Last sync')).toBeInTheDocument();
+    expect(within(panel).getByText(formatSyncTimestamp('2026-01-01T10:30:00Z'))).toBeInTheDocument();
+    expect(within(panel).getByText('Sandbox changes have not been transferred to the host run worktree.')).toBeInTheDocument();
+
+    await user.click(within((await screen.findByText('idle-run')).closest('tr') as HTMLElement).getByRole('button', { name: 'Details for idle-run' }));
+    panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    expect(within(panel).getByText('Unable to check')).toBeInTheDocument();
+    expect(within(panel).getByText('Never')).toBeInTheDocument();
+    expect(within(panel).getByText('AgentBox could not inspect the sandbox.')).toBeInTheDocument();
+  });
+
+  it('explains a blocked sync when the host worktree changed', async () => {
+    const blockedRun = {
+      ...runs[0],
+      id: 'run-blocked',
+      name: 'blocked-run',
+      sync_state: 'blocked' as const,
+      last_successful_sync_at: '2026-01-01T10:30:00Z'
+    };
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/overview': { ...overview, tree: [], runs: [blockedRun] },
+      'GET /api/runs': [blockedRun]
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    const row = (await screen.findByText('blocked-run')).closest('tr');
+    if (!row) throw new Error('blocked row missing');
+    await user.click(within(row).getByRole('button', { name: 'Details for blocked-run' }));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    expect(within(panel).getByText('Sync blocked')).toBeInTheDocument();
+    expect(within(panel).getByText('The host run worktree changed, so sync will refuse to overwrite it.')).toBeInTheDocument();
   });
 
   it('groups resolved profile defaults behind a disclosure when starting an agent', async () => {

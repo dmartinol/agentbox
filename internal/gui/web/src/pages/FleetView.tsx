@@ -17,7 +17,8 @@ import { AgentWorkspace } from '../components/AgentWorkspace';
 import { Disclosure } from '../components/ui/disclosure';
 import { ExpandableValue } from '../components/ui/copy-value';
 import { cn } from '../lib/utils';
-import { StatusBadge, canAttachRun, isActiveRun, canStopRun, isWaitingRun, statusLabel } from '../components/StatusBadge';
+import { formatSyncTimestamp } from '../lib/text';
+import { StatusBadge, SyncStateBadge, canAttachRun, isActiveRun, canStopRun, isWaitingRun, statusLabel, syncStateExplanation, syncStateLabel } from '../components/StatusBadge';
 import type { LogDrawerState } from '../components/LogDrawer';
 
 const allProjects = 'All projects';
@@ -490,12 +491,12 @@ export function FleetView({
                 <Table aria-label={`Agents in ${project}`} className="agentbox-fleet-table">
                   <THead>
                     <TR>
-                      <TH className="w-[21%]">Agent</TH>
-                      <TH className="w-[8%]">Type</TH>
+                      <TH className="w-[20%]">Agent</TH>
+                      <TH className="w-[7%]">Type</TH>
                       <TH className="w-[11%]">Status</TH>
-                      <TH className="w-[8%]">Sync</TH>
-                      <TH className="w-[30%]">Branch</TH>
-                      <TH className="w-[22%]">Actions</TH>
+                      <TH className="w-[13%]">Sync</TH>
+                      <TH className="w-[28%]">Branch</TH>
+                      <TH className="w-[21%]">Actions</TH>
                     </TR>
                   </THead>
                   <TBody>
@@ -504,7 +505,8 @@ export function FleetView({
                       const attachable = canAttachRun(agent.status);
                       const label = agent.name || agent.id;
                       const status = inFlightStatus(agent);
-                      const syncLabel = busy === 'sync' ? 'Syncing' : agent.synced ? 'Synced' : 'Unsynced';
+                      const syncBusy = busy === 'sync';
+                      const syncLabel = syncBusy ? 'Syncing…' : syncStateLabel(agent.sync_state);
                       return (
                         <TR
                           key={agent.id}
@@ -519,9 +521,12 @@ export function FleetView({
                           <TD
                             label="Sync"
                             aria-label={`Sync: ${syncLabel}`}
-                            className={busy === 'sync' ? 'text-info' : agent.synced ? 'text-success' : 'text-warning'}
                           >
-                            {syncLabel}
+                            {syncBusy ? (
+                              <Badge tone="info"><Loader2 className="size-3 animate-spin" />Syncing…</Badge>
+                            ) : (
+                              <SyncStateBadge state={agent.sync_state} />
+                            )}
                           </TD>
                           <TD label="Branch">
                             <ExpandableValue value={agent.branch} label={`branch for ${label}`} max={28} />
@@ -611,6 +616,19 @@ export function FleetView({
                 ))}
               </dl>
 
+              <section aria-label="Sync" className="space-y-1.5 rounded-lg border border-border p-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Sync</h3>
+                <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-sm">
+                  <dt className="text-muted">Sync state</dt>
+                  <dd><SyncStateBadge state={selected.sync_state} /></dd>
+                  <dt className="text-muted">Last sync</dt>
+                  <dd className="min-w-0 text-foreground">{formatSyncTimestamp(selected.last_successful_sync_at)}</dd>
+                </dl>
+                {syncStateExplanation(selected.sync_state) ? (
+                  <p className="text-xs text-muted">{syncStateExplanation(selected.sync_state)}</p>
+                ) : null}
+              </section>
+
               <section aria-label="Open agent" className="space-y-1.5 rounded-lg border border-border p-2">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Open</h3>
                 <div className="grid grid-cols-2 gap-1.5">
@@ -637,7 +655,7 @@ export function FleetView({
                       disabled={Boolean(pending[selected.id])}
                       onClick={() => void runAgentAction(selected, 'sync', () => api.syncRun(selected.id), `Sync requested for ${selected.name || selected.id}`)}
                     >
-                      {pending[selected.id] === 'sync' ? 'Syncing' : 'Sync'}
+                      {pending[selected.id] === 'sync' ? 'Syncing…' : 'Sync'}
                     </Button>
                     <Button
                       variant="outline"

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func (a *App) sandboxArgs(r Run, parts ...string) []string {
@@ -64,6 +65,7 @@ func (a *App) Sync(ctx context.Context, id string) (err error) {
 	if err != nil {
 		return err
 	}
+	a.invalidateSyncProbe(id)
 	fp, err := a.WorktreeFingerprint(ctx, r)
 	if err != nil {
 		return err
@@ -161,6 +163,10 @@ func (a *App) Sync(ctx context.Context, id string) (err error) {
 	}
 	r.LastSynced = strings.TrimSpace(string(headB))
 	r.Synced = true
+	snapshot, err := snapshotFromExport(r.Branch, r.LastSynced, newPatch, archive)
+	if err != nil {
+		return err
+	}
 	if err = atomicWrite(oldPatchPath, newPatch); err != nil {
 		return err
 	}
@@ -171,6 +177,9 @@ func (a *App) Sync(ctx context.Context, id string) (err error) {
 	if err = atomicWrite(oldTarPath, archiveBytes); err != nil {
 		return err
 	}
+	r.LastSuccessfulSyncAt = time.Now().UTC()
+	r.SyncedSandboxFingerprint = snapshot.Fingerprint()
+	a.invalidateSyncProbe(id)
 	return a.Store.SaveRun(r)
 }
 

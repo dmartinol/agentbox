@@ -3,8 +3,65 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestLegacyRunLoadsWithoutSyncStateMetadata(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{
+  "id": "run-legacy",
+  "created": "2026-01-01T10:00:00Z",
+  "source": "/repo",
+  "worktree": "/trees/run-legacy",
+  "branch": "agentbox/run-legacy",
+  "baseline": "abc",
+  "last_synced": "def",
+  "fingerprint": "host-fingerprint",
+  "sandbox": "sandbox-legacy",
+  "gateway": "openshell",
+  "agent": "codex",
+  "image": "localhost/openshell:codex-1.0.0-r3",
+  "mode": "standard",
+  "model": "",
+  "approval": "prompted",
+  "status": "stopped",
+  "status_detail": "stopped by user",
+  "synced": true,
+  "policy": "/policies/run-legacy.yaml"
+}
+`
+	if err := os.WriteFile(store.RunPath("run-legacy"), []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.LoadRun("run-legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !run.LastSuccessfulSyncAt.IsZero() || run.SyncedSandboxFingerprint != "" {
+		t.Fatalf("legacy run gained sync metadata: %+v", run)
+	}
+	if run.LastSynced != "def" || run.Fingerprint != "host-fingerprint" || !run.Synced {
+		t.Fatalf("legacy sync fields changed: %+v", run)
+	}
+	if run.SyncState != "" {
+		t.Fatalf("legacy run carries a persisted sync state: %q", run.SyncState)
+	}
+	run.SyncState = SyncStateNeedsSync
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(store.RunPath("run-legacy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "sync_state") {
+		t.Fatalf("SaveRun persisted derived sync state:\n%s", body)
+	}
+}
 
 func TestDefaultStoreUsesAgentBoxHome(t *testing.T) {
 	home := t.TempDir()

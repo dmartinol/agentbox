@@ -167,7 +167,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if runName == "" {
 		runName = id
 	}
-	preview := Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, ProfileName: p.Name, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: StatusCreating, StatusDetail: "dry run preview", WorktreeIsolated: useWorktree}
+	preview := Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, ProfileName: p.Name, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: StatusCreating, StatusDetail: "dry run preview", WorktreeIsolated: useWorktree, SyncState: SyncStateUnknown}
 	if selection != nil {
 		preview.MCP = selection.Entry.Name
 		preview.MCPWarnings = selection.Warnings()
@@ -330,6 +330,7 @@ func (a *App) ListAndReconcile(ctx context.Context) ([]Run, error) {
 			if syncErr := a.Sync(ctx, updated.ID); syncErr == nil {
 				if reloaded, loadErr := a.Store.LoadRun(updated.ID); loadErr == nil {
 					updated = reloaded
+					updated.SyncState = a.deriveSyncState(ctx, updated, false)
 				}
 			}
 		}
@@ -342,7 +343,12 @@ func (a *App) ListAndReconcile(ctx context.Context) ([]Run, error) {
 // their terminal failure until the record is deleted; every other run is
 // probed so the cache never outlives the sandbox.
 func (a *App) inspectRun(ctx context.Context, r Run) (Run, error) {
+	return a.inspectRunWithSync(ctx, r, false)
+}
+
+func (a *App) inspectRunWithSync(ctx context.Context, r Run, freshSyncProbe bool) (Run, error) {
 	if r.Status == StatusFailed {
+		r.SyncState = SyncStateUnknown
 		return r, nil
 	}
 	evidence := runEvidence{Agent: r.Agent}
@@ -351,6 +357,7 @@ func (a *App) inspectRun(ctx context.Context, r Run) (Run, error) {
 		// A prepared record has no sandbox yet; keep Creating instead of
 		// reporting the missing sandbox, which is the expected state.
 		if sandboxNotFound(err) && (r.Status == StatusCreating) {
+			r.SyncState = SyncStateUnknown
 			return r, nil
 		}
 		evidence.InspectErr = err.Error()
@@ -380,16 +387,18 @@ func (a *App) inspectRun(ctx context.Context, r Run) (Run, error) {
 		detail = r.StatusDetail
 	}
 	r.Status, r.StatusDetail = status, detail
+	r.SyncState = a.deriveSyncState(ctx, r, freshSyncProbe)
 	return r, a.Store.SaveRun(r)
 }
 
-// GetRun returns one run with its status recomputed by a sandbox inspect.
+// GetRun returns one run with its status and sync state recomputed by a fresh
+// sandbox inspect. Explicit detail reads bypass the bounded overview cache.
 func (a *App) GetRun(ctx context.Context, id string) (Run, error) {
 	r, err := a.Store.LoadRun(id)
 	if err != nil {
 		return Run{}, err
 	}
-	return a.inspectRun(ctx, r)
+	return a.inspectRunWithSync(ctx, r, true)
 }
 
 func (a *App) requireDirectRunAvailable(ctx context.Context, root string) error {
@@ -672,5 +681,6 @@ func (a *App) Delete(ctx context.Context, id string, discard bool) error {
 	}
 	_ = os.RemoveAll(filepath.Join(a.Store.RunsDir(), id+"-config"))
 	_ = os.Remove(r.Policy)
+	a.invalidateSyncProbe(id)
 	return os.Remove(a.Store.RunPath(id))
 }

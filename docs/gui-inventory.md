@@ -39,8 +39,8 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 | --- | --- | --- | --- |
 | Fleet toolbar | Search, project filter, Needs You count, refresh, New agent | — | Wrapping rows; search and filter span the width |
 | Project group | Project name, counts, Workspace entry | Agent rows | Wrapping header badges and actions |
-| Agent row | Name, type, status, sync, branch, primary action | Details button opens the detail panel | Name plus type/status/sync on one line; actions beneath; branch in the detail panel |
-| Agent detail panel | Identity, status, project | Open, Manage, and destructive action groups; expandable metadata | Bottom sheet with close control; same grouped actions |
+| Agent row | Name, type, operational status, derived sync state, branch, primary action | Details button opens the detail panel | Name plus type/status/sync on one line; sync state keeps its text and glyph; actions beneath; branch in the detail panel |
+| Agent detail panel | Identity, operational status, project | Sync state with last-sync time and explanation; Open, Manage, and destructive action groups; expandable metadata | Bottom sheet with close control; same grouped actions |
 | Workspace | Project, agent tabs, shell tabs | Terminal or cached log tail | Horizontally scrollable tabs; terminal fills the surface |
 | New agent | Project, profile, gateway, name, MCP, skills, prompt | Resolved image/model/provider/approval disclosure; optional overrides | Single-column form; actions wrap |
 | Logs / diff / policy drawer | Title and task status | Full output with copy action | Full-width drawer; text wraps and scrolls |

@@ -628,6 +628,39 @@ a local mirror worktree for each run.
 - Sync does not merge changes into the original project branch.
 - Stop/finish performs a final sync before stopping the sandbox.
 
+### Sync state
+
+Each run record stores two successful-sync values in addition to the existing
+`synced`, `last_synced`, and `fingerprint` fields:
+
+- `last_successful_sync_at` is the UTC time of the last successful outbound
+  sync.
+- `synced_sandbox_fingerprint` is a content-aware fingerprint of the exact
+  snapshot that was applied to the host worktree.
+
+The existing fields keep their meanings: `synced` is the delete safety flag,
+`last_synced` is the host branch commit SHA, and `fingerprint` is the host
+worktree safety fingerprint used to refuse overwriting local changes. A failed
+sync leaves the last successful timestamp and sandbox fingerprint unchanged.
+
+Run JSON also exposes a derived, non-persisted `sync_state`:
+
+| State | Meaning |
+| --- | --- |
+| `no_changes` | The sandbox is clean at the run baseline and no successful sync has been recorded. |
+| `up_to_date` | The current outbound snapshot matches the last successful sync fingerprint. |
+| `needs_sync` | The sandbox has outbound work and the host run worktree is unchanged. |
+| `blocked` | The sandbox has outbound work but the host worktree changed, so sync will refuse to overwrite it. |
+| `unknown` | The sandbox or host inspection failed; never presented as up to date. |
+
+The fingerprint covers the branch, sandbox HEAD commit, the binary tracked diff,
+and non-ignored untracked paths, types, modes, symlink targets, and content
+hashes. The live probe reads only changed tracked content and untracked
+entries; it never bundles the repository or transfers sync artifacts. Fleet
+overview refreshes reuse a short-lived cache, while explicit run-detail reads
+perform a fresh probe. A successful sync records the fingerprint from the exact
+downloaded export before saving the run.
+
 ## State layout
 
 Default AgentBox state is stored under:

@@ -43,3 +43,10 @@ export function middleEllipsis(value: string, max = 44): string {
   const tail = Math.floor((max - 1) / 2);
   return `${value.slice(0, head)}…${value.slice(-tail)}`;
 }
+
+export function formatSyncTimestamp(value?: string): string {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime()) || date.getUTCFullYear() <= 1) return 'Never';
+  return date.toLocaleString();
+}
