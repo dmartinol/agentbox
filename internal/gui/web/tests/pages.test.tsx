@@ -4,6 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { App } from '../src/App';
 import { ProvidersPanel } from '../src/pages/setup/ProvidersPanel';
 import { ProfilesPanel } from '../src/pages/setup/ProfilesPanel';
+import { ProjectsPanel } from '../src/pages/setup/ProjectsPanel';
+import { ImagesPanel } from '../src/pages/setup/ImagesPanel';
+import { GatewaysPanel } from '../src/pages/setup/GatewaysPanel';
 import { McpPanel } from '../src/pages/setup/McpPanel';
 import { PoliciesPanel } from '../src/pages/setup/PoliciesPanel';
 import { SkillsPanel } from '../src/pages/setup/SkillsPanel';
@@ -110,6 +113,33 @@ describe('fleet shell', () => {
     expect(screen.getAllByText('active-run').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /new agent/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /setup/i })).toHaveLength(1);
+  });
+
+  it('keeps start disabled until the start configuration loads', async () => {
+    mockRoutes({ ...defaultRoutes(), 'GET /api/overview': () => new Promise(() => {}) });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'New agent' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Loading configuration')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Start' })).toBeDisabled();
+  });
+
+  it('opens the new agent dialog while catalog data is still refreshing', async () => {
+    let mcpsRequests = 0;
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/mcps': () => {
+        mcpsRequests += 1;
+        return mcpsRequests === 1 ? mcps : new Promise(() => {});
+      }
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    expect(await screen.findByText('Doctor OK')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'New agent' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText(/^Profile/)).toHaveValue('codex-default');
   });
 
   it('refreshes a starting agent without a page reload', async () => {
@@ -369,6 +399,49 @@ describe('setup sheet', () => {
   });
 });
 
+describe('compact resource cards', () => {
+  it('keeps field names for assistive technology without visible captions', async () => {
+    render(<ProvidersPanel />);
+    const row = (await screen.findByText('model-gateway')).closest('tr');
+    if (!row) throw new Error('provider row missing');
+    const labels = within(row).getAllByRole('cell').map((cell) => cell.getAttribute('data-label') ?? '');
+    expect(labels).toEqual(['', 'Type', 'Credential', 'Used by', 'Actions']);
+    expect(within(row).getByText('Type:', { selector: '.agentbox-card-label' })).toBeInTheDocument();
+    expect(within(row).getByText('Credential:', { selector: '.agentbox-card-label' })).toBeInTheDocument();
+    expect(within(row).getByText('Actions:', { selector: '.agentbox-card-label' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    const reason = within(row).getByText('Delete dependent profiles first');
+    expect(reason).toHaveClass('agentbox-action-reason');
+    expect(reason.parentElement).toHaveClass('agentbox-action-with-reason');
+  });
+});
+
+describe('destructive row actions', () => {
+  const policies = [{ name: 'codex-default', path: '/policies/codex-default.yaml', used_by: ['codex-default'] }];
+
+  it.each([
+    ['providers', <ProvidersPanel />, 'model-gateway'],
+    ['profiles', <ProfilesPanel />, 'codex-default'],
+    ['projects', <ProjectsPanel />, 'demo'],
+    ['images', <ImagesPanel openLog={() => undefined} updateLog={() => undefined} />, 'localhost/openshell:codex-1.0.0-r3'],
+    ['gateways', <GatewaysPanel />, 'openshell'],
+    ['policies', <PoliciesPanel />, '/policies/codex-default.yaml'],
+    ['MCP tools', <McpPanel />, 'codex-work'],
+    ['skills', <SkillsPanel />, 'codex-skills']
+  ])('styles the %s destructive action consistently', async (_, panel, rowText) => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/projects': overview.projects,
+      'GET /api/policies': policies,
+      'GET /api/mcps/local': []
+    });
+    render(panel);
+    const row = (await screen.findByText(rowText)).closest('tr');
+    if (!row) throw new Error(`${rowText} row missing`);
+    expect(within(row).getByRole('button', { name: /^(Delete|Remove)$/ })).toHaveClass('text-danger');
+  });
+});
+
 describe('policies panel', () => {
   it('lists run policy copies and shows their YAML', async () => {
     mockRoutes({
@@ -541,11 +614,12 @@ describe('fleet actions', () => {
     render(<App />);
     const row = (await screen.findByText('active-run')).closest('tr');
     if (!row) throw new Error('agent row missing');
-    await user.click(within(row).getByRole('button', { name: 'Sync' }));
-    expect(within(row).getByRole('button', { name: 'Syncing' })).toBeDisabled();
+    await user.click(within(row).getByRole('button', { name: 'Details for active-run' }));
+    await user.click(within(await screen.findByRole('complementary', { name: 'Agent details' })).getByRole('button', { name: 'Sync' }));
     expect(within(row).getByText('Syncing', { selector: 'td' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Details for active-run' })).toBeInTheDocument();
     resolveSync(runs[0]);
-    await waitFor(() => expect(within(row).getByRole('button', { name: 'Sync' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByText('Sync requested for active-run')).toBeInTheDocument());
     expect(await screen.findByText('Sync requested for active-run')).toBeInTheDocument();
   });
 
@@ -559,8 +633,8 @@ describe('fleet actions', () => {
     render(<App />);
     const row = (await screen.findByText('active-run')).closest('tr');
     if (!row) throw new Error('agent row missing');
-    await user.click(within(row).getByRole('button', { name: 'Stop' }));
-    expect(within(row).getByRole('button', { name: 'Stopping' })).toBeDisabled();
+    await user.click(within(row).getByRole('button', { name: 'Details for active-run' }));
+    await user.click(within(await screen.findByRole('complementary', { name: 'Agent details' })).getByRole('button', { name: 'Stop' }));
     expect(within(row).getByText('Stopping', { selector: 'span' })).toBeInTheDocument();
     resolveStop(runs[0]);
     await waitFor(() => expect(within(row).getByText('Working')).toBeInTheDocument());
@@ -1194,5 +1268,94 @@ describe('allow host', () => {
     expect(within(dialog).getByLabelText(/^Host/)).toHaveValue('');
     expect(within(dialog).getByLabelText(/^Host/)).toBeEnabled();
     expect(within(dialog).getByRole('button', { name: 'Allow host' })).toBeDisabled();
+  });
+});
+
+describe('readable fleet layout', () => {
+  it('labels narrow-layout cells and opens grouped actions from the row', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const table = await screen.findByRole('table', { name: 'Agents in demo' });
+    expect(table).toHaveClass('agentbox-table');
+
+    const row = (await screen.findByText('active-run')).closest('tr');
+    if (!row) throw new Error('agent row missing');
+    const labels = within(row).getAllByRole('cell').map((cell) => cell.getAttribute('data-label'));
+    expect(labels).toEqual(expect.arrayContaining(['Type', 'Status', 'Sync', 'Branch', 'Actions']));
+    expect(within(row).getByLabelText('Type: codex')).toBeInTheDocument();
+    expect(within(row).getByLabelText('Status: Working')).toBeInTheDocument();
+    expect(within(row).getByLabelText('Sync: Synced')).toBeInTheDocument();
+
+    await user.click(within(row).getByRole('button', { name: 'Details for active-run' }));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    expect(within(panel).getByRole('button', { name: 'Close agent details' })).toBeInTheDocument();
+    expect(within(panel).getByRole('heading', { name: 'Open' })).toBeInTheDocument();
+    expect(within(panel).getByRole('heading', { name: 'Manage' })).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Copy Image for active-run' })).toBeInTheDocument();
+    expect(within(panel).getAllByText('Show full').length).toBeGreaterThan(0);
+  });
+
+  it('groups resolved profile defaults behind a disclosure when starting an agent', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'New agent' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Resolved configuration')).toBeInTheDocument();
+    expect(within(dialog).getByText('localhost/openshell:codex-1.0.0-r3')).toBeInTheDocument();
+    expect(within(dialog).getByText('model-x')).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText(/^Image/)).toBeNull();
+    expect(within(dialog).getByLabelText(/^Project/)).toBeInTheDocument();
+  });
+
+  it('renders ANSI logs readably in the drawer', async () => {
+    mockRoutes({ ...defaultRoutes(), 'GET /api/runs/run-active/logs': { logs: '\u001b[32mready\u001b[0m line\n' } });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /logs/i }))[0]);
+    expect(await screen.findByText(/ready line/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('\u001b');
+  });
+
+  it('shows an empty state instead of a blank drawer', async () => {
+    mockRoutes({ ...defaultRoutes(), 'GET /api/runs/run-active/logs': { logs: '' } });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /logs/i }))[0]);
+    expect(await screen.findByText('No output recorded.')).toBeInTheDocument();
+  });
+
+  it('shows a load failure distinctly from empty output', async () => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/runs/run-active/logs': { mockStatus: 500, body: { error: 'log read failed' } }
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /logs/i }))[0]);
+    expect(await screen.findByText('Unable to load output')).toBeInTheDocument();
+    expect(screen.getByText('log read failed')).toBeInTheDocument();
+    expect(screen.queryByText('No output recorded.')).toBeNull();
+  });
+
+  it('dismisses the narrow detail sheet when an output drawer opens', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: true,
+      media: '(max-width: 767.98px)',
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    })));
+    const user = userEvent.setup();
+    render(<App />);
+    const row = (await screen.findByText('active-run')).closest('tr');
+    if (!row) throw new Error('agent row missing');
+    await user.click(within(row).getByRole('button', { name: 'Details for active-run' }));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByRole('button', { name: 'View logs' }));
+    await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Agent details' })).toBeNull());
+    expect(await screen.findByText('agent log output')).toBeInTheDocument();
   });
 });

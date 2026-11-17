@@ -25,12 +25,12 @@ export function Sheet({
         <Dialog.Overlay className="fixed inset-0 z-30 bg-black/45" />
         <Dialog.Content
           style={{ width }}
-          className="fixed right-0 top-0 z-40 flex h-full max-w-[94vw] flex-col border-l border-border bg-background shadow-2xl"
+          className="fixed right-0 top-0 z-40 flex h-full max-w-full flex-col border-l border-border bg-background shadow-2xl sm:max-w-[94vw]"
         >
-          <div className="flex h-12 items-center justify-between gap-3 border-b border-border px-4">
+          <div className="flex min-h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2">
             <div className="min-w-0">
               <Dialog.Title className="truncate text-sm font-semibold">{title}</Dialog.Title>
-              {description ? <Dialog.Description className="truncate text-sm text-muted">{description}</Dialog.Description> : null}
+              {description ? <Dialog.Description className="truncate text-sm text-muted" title={typeof description === 'string' ? description : undefined}>{description}</Dialog.Description> : null}
             </div>
             <Dialog.Close asChild>
               <Button variant="ghost" size="icon" aria-label="Close"><X className="size-4" /></Button>

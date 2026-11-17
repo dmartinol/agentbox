@@ -8,6 +8,7 @@ import { Field } from '../../components/ui/field';
 import { Input, Select } from '../../components/ui/input';
 import { Modal } from '../../components/ui/dialog';
 import { ConfirmDialog } from '../../components/ui/confirm';
+import { ExpandableValue } from '../../components/ui/copy-value';
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 
 const agents = ['claude', 'codex', 'opencode'];
@@ -127,7 +128,7 @@ export function SkillsPanel() {
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end"><Button size="sm" onClick={() => void openCreate()}>Create skills entry</Button></div>
+      <div className="flex flex-wrap justify-end"><Button size="sm" onClick={() => void openCreate()}>Create skills entry</Button></div>
       {notice ? <Alert variant="success" title={notice} /> : null}
       {error ? <Alert variant="danger" title="Unable to load skills">{error.message}</Alert> : null}
       {loading ? <EmptyState title="Loading skills" /> : entries.length === 0 ? (
@@ -138,14 +139,18 @@ export function SkillsPanel() {
           <TBody>
             {entries.map((entry) => (
               <TR key={entry.name}>
-                <TD className="truncate font-medium">{entry.name}</TD>
-                <TD className="truncate">{entry.agent}</TD>
-                <TD className="truncate text-muted">{entry.skills.join(', ') || '—'}</TD>
-                <TD className="truncate text-muted">{entry.plugins.join(', ') || '—'}</TD>
-                <TD>
+                <TD className="truncate font-medium"><span title={entry.name}>{entry.name}</span></TD>
+                <TD label="Agent" className="truncate">{entry.agent}</TD>
+                <TD label="Skills">
+                  <ExpandableValue value={entry.skills.join(', ') || '—'} label={`skills in ${entry.name}`} max={44} mono={false} />
+                </TD>
+                <TD label="Plugins">
+                  <ExpandableValue value={entry.plugins.join(', ') || '—'} label={`plugins in ${entry.name}`} max={44} mono={false} />
+                </TD>
+                <TD label="Actions">
                   <div className="flex flex-wrap gap-1">
                     <Button size="xs" variant="ghost" onClick={() => void openEdit(entry)}>Edit</Button>
-                    <Button size="xs" variant="ghost" loading={busy === entry.name} onClick={() => { setDeleteTarget(entry); setDeleteError(''); }}>Delete</Button>
+                    <Button size="xs" variant="ghost" className="text-danger" loading={busy === entry.name} onClick={() => { setDeleteTarget(entry); setDeleteError(''); }}>Delete</Button>
                   </div>
                 </TD>
               </TR>
@@ -166,10 +171,24 @@ export function SkillsPanel() {
             <TBody>
               {roles.flatMap((role) => role.installations.map((installation) => (
                 <TR key={`${role.name}-${installation.target}`}>
-                  <TD className="truncate font-medium">{role.name}</TD>
-                  <TD className="truncate">{installation.target}</TD>
-                  <TD className="truncate" title={installation.detail}>{installation.state}</TD>
-                  <TD className="truncate text-muted" title={installation.path}>{installation.path}</TD>
+                  <TD className="truncate font-medium"><span title={role.name}>{role.name}</span></TD>
+                  <TD label="Harness" className="truncate">{installation.target}</TD>
+                  <TD label="State">
+                    <div className="min-w-0">
+                      <span>{installation.state}</span>
+                      {installation.detail ? (
+                        <span className="mt-0.5 block text-xs text-muted">
+                          <ExpandableValue
+                            value={installation.detail}
+                            label={`state detail for ${role.name} on ${installation.target}`}
+                            max={44}
+                            mono={false}
+                          />
+                        </span>
+                      ) : null}
+                    </div>
+                  </TD>
+                  <TD label="Path"><ExpandableValue value={installation.path} label={`path for ${role.name} on ${installation.target}`} max={40} /></TD>
                 </TR>
               )))}
             </TBody>

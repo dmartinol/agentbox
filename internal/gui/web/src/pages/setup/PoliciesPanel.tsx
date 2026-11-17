@@ -5,6 +5,7 @@ import { Alert } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
 import { ActionButton } from '../../components/ui/action';
 import { ConfirmDialog } from '../../components/ui/confirm';
+import { ExpandableValue } from '../../components/ui/copy-value';
 import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input, Select, Textarea } from '../../components/ui/input';
@@ -102,10 +103,12 @@ export function PoliciesPanel() {
           <TBody>
             {policies.map((policy) => (
               <TR key={policy.name}>
-                <TD className="truncate font-medium">{policy.name}</TD>
-                <TD className="truncate text-muted">{policy.used_by?.join(', ') || '—'}</TD>
-                <TD className="truncate font-mono text-xs text-muted">{policy.path}</TD>
-                <TD>
+                <TD className="truncate font-medium"><span title={policy.name}>{policy.name}</span></TD>
+                <TD label="Used by" className="text-muted">
+                  <ExpandableValue value={policy.used_by?.join(', ') || '—'} label={`profiles using ${policy.name}`} max={40} mono={false} />
+                </TD>
+                <TD label="Path"><ExpandableValue value={policy.path} label={`path for ${policy.name}`} max={40} /></TD>
+                <TD label="Actions">
                   <div className="flex flex-wrap gap-1">
                     <Button size="xs" variant="ghost" onClick={() => { setHostForm({ name: policy.name, agent: 'codex', host: '' }); setHostOpen(true); }}>Add host</Button>
                     <Button size="xs" variant="ghost" onClick={() => { setApplyForm({ name: policy.name, runId: runs[0]?.id ?? '' }); setApplyOpen(true); }}>Apply</Button>
@@ -113,6 +116,7 @@ export function PoliciesPanel() {
                     <ActionButton
                       size="xs"
                       variant="ghost"
+                      className="text-danger"
                       disabledReason={
                         policy.used_by?.length
                           ? `Used by profiles: ${policy.used_by.join(', ')}`
@@ -146,13 +150,15 @@ export function PoliciesPanel() {
             <TBody>
               {runs.map((run) => (
                 <TR key={run.id}>
-                  <TD className="truncate font-medium">{run.name || run.id}</TD>
-                  <TD className="truncate text-muted">{run.agent}</TD>
-                  <TD className="truncate font-mono text-xs text-muted">
-                    {run.policy}
-                    {run.pending_policy ? <div className="truncate text-warning">Pending for next sandbox: {run.pending_policy}</div> : null}
+                  <TD className="truncate font-medium"><span title={run.name || run.id}>{run.name || run.id}</span></TD>
+                  <TD label="Agent" className="text-muted">{run.agent}</TD>
+                  <TD label="Policy">
+                    <div className="min-w-0 space-y-1">
+                      <ExpandableValue value={run.policy} label={`policy for ${run.name || run.id}`} max={40} />
+                      {run.pending_policy ? <div className="break-all text-xs text-warning">Pending for next sandbox: {run.pending_policy}</div> : null}
+                    </div>
                   </TD>
-                  <TD>
+                  <TD label="Actions">
                     <Button size="xs" variant="ghost" loading={runPolicyBusy === run.id} onClick={() => void viewRunPolicy(run)}>View</Button>
                   </TD>
                 </TR>
@@ -204,7 +210,7 @@ export function PoliciesPanel() {
         {runPolicyView ? (
           <div className="space-y-2">
             <div className="break-all font-mono text-xs text-muted">{runPolicyView.path}</div>
-            <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface/50 p-2 font-mono text-xs leading-4">{runPolicyView.content}</pre>
+            <pre className="agentbox-output max-h-[60vh] overflow-auto rounded-lg border border-border bg-surface/50 p-2 font-mono text-xs leading-4">{runPolicyView.content}</pre>
           </div>
         ) : null}
       </Modal>

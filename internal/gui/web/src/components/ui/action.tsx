@@ -15,7 +15,7 @@ export function ActionButton({ disabledReason, onClick, children, ...props }: Ac
     );
   }
   return (
-    <span className="inline-flex flex-col gap-1">
+    <span className="agentbox-action-with-reason inline-flex flex-col items-start gap-1">
       <Button
         {...props}
         aria-disabled="true"
@@ -24,7 +24,7 @@ export function ActionButton({ disabledReason, onClick, children, ...props }: Ac
       >
         {children}
       </Button>
-      <span id={reasonId} className="text-xs text-muted">
+      <span id={reasonId} className="agentbox-action-reason text-xs text-muted">
         {disabledReason}
       </span>
     </span>

@@ -5,6 +5,7 @@ import { Alert } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
 import { ActionButton } from '../../components/ui/action';
 import { ConfirmDialog } from '../../components/ui/confirm';
+import { ExpandableValue } from '../../components/ui/copy-value';
 import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
@@ -79,15 +80,18 @@ export function ProjectsPanel({ onChanged }: { onChanged?: () => void }) {
           <TBody>
             {projects.map((project) => (
               <TR key={project.name}>
-                <TD className="truncate font-medium">{project.name}</TD>
-                <TD className="truncate font-mono text-xs text-muted">{project.root}</TD>
-                <TD>{project.worktree === false ? 'direct' : 'worktree'}</TD>
-                <TD>
+                <TD className="truncate font-medium"><span title={project.name}>{project.name}</span></TD>
+                <TD label="Git root">
+                  <ExpandableValue value={project.root} label={`Git root for ${project.name}`} max={40} />
+                </TD>
+                <TD label="Isolation">{project.worktree === false ? 'direct' : 'worktree'}</TD>
+                <TD label="Actions">
                   <div className="flex flex-wrap gap-1">
                     <Button size="xs" variant="ghost" onClick={() => { setForm(project); setOpen(true); }}>Edit</Button>
                     <ActionButton
                       size="xs"
                       variant="ghost"
+                      className="text-danger"
                       disabledReason={project.used_by?.length ? `Used by runs: ${project.used_by.join(', ')}` : undefined}
                       onClick={() => { setDeleteProject(project); setDeleteError(''); }}
                     >
