@@ -407,6 +407,9 @@ describe('compact resource cards', () => {
     expect(within(row).getByText('Credential:', { selector: '.agentbox-card-label' })).toBeInTheDocument();
     expect(within(row).getByText('Actions:', { selector: '.agentbox-card-label' })).toBeInTheDocument();
     expect(within(row).getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    const reason = within(row).getByText('Delete dependent profiles first');
+    expect(reason).toHaveClass('agentbox-action-reason');
+    expect(reason.parentElement).toHaveClass('agentbox-action-with-reason');
   });
 });
 

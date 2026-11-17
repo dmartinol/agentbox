@@ -183,6 +183,20 @@ textarea {
     margin-left: 0;
   }
 
+  /* A disabled-reason caption must not widen its button and shove the next
+     action across the card. Dissolve the wrapper so all buttons sit in the
+     action row, then place each reason on its own line beneath them. */
+  .agentbox-table td[data-label="Actions"] .agentbox-action-with-reason,
+  .agentbox-table td[data-label="Action"] .agentbox-action-with-reason {
+    display: contents;
+  }
+
+  .agentbox-table td[data-label="Actions"] .agentbox-action-reason,
+  .agentbox-table td[data-label="Action"] .agentbox-action-reason {
+    order: 1;
+    flex: 1 1 100%;
+  }
+
   /* Field names stay available to assistive technology in card mode. */
   .agentbox-card-label {
     display: inline;
