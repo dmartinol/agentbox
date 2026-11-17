@@ -91,6 +91,7 @@ export function ProjectsPanel({ onChanged }: { onChanged?: () => void }) {
                     <ActionButton
                       size="xs"
                       variant="ghost"
+                      className="text-danger"
                       disabledReason={project.used_by?.length ? `Used by runs: ${project.used_by.join(', ')}` : undefined}
                       onClick={() => { setDeleteProject(project); setDeleteError(''); }}
                     >

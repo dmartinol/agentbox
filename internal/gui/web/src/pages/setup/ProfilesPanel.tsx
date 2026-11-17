@@ -311,6 +311,7 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
                     <ActionButton
                       size="xs"
                       variant="ghost"
+                      className="text-danger"
                       disabledReason={
                         profile.used_by?.length
                           ? `Used by active runs: ${profile.used_by.join(', ')}`

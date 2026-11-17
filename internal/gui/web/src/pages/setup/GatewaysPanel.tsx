@@ -96,6 +96,7 @@ export function GatewaysPanel() {
                     <ActionButton
                       size="xs"
                       variant="ghost"
+                      className="text-danger"
                       disabledReason={gateway.used_by?.length ? `Used by active runs: ${gateway.used_by.join(', ')}` : undefined}
                       onClick={() => { setDeleteGateway(gateway); setDeleteError(''); }}
                     >

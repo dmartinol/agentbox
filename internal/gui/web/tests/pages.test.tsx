@@ -4,6 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { App } from '../src/App';
 import { ProvidersPanel } from '../src/pages/setup/ProvidersPanel';
 import { ProfilesPanel } from '../src/pages/setup/ProfilesPanel';
+import { ProjectsPanel } from '../src/pages/setup/ProjectsPanel';
+import { ImagesPanel } from '../src/pages/setup/ImagesPanel';
+import { GatewaysPanel } from '../src/pages/setup/GatewaysPanel';
 import { McpPanel } from '../src/pages/setup/McpPanel';
 import { PoliciesPanel } from '../src/pages/setup/PoliciesPanel';
 import { SkillsPanel } from '../src/pages/setup/SkillsPanel';
@@ -410,6 +413,32 @@ describe('compact resource cards', () => {
     const reason = within(row).getByText('Delete dependent profiles first');
     expect(reason).toHaveClass('agentbox-action-reason');
     expect(reason.parentElement).toHaveClass('agentbox-action-with-reason');
+  });
+});
+
+describe('destructive row actions', () => {
+  const policies = [{ name: 'codex-default', path: '/policies/codex-default.yaml', used_by: ['codex-default'] }];
+
+  it.each([
+    ['providers', <ProvidersPanel />, 'model-gateway'],
+    ['profiles', <ProfilesPanel />, 'codex-default'],
+    ['projects', <ProjectsPanel />, 'demo'],
+    ['images', <ImagesPanel openLog={() => undefined} updateLog={() => undefined} />, 'localhost/openshell:codex-1.0.0-r3'],
+    ['gateways', <GatewaysPanel />, 'openshell'],
+    ['policies', <PoliciesPanel />, '/policies/codex-default.yaml'],
+    ['MCP tools', <McpPanel />, 'codex-work'],
+    ['skills', <SkillsPanel />, 'codex-skills']
+  ])('styles the %s destructive action consistently', async (_, panel, rowText) => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/projects': overview.projects,
+      'GET /api/policies': policies,
+      'GET /api/mcps/local': []
+    });
+    render(panel);
+    const row = (await screen.findByText(rowText)).closest('tr');
+    if (!row) throw new Error(`${rowText} row missing`);
+    expect(within(row).getByRole('button', { name: /^(Delete|Remove)$/ })).toHaveClass('text-danger');
   });
 });
 

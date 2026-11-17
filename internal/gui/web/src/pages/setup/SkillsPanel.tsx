@@ -150,7 +150,7 @@ export function SkillsPanel() {
                 <TD label="Actions">
                   <div className="flex flex-wrap gap-1">
                     <Button size="xs" variant="ghost" onClick={() => void openEdit(entry)}>Edit</Button>
-                    <Button size="xs" variant="ghost" loading={busy === entry.name} onClick={() => { setDeleteTarget(entry); setDeleteError(''); }}>Delete</Button>
+                    <Button size="xs" variant="ghost" className="text-danger" loading={busy === entry.name} onClick={() => { setDeleteTarget(entry); setDeleteError(''); }}>Delete</Button>
                   </div>
                 </TD>
               </TR>

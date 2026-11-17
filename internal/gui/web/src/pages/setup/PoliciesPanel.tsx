@@ -116,6 +116,7 @@ export function PoliciesPanel() {
                     <ActionButton
                       size="xs"
                       variant="ghost"
+                      className="text-danger"
                       disabledReason={
                         policy.used_by?.length
                           ? `Used by profiles: ${policy.used_by.join(', ')}`

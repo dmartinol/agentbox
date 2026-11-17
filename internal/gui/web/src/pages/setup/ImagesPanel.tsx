@@ -182,6 +182,7 @@ export function ImagesPanel({
                       <ActionButton
                         size="sm"
                         variant="ghost"
+                        className="text-danger"
                         disabledReason={holders.length ? `In use by ${holders.join(', ')}` : undefined}
                         onClick={() => { setActionError(null); setDeleteTarget(image); }}
                       >
