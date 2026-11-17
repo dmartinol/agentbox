@@ -23,12 +23,15 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 - **Action hierarchy**: one visible primary action; secondary actions grouped by
   task; destructive actions separated and named.
 - **Responsive tables**: when a table's own container is narrower than 960px it
-  becomes stacked cards. Setup cards show visible field labels; Fleet cards use
-  a compact scan line (name, type, status, sync) with actions beneath and the
-  branch left to the detail panel. Wider containers keep the same DOM as a
-  table, so there is no duplicate markup or duplicate action cluster. The
-  container query, rather than a viewport width, also accounts for the Fleet
-  detail sidebar and the Setup sheet.
+  becomes compact cards. Every card leads with its identity and keeps the rest
+  of the row's metadata inline on the same line, wrapping only when space runs
+  out. Actions move to their own line. Visible field captions are omitted as
+  self-evident; the same names stay attached to cells for assistive technology.
+  Fleet cards therefore read as name, type, status, and sync, with the branch
+  left to the detail panel. Wider containers keep the same DOM as a table, so
+  there is no duplicate markup or duplicate action cluster. The container
+  query, rather than a viewport width, also accounts for the Fleet detail
+  sidebar and the Setup sheet.
 
 ## Fleet and agent flows
 
@@ -46,14 +49,14 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 
 | Tab | Scan level | Detail reveal | Narrow layout |
 | --- | --- | --- | --- |
-| Providers | Name, type, credential-env name, usage count | Full credential names, full usage lists, edit/delete | Stacked rows with labels |
-| Profiles | Name, agent, mode, model, provider | Expandable model, edit/delete | Stacked rows with labels |
-| Projects | Name, isolation | Expandable Git root, edit/delete | Stacked rows with labels |
-| Images | Reference, agent, version, recipe, platform | Expandable reference, delete; registry matches | Stacked rows with labels |
-| Gateways | Name, status, type | Expandable endpoint, inspect payload, remove | Stacked rows; toolbar wraps |
-| Policies | Name, usage count | Expandable path, add host, apply, edit, delete; run-policy copies | Stacked rows with labels |
-| MCP Tools | Name, agent, server names | Expandable server list, edit/delete | Stacked rows; explanatory panel below |
-| Skills | Name, agent, skills, plugins | Expandable lists, role installations, edit/delete | Stacked rows; role table uses the same pattern |
+| Providers | Name, type, credential-env name, usage count | Full credential names, full usage lists, edit/delete | Compact card: identity plus inline metadata; actions beneath |
+| Profiles | Name, agent, mode, model, provider | Expandable model, edit/delete | Compact card: identity plus inline metadata; actions beneath |
+| Projects | Name, isolation | Expandable Git root, edit/delete | Compact card: identity plus inline metadata; actions beneath |
+| Images | Reference, agent, version, recipe, platform | Expandable reference, delete; registry matches | Compact card: identity plus inline metadata; actions beneath |
+| Gateways | Name, status, type | Expandable endpoint, inspect payload, remove | Compact card; toolbar wraps |
+| Policies | Name, usage count | Expandable path, add host, apply, edit, delete; run-policy copies | Compact card: identity plus inline metadata; actions beneath |
+| MCP Tools | Name, agent, server names | Expandable server list, edit/delete | Compact card; explanatory panel below |
+| Skills | Name, agent, skills, plugins | Expandable lists, role installations, edit/delete | Compact card; role table uses the same pattern |
 | Advanced | Worktree settings, Doctor summary | Doctor check disclosure with complete output, action, and copy | Single-column fields; check rows stack |
 
 ## Dialog and state rules

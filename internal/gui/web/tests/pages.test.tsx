@@ -396,6 +396,20 @@ describe('setup sheet', () => {
   });
 });
 
+describe('compact resource cards', () => {
+  it('keeps field names for assistive technology without visible captions', async () => {
+    render(<ProvidersPanel />);
+    const row = (await screen.findByText('model-gateway')).closest('tr');
+    if (!row) throw new Error('provider row missing');
+    const labels = within(row).getAllByRole('cell').map((cell) => cell.getAttribute('data-label') ?? '');
+    expect(labels).toEqual(['', 'Type', 'Credential', 'Used by', 'Actions']);
+    expect(within(row).getByText('Type:', { selector: '.agentbox-card-label' })).toBeInTheDocument();
+    expect(within(row).getByText('Credential:', { selector: '.agentbox-card-label' })).toBeInTheDocument();
+    expect(within(row).getByText('Actions:', { selector: '.agentbox-card-label' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+  });
+});
+
 describe('policies panel', () => {
   it('lists run policy copies and shows their YAML', async () => {
     mockRoutes({

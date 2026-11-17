@@ -26,9 +26,15 @@ export function TH({ className, ...props }: ThHTMLAttributes<HTMLTableCellElemen
 }
 
 /**
- * `label` becomes a visible field caption when the table collapses into
- * stacked cards on narrow screens; it is unused at desktop widths.
+ * `label` names the field for assistive technology when the table collapses
+ * into compact cards on narrow screens. Card mode hides visible captions and
+ * relies on the headerless scan layout; table view keeps the column header.
  */
-export function TD({ label, className, ...props }: TdHTMLAttributes<HTMLTableCellElement> & { label?: string }) {
-  return <td data-label={label} className={cn('h-10 px-2 align-middle', className)} {...props} />;
+export function TD({ label, className, children, ...props }: TdHTMLAttributes<HTMLTableCellElement> & { label?: string }) {
+  return (
+    <td data-label={label} className={cn('h-10 px-2 align-middle', className)} {...props}>
+      {label ? <span className="agentbox-card-label">{label}: </span> : null}
+      {children}
+    </td>
+  );
 }
