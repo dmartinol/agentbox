@@ -95,7 +95,9 @@ agentbox agent show [--json] ID
 | `--json` | `false` | Print the run record as JSON. |
 
 Inspects the sandbox before printing, so the status and detail reflect the
-current state. The JSON record includes `status` and `status_detail`.
+current state. The JSON record includes `status`, `status_detail`, and the
+derived `sync_state` (`no_changes`, `up_to_date`, `needs_sync`, `blocked`, or
+`unknown`).
 
 ## attach
 {: #agent-attach }

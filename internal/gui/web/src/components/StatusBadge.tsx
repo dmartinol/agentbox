@@ -7,11 +7,12 @@ import {
   CircleStop,
   CircleX,
   Loader2,
+  RefreshCw,
   TriangleAlert
 } from 'lucide-react';
 import { Badge, type BadgeTone } from './ui/badge';
 import { cn } from '../lib/utils';
-import type { RunStatus } from '../types';
+import type { RunStatus, SyncState } from '../types';
 
 type StatusMeta = { tone: BadgeTone; label: string; short?: string; glyph: ReactNode };
 
@@ -70,6 +71,57 @@ export function StatusBadge({ status }: { status: string }) {
     <Badge tone={item.tone} aria-label={item.label} title={item.label}>
       {item.glyph}
       {item.short ?? item.label}
+    </Badge>
+  );
+}
+
+type SyncMeta = { tone: BadgeTone; label: string; explanation?: string; glyph: ReactNode };
+
+const syncMeta: Record<SyncState, SyncMeta> = {
+  no_changes: {
+    tone: 'neutral',
+    label: 'No changes',
+    glyph: <CircleDashed className={cn(glyphClass, 'text-muted')} />
+  },
+  up_to_date: {
+    tone: 'success',
+    label: 'Up to date',
+    glyph: <CircleCheck className={glyphClass} />
+  },
+  needs_sync: {
+    tone: 'warning',
+    label: 'Sync needed',
+    explanation: 'Sandbox changes have not been transferred to the host run worktree.',
+    glyph: <RefreshCw className={glyphClass} />
+  },
+  blocked: {
+    tone: 'danger',
+    label: 'Sync blocked',
+    explanation: 'The host run worktree changed, so sync will refuse to overwrite it.',
+    glyph: <TriangleAlert className={glyphClass} />
+  },
+  unknown: {
+    tone: 'neutral',
+    label: 'Unable to check',
+    explanation: 'AgentBox could not inspect the sandbox.',
+    glyph: <CircleHelp className={glyphClass} />
+  }
+};
+
+export function syncStateLabel(state: string): string {
+  return syncMeta[state as SyncState]?.label ?? syncMeta.unknown.label;
+}
+
+export function syncStateExplanation(state: string): string | undefined {
+  return syncMeta[state as SyncState]?.explanation;
+}
+
+export function SyncStateBadge({ state }: { state: string }) {
+  const item = syncMeta[state as SyncState] ?? syncMeta.unknown;
+  return (
+    <Badge tone={item.tone} title={item.label}>
+      {item.glyph}
+      {item.label}
     </Badge>
   );
 }

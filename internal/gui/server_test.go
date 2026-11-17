@@ -185,6 +185,7 @@ func newTestServerAndStore(t *testing.T, runner guiRunner) (*httptest.Server, ap
 		Worktree: "/trees/demo/active-run", WorktreeIsolated: true, Branch: "agentbox/demo/active-run",
 		Sandbox: "sandbox-active", Gateway: "openshell", Agent: "codex", Image: profile.Image, Mode: profile.Mode,
 		Model: profile.Model, Approval: profile.Approval, Status: "working", Synced: true, Policy: policy.Path,
+		LastSuccessfulSyncAt: time.Date(2026, 1, 1, 10, 30, 0, 0, time.UTC), SyncedSandboxFingerprint: "sandbox-fingerprint",
 	}
 	idle := now
 	idle.ID, idle.Name, idle.Sandbox, idle.Status, idle.Synced = "run-idle", "idle-run", "sandbox-idle", "ready", false
@@ -254,6 +255,11 @@ func TestOverviewAggregatesFleetAndProjectTree(t *testing.T) {
 	}
 	if response.Tree[0].Isolation != "worktree" {
 		t.Fatalf("isolation = %q", response.Tree[0].Isolation)
+	}
+	for _, run := range response.Runs {
+		if run.SyncState == "" {
+			t.Fatalf("overview run %s is missing sync_state", run.ID)
+		}
 	}
 }
 
@@ -723,6 +729,47 @@ func TestGetRunEndpoint(t *testing.T) {
 	}
 	if run.AgentBinary != "/usr/local/bin/codex" {
 		t.Fatalf("agent_binary = %q", run.AgentBinary)
+	}
+	if run.SyncState != app.SyncStateUnknown {
+		t.Fatalf("sync_state = %q; want %q for an unreadable sync probe", run.SyncState, app.SyncStateUnknown)
+	}
+	if run.LastSuccessfulSyncAt.IsZero() || run.SyncedSandboxFingerprint != "sandbox-fingerprint" {
+		t.Fatalf("sync metadata = %+v", run)
+	}
+}
+
+func TestRunEndpointsIncludeSyncState(t *testing.T) {
+	server := newTestServer(t)
+	var detail map[string]any
+	requestJSON(t, http.MethodGet, server.URL+"/api/runs/run-active", nil, &detail)
+	for _, key := range []string{"last_successful_sync_at", "synced_sandbox_fingerprint", "sync_state"} {
+		if _, ok := detail[key]; !ok {
+			t.Fatalf("run detail is missing %q: %#v", key, detail)
+		}
+	}
+	if detail["sync_state"] != string(app.SyncStateUnknown) {
+		t.Fatalf("detail sync_state = %v; want %q", detail["sync_state"], app.SyncStateUnknown)
+	}
+
+	var list []map[string]any
+	requestJSON(t, http.MethodGet, server.URL+"/api/runs", nil, &list)
+	found := false
+	for _, run := range list {
+		if run["id"] != "run-active" {
+			continue
+		}
+		found = true
+		for _, key := range []string{"last_successful_sync_at", "synced_sandbox_fingerprint", "sync_state"} {
+			if _, ok := run[key]; !ok {
+				t.Fatalf("run list entry is missing %q: %#v", key, run)
+			}
+		}
+		if run["sync_state"] != string(app.SyncStateUnknown) {
+			t.Fatalf("list sync_state = %v; want %q", run["sync_state"], app.SyncStateUnknown)
+		}
+	}
+	if !found {
+		t.Fatal("run-active missing from /api/runs")
 	}
 }
 

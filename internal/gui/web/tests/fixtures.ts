@@ -30,6 +30,9 @@ export const runs: Run[] = [
     branch: 'agentbox/demo/active-run',
     baseline: 'abc',
     last_synced: 'abc',
+    last_successful_sync_at: '2026-01-01T10:30:00Z',
+    synced_sandbox_fingerprint: 'sandbox-fingerprint-active',
+    sync_state: 'needs_sync',
     sandbox: 'sandbox-active',
     gateway: 'openshell',
     agent: 'codex',
@@ -66,6 +69,7 @@ export const runs: Run[] = [
     approval: 'prompted',
     status: 'stopped',
     synced: false,
+    sync_state: 'unknown',
     policy: '/policies/run-idle.yaml'
   },
   {
@@ -79,6 +83,9 @@ export const runs: Run[] = [
     branch: 'agentbox/demo/finished-run',
     baseline: 'abc',
     last_synced: 'abc',
+    last_successful_sync_at: '2026-01-01T12:15:00Z',
+    synced_sandbox_fingerprint: 'sandbox-fingerprint-finished',
+    sync_state: 'up_to_date',
     sandbox: 'sandbox-finished',
     gateway: 'openshell',
     agent: 'opencode',

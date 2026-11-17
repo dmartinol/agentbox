@@ -19,6 +19,9 @@ type App struct {
 	// Version is the running binary version, set by the CLI entry point.
 	// When empty, the doctor output omits the installed usage-skill check.
 	Version string
+	// syncProbes caches bounded sandbox sync fingerprints. The pointer keeps
+	// App copyable while the cache itself remains concurrency-safe.
+	syncProbes *syncProbeStore
 }
 
 func New() (*App, error) {

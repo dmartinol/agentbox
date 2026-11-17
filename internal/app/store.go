@@ -102,34 +102,38 @@ func (p Project) Validate() error {
 }
 
 type Run struct {
-	ID               string    `json:"id"`
-	Name             string    `json:"name,omitempty"`
-	Created          time.Time `json:"created"`
-	Source           string    `json:"source"`
-	Project          string    `json:"project,omitempty"`
-	ProfileName      string    `json:"profile,omitempty"`
-	Worktree         string    `json:"worktree"`
-	WorktreeIsolated bool      `json:"worktree_isolated,omitempty"`
-	Branch           string    `json:"branch"`
-	Baseline         string    `json:"baseline"`
-	LastSynced       string    `json:"last_synced"`
-	Fingerprint      string    `json:"fingerprint,omitempty"`
-	Sandbox          string    `json:"sandbox"`
-	Gateway          string    `json:"gateway"`
-	Agent            string    `json:"agent"`
-	Image            string    `json:"image"`
-	Mode             string    `json:"mode"`
-	Model            string    `json:"model"`
-	Approval         string    `json:"approval"`
-	Status           RunStatus `json:"status"`
-	StatusDetail     string    `json:"status_detail"`
-	Synced           bool      `json:"synced"`
-	Policy           string    `json:"policy"`
-	PendingPolicy    string    `json:"pending_policy,omitempty"`
-	MCP              string    `json:"mcp,omitempty"`
-	MCPWarnings      []string  `json:"mcp_warnings,omitempty"`
-	Skills           string    `json:"skills,omitempty"`
-	SkillsWarnings   []string  `json:"skills_warnings,omitempty"`
+	ID                       string    `json:"id"`
+	Name                     string    `json:"name,omitempty"`
+	Created                  time.Time `json:"created"`
+	Source                   string    `json:"source"`
+	Project                  string    `json:"project,omitempty"`
+	ProfileName              string    `json:"profile,omitempty"`
+	Worktree                 string    `json:"worktree"`
+	WorktreeIsolated         bool      `json:"worktree_isolated,omitempty"`
+	Branch                   string    `json:"branch"`
+	Baseline                 string    `json:"baseline"`
+	LastSynced               string    `json:"last_synced"`
+	Fingerprint              string    `json:"fingerprint,omitempty"`
+	LastSuccessfulSyncAt     time.Time `json:"last_successful_sync_at"`
+	SyncedSandboxFingerprint string    `json:"synced_sandbox_fingerprint"`
+	Sandbox                  string    `json:"sandbox"`
+	Gateway                  string    `json:"gateway"`
+	Agent                    string    `json:"agent"`
+	Image                    string    `json:"image"`
+	Mode                     string    `json:"mode"`
+	Model                    string    `json:"model"`
+	Approval                 string    `json:"approval"`
+	Status                   RunStatus `json:"status"`
+	StatusDetail             string    `json:"status_detail"`
+	Synced                   bool      `json:"synced"`
+	// SyncState is derived for each read. SaveRun never persists it.
+	SyncState      SyncState `json:"sync_state,omitempty"`
+	Policy         string    `json:"policy"`
+	PendingPolicy  string    `json:"pending_policy,omitempty"`
+	MCP            string    `json:"mcp,omitempty"`
+	MCPWarnings    []string  `json:"mcp_warnings,omitempty"`
+	Skills         string    `json:"skills,omitempty"`
+	SkillsWarnings []string  `json:"skills_warnings,omitempty"`
 }
 
 type WorktreeSettings struct {
@@ -502,7 +506,9 @@ func (s Store) SaveRun(r Run) error {
 	if err := s.Ensure(); err != nil {
 		return err
 	}
-	b, err := json.MarshalIndent(r, "", "  ")
+	persisted := r
+	persisted.SyncState = ""
+	b, err := json.MarshalIndent(persisted, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -525,6 +531,7 @@ func (s Store) LoadRun(id string) (Run, error) {
 		return r, fmt.Errorf("run ID mismatch")
 	}
 	r.Status, r.StatusDetail = NormalizeRunStatus(string(r.Status), r.StatusDetail)
+	r.SyncState = ""
 	return r, nil
 }
 

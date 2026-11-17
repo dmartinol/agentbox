@@ -8,6 +8,8 @@ export type RunStatus =
   | 'stopped'
   | 'completed';
 
+export type SyncState = 'no_changes' | 'up_to_date' | 'needs_sync' | 'blocked' | 'unknown';
+
 export interface Run {
   id: string;
   name?: string;
@@ -19,6 +21,9 @@ export interface Run {
   branch: string;
   baseline: string;
   last_synced: string;
+  last_successful_sync_at?: string;
+  synced_sandbox_fingerprint?: string;
+  sync_state: SyncState;
   sandbox: string;
   gateway: string;
   agent: string;
