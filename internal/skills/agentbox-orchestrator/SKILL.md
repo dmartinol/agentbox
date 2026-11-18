@@ -168,9 +168,11 @@ raw result before recording or retrying:
 
 ## Runtime and model selection
 
-Ask once during triage, record every answer in the state record, and keep the
-answers for the life of the issue. Confirm an inherited default explicitly
-before recording it; a default is never applied silently.
+Resolve the registry first (see the next section). Ask once during triage for
+anything the registry and the prompt leave open. Record every answer in the
+state record and keep the answers for the life of the issue. Confirm an
+inherited default explicitly before recording it; a default is never applied
+silently.
 
 | Selection | Asked for | Default |
 | --- | --- | --- |
@@ -208,6 +210,137 @@ control — so a stage dispatched to AgentBox records `effort: not-applicable`
 after the user confirms that limitation during triage. If the user asks for a
 specific effort for an AgentBox worker, set `blocked` with the exact reason.
 Never record an effort that was not applied.
+
+## Registry-backed orchestration configuration
+
+Runtime, worker, profile, model, and effort selections can come from a
+user-owned registry at `$AGENTBOX_HOME/orchestration.yaml` (default
+`~/.agentbox/orchestration.yaml`). The registry is never committed to a
+project repository and never contains credentials; refer to credential
+environment variables by name only. Resolve it with the AgentBox CLI so the
+selection is deterministic:
+
+```sh
+agentbox orchestrator config show --project "$(git rev-parse --show-toplevel)" \
+  --remote "$(git remote get-url origin 2>/dev/null)" --json
+```
+
+The registry is versioned YAML:
+
+```yaml
+version: 1
+default: standard
+
+configs:
+  standard:
+    orchestration: {runtime: orca, agent: codex, model: <model-id>, effort: high}
+    workers:
+      default: {runtime: orca, agent: codex, model: <model-id>, effort: medium}
+      groups:
+        coding: {effort: high}
+      stages:
+        review: {agent: claude, model: <model-id>, effort: high}
+  heavy:
+    workers:
+      groups:
+        coding: {model: <model-id>, effort: high}
+
+global:
+  config: standard
+  workers:
+    groups:
+      coding: {profile: enmaas}
+
+projects:
+  - name: agentbox
+    root: /absolute/path/to/agentbox
+    remote: github.com/owner/agentbox
+    config: heavy
+    workers:
+      stages:
+        implement: {effort: high}
+```
+
+- `default` names the configuration used when no global or project layer
+  applies. It is required and must exist in `configs`.
+- `orchestration` is the controller selection. `workers.default`,
+  `workers.groups`, and `workers.stages` select stage workers.
+- The fixed stage groups are `coding` for `plan`, `implement`, and `fix`, and
+  `other` for `triage`, `verify`, `review`, and `retro`. Every stage belongs
+  to exactly one group.
+- A selection is `runtime` (`orca`, `agentbox`, or `harness`), `agent`
+  (`claude`, `codex`, or `opencode`), and optional `profile`, `model`, and
+  `effort`. `profile` is an AgentBox profile for runtime `agentbox` and a
+  harness profile for `orca` or `harness`.
+- Project entries match the canonical absolute `root` (the deepest matching
+  root wins) or the normalized `remote` (`github.com/owner/repo`). If two
+  entries match at the same specificity, or the root and remote match
+  different entries, stop and ask; the CLI reports the ambiguity and never
+  picks one.
+- The schema is strict. Version 1 rejects unknown fields, stages, groups,
+  runtimes, agents, and config references. Run
+  `agentbox orchestrator config validate` after editing.
+- The orchestrator is the running controller session. If the resolved
+  orchestrator runtime or model differs from that session, report the
+  difference and ask the user to relaunch; record only what actually runs.
+
+Registry resolution order (later wins, field by field):
+
+1. `configs[default]`;
+2. `global.config`, when set;
+3. inline `global`;
+4. the matching project's `config`, when set;
+5. the matching project's inline overrides.
+
+Within one layer, a stage resolves `workers.default`, then its group, then
+`workers.stages.<stage>`. The resolved output names the source of every field,
+for example `global.group:coding` or `project:agentbox.stage:implement`. A
+non-empty later value overrides an earlier one; `model: ""` clears an inherited
+model.
+
+Workflow precedence, highest first:
+
+1. explicit choices in the current prompt;
+2. the matching registry project layer;
+3. `.github/orchestrator.yaml` committed by the project;
+4. the registry global layer;
+5. the registry default configuration;
+6. repository documentation and CI;
+7. the defaults in this skill.
+
+Prompt choices override the registry for that workflow only. If the prompt
+explicitly says **“use the existing configuration”**, the resolved registry
+configuration is approved and no second approval question is needed.
+
+During triage:
+
+1. Resolve the registry for the repository root and remote. Show the selected
+   scope and project, the default configuration name, the applied layers, the
+   orchestrator selection, every stage's runtime/agent/profile/model/effort,
+   and the source of inherited values.
+2. Show prerequisites: the runtime CLI and agent on `PATH`, the AgentBox or
+   harness profile, and the credential environment-variable names, never their
+   values. For an AgentBox profile, read its model with
+   `agentbox profile show --json` and treat a model that disagrees with the
+   registry as a blocker. Orca exposes no local model catalog: ask for the
+   exact provider model ID and treat a launch failure as a blocker. Never
+   invent or silently substitute a runtime, agent, profile, or model.
+3. If an applicable configuration resolves every required choice and the
+   prompt does not say “use the existing configuration”, ask for approval
+   before dispatch.
+4. If no configuration applies or required choices are missing, ask for the
+   missing orchestration runtime, worker selections, profile, and model/effort
+   values, and whether to save them globally or for this project. Locate the
+   file with `agentbox orchestrator config path` or the `path` field from
+   `config show`, write or update the completed registry entry at the selected
+   scope, then run `agentbox orchestrator config validate` and `config show`
+   again.
+   When the selected runtime uses an AgentBox profile, offer its model from
+   `agentbox profile list --json` and state where the value came from.
+5. Record the resolved configuration, the applied layers, and the per-stage
+   sources in the state record before the first dispatch. A selection that
+   cannot be honoured sets `blocked` with the exact value and the single action
+   that unblocks it.
 
 ## Stage ownership and isolation
 
@@ -425,15 +558,20 @@ repository's own templates; use them as they are.
 Resolve every other setting from the first source that defines it:
 
 1. the user's explicit instruction for this issue;
-2. `.github/orchestrator.yaml`, when present;
-3. repository documentation and CI (AGENTS.md, CONTRIBUTING, workflow files);
-4. the defaults in this skill.
+2. the matching `$AGENTBOX_HOME` registry project layer;
+3. `.github/orchestrator.yaml`, when present;
+4. the registry global layer;
+5. the registry default configuration;
+6. repository documentation and CI (AGENTS.md, CONTRIBUTING, workflow files);
+7. the defaults in this skill.
 
 `.github/orchestrator.yaml` may set `orchestrator`, worker and model
 selections per stage, `review_cycles_max` (default 2), `merge_strategy`
 (default `merge commit`), `poll_seconds` (default 20–30), and
-`task_deadline_minutes`. A lower-precedence source never overrides a higher
-one, and an explicit user choice always wins.
+`task_deadline_minutes`. The registry supplies runtime, worker, profile,
+model, and effort selections with the layer order documented above. A
+lower-precedence source never overrides a higher one, and an explicit user
+choice always wins.
 
 ## States and labels
 
@@ -469,6 +607,21 @@ issue: 35
 state: in-review
 labels: [orchestrator:in-review]
 orchestrator: {runtime: orca, agent: codex, model: <model-id>, effort: <effort-level>}
+configuration:
+  registry: ~/.agentbox/orchestration.yaml
+  default: standard
+  scope: project
+  project: agentbox
+  sources: [default:standard, global, project:agentbox]
+  selection_sources:
+    orchestrator: project:agentbox
+    triage: global.group:other
+    plan: project:agentbox.group:coding
+    implement: project:agentbox.stage:implement
+    fix: project:agentbox.group:coding
+    verify: global.group:other
+    review: project:agentbox.stage:review
+    retro: global.group:other
 triage: {decision: ready, reason: <one sentence>}
 stages:
   - {stage: triage, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-6, worktree: issue-35-triage, commit: not-applicable}
@@ -488,6 +641,11 @@ retro: {proposals: 0, created: []}
 blocked_reason: ""
 updated: 2026-11-13T08:00:00Z
 ```
+
+`configuration` records the resolved registry layers and per-stage sources.
+It is optional for workflows that started before the registry existed. Record
+the registry path in display form (`$AGENTBOX_HOME/orchestration.yaml` or
+`~/.agentbox/orchestration.yaml`), not an expanded absolute host path.
 
 `findings[]` is the finding ledger. Every finding gets a stable `id` that the
 review verdict cites; `location` is a repository-relative `path:line`. `status`
@@ -519,8 +677,10 @@ moving on. Gates 1, 2, 3, 4, 6, 7, and 10 each dispatch a worker; gate 5, pull
 request creation, is performed by the host implementer or the orchestrator. No
 stage work runs inline.
 
-1. **Triage.** Ask once for the orchestrator and per-stage selections, confirm
-   inherited defaults, create the `workflow_id`, and write the state record.
+1. **Triage.** Resolve the registry, ask once for anything it and the prompt
+   leave open, confirm inherited defaults, show the resolved selections and
+   prerequisites, and obtain approval unless the prompt says “use the existing
+   configuration”. Create the `workflow_id` and write the state record.
    Gather a tracker-blind triage snapshot: issue title, body, labels, and
    relevant comments; repository scope and policy; relevant duplicate-search
    results; and environment sanity (`gh auth status`, `git`, and the selected

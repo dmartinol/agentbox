@@ -213,6 +213,23 @@ one, so the skill's tested path is a visible `orca terminal create` session
 with `codex -p PROFILE -m MODEL`; an unsupported profile, model, or runtime is
 a blocker rather than a silent substitution.
 
+Orchestration and per-stage worker choices can come from a user-owned registry
+at `$AGENTBOX_HOME/orchestration.yaml` (default
+`~/.agentbox/orchestration.yaml`). It supports global and per-project layers,
+a named default, fixed `coding` and `other` stage groups, and per-stage
+overrides. Resolve it with:
+
+```sh
+./agentbox orchestrator config show --project "$(git rev-parse --show-toplevel)" \
+  --remote "$(git remote get-url origin 2>/dev/null)" --json
+./agentbox orchestrator config validate
+```
+
+The shipped orchestrator skill shows the resolved selections and prerequisites
+and waits for approval unless the prompt says "use the existing configuration".
+See the [orchestrator configuration reference](docs/_cli/orchestrator.md) and
+the [example registry](docs/examples/orchestration.yaml).
+
 One canonical copy of each skill, including its shipped templates, is written
 to `~/.agents/skills` (or `./.agents/skills` with `--local`) and Claude and
 OpenCode receive relative symlinks into it.
@@ -751,6 +768,7 @@ AgentBox stores all default state under `~/.agentbox`:
   policies/
   mcps/
   skills/
+  orchestration.yaml
   worktrees/
 ```
 

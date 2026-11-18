@@ -506,6 +506,19 @@ func TestUsageListsSkillsCommand(t *testing.T) {
 	}
 }
 
+func TestUsageListsOrchestratorCommand(t *testing.T) {
+	output, err := captureStdout(t, func() error {
+		usage()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "orchestrator config path|show|validate") {
+		t.Fatalf("usage is missing the orchestrator command: %s", output)
+	}
+}
+
 func TestImageRegistryShowSetClear(t *testing.T) {
 	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
 	if err := dispatch(context.Background(), a, []string{"image", "registry", "set", "quay.io/team/agentbox"}); err != nil {
@@ -1009,5 +1022,100 @@ func TestPolicyEditCLIPrintsDiffBeforeOpenShellError(t *testing.T) {
 	}
 	if output != strings.TrimSpace(preview.Diff) {
 		t.Fatalf("stdout = %q; want diff %q", output, strings.TrimSpace(preview.Diff))
+	}
+}
+
+func TestOrchestratorConfigPathShowAndValidate(t *testing.T) {
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	path := app.OrchestrationRegistryPath(a.Store.Base)
+	body := []byte(`
+version: 1
+default: base
+configs:
+  base:
+    workers:
+      default: {runtime: orca, agent: codex, model: base-model}
+projects:
+  - name: repo
+    root: /repo
+    workers:
+      stages:
+        implement: {model: repo-model}
+`)
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"orchestrator", "config", "path"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output != path {
+		t.Fatalf("path = %q; want %q", output, path)
+	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"orchestrator", "config", "show", "--project", "/repo/worktree", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resolved app.ResolvedOrchestration
+	if err := json.Unmarshal([]byte(output), &resolved); err != nil {
+		t.Fatalf("show output is not JSON: %s (%v)", output, err)
+	}
+	if !resolved.Present || resolved.Scope != "project" || resolved.Project != "repo" {
+		t.Fatalf("resolved = %+v", resolved)
+	}
+	if got := resolved.Stages["implement"].Model; got != "repo-model" {
+		t.Fatalf("implement model = %q", got)
+	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"orchestrator", "config", "validate", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var validation struct {
+		Path  string `json:"path"`
+		Valid bool   `json:"valid"`
+	}
+	if err := json.Unmarshal([]byte(output), &validation); err != nil {
+		t.Fatalf("validate output is not JSON: %s (%v)", output, err)
+	}
+	if validation.Path != path || !validation.Valid {
+		t.Fatalf("validation = %+v", validation)
+	}
+}
+
+func TestOrchestratorConfigShowWithoutRegistry(t *testing.T) {
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"orchestrator", "config", "show", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resolved app.ResolvedOrchestration
+	if err := json.Unmarshal([]byte(output), &resolved); err != nil {
+		t.Fatalf("show output is not JSON: %s (%v)", output, err)
+	}
+	if resolved.Present || resolved.Scope != "none" || len(resolved.Stages) != len(app.OrchestrationStageNames()) {
+		t.Fatalf("resolved = %+v", resolved)
+	}
+	text, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"orchestrator", "config", "show"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "scope: none") || !strings.Contains(text, "no applicable configuration") {
+		t.Fatalf("text output = %s", text)
+	}
+	if err := dispatch(context.Background(), a, []string{"orchestrator", "config", "validate"}); err == nil {
+		t.Fatal("validate accepted a missing registry")
 	}
 }
