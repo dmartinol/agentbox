@@ -152,6 +152,38 @@ projects:
 	wantSelection(t, "implement", resolved.Stages["implement"], "orca", "codex", "", "base-model", "xhigh", "project:nested.stage:implement")
 }
 
+func TestResolveOrchestrationProjectOnlyConfig(t *testing.T) {
+	registry := loadOrchestrationRegistry(t, `
+version: 1
+default: base
+configs:
+  base: {}
+projects:
+  - name: repo
+    remote: github.com/owner/repo
+    orchestration: {runtime: harness, agent: codex, model: orchestrator-model, effort: high}
+    workers:
+      default: {runtime: orca, agent: codex, profile: enmaas, model: worker-model, effort: high}
+      groups:
+        coding: {model: coding-model}
+      stages:
+        review: {agent: claude, model: review-model}
+`)
+	resolved := resolveRegistry(t, registry, OrchestrationProjectRef{Root: "/elsewhere/checkout", Remote: "git@github.com:owner/repo.git"})
+	if resolved.Scope != "project" || resolved.Project != "repo" {
+		t.Fatalf("scope = %q project = %q", resolved.Scope, resolved.Project)
+	}
+	wantSelection(t, "orchestrator", resolved.Orchestrator, "harness", "codex", "", "orchestrator-model", "high", "project:repo")
+	wantSelection(t, "triage", resolved.Stages["triage"], "orca", "codex", "enmaas", "worker-model", "high", "project:repo.default")
+	wantSelection(t, "plan", resolved.Stages["plan"], "orca", "codex", "enmaas", "coding-model", "high", "project:repo.group:coding")
+	wantSelection(t, "review", resolved.Stages["review"], "orca", "claude", "enmaas", "review-model", "high", "project:repo.stage:review")
+	for stage, selection := range resolved.Stages {
+		if got := selection.Sources["model"]; !strings.HasPrefix(got, "project:repo") {
+			t.Fatalf("stage %s model source = %q; want a project:repo source", stage, got)
+		}
+	}
+}
+
 func TestResolveOrchestrationStageOverrideClearsInheritedModel(t *testing.T) {
 	registry := loadOrchestrationRegistry(t, `
 version: 1
@@ -328,6 +360,28 @@ func TestResolveOrchestrationMissingRegistry(t *testing.T) {
 	}
 	if resolved.Present || resolved.Scope != "none" || len(resolved.Stages) != len(OrchestrationStageNames()) {
 		t.Fatalf("resolved = %+v", resolved)
+	}
+}
+
+func TestResolveOrchestrationWarnsWhenProjectRequestDoesNotMatch(t *testing.T) {
+	registry := loadOrchestrationRegistry(t, `
+version: 1
+default: base
+configs:
+  base:
+    workers:
+      default: {runtime: orca, agent: codex, model: base-model}
+projects:
+  - name: other
+    remote: github.com/owner/other
+`)
+	resolved := resolveRegistry(t, registry, OrchestrationProjectRef{Root: "/repo", Remote: "git@github.com:owner/repo.git"})
+	if resolved.Scope != "default" || resolved.Project != "" {
+		t.Fatalf("resolved header = %+v", resolved)
+	}
+	joined := strings.Join(resolved.Warnings, "\n")
+	if !strings.Contains(joined, "no project entry matched") || !strings.Contains(joined, "resolved from the default layer") {
+		t.Fatalf("warnings = %v", resolved.Warnings)
 	}
 }
 

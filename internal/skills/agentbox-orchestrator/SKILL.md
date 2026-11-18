@@ -36,6 +36,66 @@ Assembling a context packet for a worker, reading a returned artifact, and
 checking tracker or forge state are orchestration, not stage work. A resumed
 run redispatches the stage; it never continues a previous worker's session.
 
+## Configuration authoring (MUST)
+
+A prompt that asks to create, change, or inspect the orchestration
+configuration — for example “let's create the orchestration config for this
+project” — is a configuration-authoring request, not a workflow. Do not start
+triage, do not dispatch a worker, and do not treat an existing registry as
+permission to skip the interview.
+
+The registry file itself is always the user-owned file under
+`$AGENTBOX_HOME`. “Project scope” means a `projects[]` entry in that file, not
+a file inside the repository and not a value in the global layer.
+
+Authoring procedure:
+
+1. Confirm the prerequisite. Run `agentbox orchestrator config path`. If the
+   command is unknown, stop and ask the user to install or build the current
+   AgentBox binary. Do not hand-edit the registry without `path`, `show`, and
+   `validate`; without them the saved scope cannot be verified.
+2. Resolve the current registry for the repository with the command in the
+   registry section. Use the result only as context and as proposed defaults
+   labelled with their source. It does not replace the interview.
+3. Interview before writing. Ask one compact group of questions that covers
+   every required setting: orchestrator runtime, agent, model, and effort;
+   worker runtime, agent, profile (when the runtime uses one), model, and
+   effort; any `coding` or `other` group difference; any per-stage override;
+   and the save scope. State the allowed runtime values (`orca`, `agentbox`,
+   `harness`) and agent values (`claude`, `codex`, `opencode`) rather than
+   asking an open-ended question. Confirm the scope, asking only when the
+   prompt does not name one. Ask for each setting, or present a table of
+   proposed values with their sources and ask the user to confirm or change
+   each one. Do not replace the interview with a single “use these values?”
+   question. Offer AgentBox profile models discovered with
+   `agentbox profile list --json` and state where each value came from. Allow
+   `none` where a runtime cannot apply a setting, such as effort on an
+   AgentBox worker. Never invent a model, profile, runtime, effort, or
+   credential value.
+4. Honour the scope named in the prompt. “For this project”, “project config”,
+   or a named repository means project scope. A project request MUST write a
+   `projects[]` entry for the current repository, with the answers as inline
+   `orchestration` and `workers` overrides, or a named config referenced only
+   by that entry. It MUST NOT write the answers into `configs[default]`,
+   `global`, or a named config shared with other projects. Only an explicit
+   global request may do that. If the working directory has no Git root or
+   origin, ask which repository the entry is for and use its absolute `root`.
+   Write every confirmed answer into the project entry, including an answer
+   that happens to match an inherited default, so the saved entry records the
+   user's choice instead of depending on the shared layer.
+5. Show the exact YAML or diff, the registry path, and the effective
+   selections. Wait for explicit confirmation, then write it.
+6. Validate and re-resolve with the same `--project` and `--remote` values.
+   For a project request, require `"scope": "project"` and
+   `"project": "<name>"`, and check that every answered selection reports a
+   `project:<name>` source. If a value still resolves from `default` or
+   `global`, the save is incomplete: correct the entry and re-check. Do not
+   report success until the scope and sources match the request.
+7. Report the registry path, scope, project name, and a compact table of the
+   saved selections. A later workflow still shows the resolved configuration
+   and asks for approval unless the prompt says “use the existing
+   configuration”.
+
 ## Launch topology and visibility (MUST)
 
 Three different objects must never be conflated:
@@ -168,11 +228,13 @@ raw result before recording or retrying:
 
 ## Runtime and model selection
 
-Resolve the registry first (see the next section). Ask once during triage for
-anything the registry and the prompt leave open. Record every answer in the
-state record and keep the answers for the life of the issue. Confirm an
-inherited default explicitly before recording it; a default is never applied
-silently.
+This table governs a workflow. A prompt that asks to create or change the
+registry uses **Configuration authoring** instead, which interviews every
+field before any workflow starts. Otherwise, resolve the registry first (see
+the next section). Ask once during triage for anything the registry and the
+prompt leave open. Record every answer in the state record and keep the
+answers for the life of the issue. Confirm an inherited default explicitly
+before recording it; a default is never applied silently.
 
 | Selection | Asked for | Default |
 | --- | --- | --- |
@@ -221,9 +283,15 @@ environment variables by name only. Resolve it with the AgentBox CLI so the
 selection is deterministic:
 
 ```sh
+agentbox orchestrator config path
 agentbox orchestrator config show --project "$(git rev-parse --show-toplevel)" \
   --remote "$(git remote get-url origin 2>/dev/null)" --json
 ```
+
+If `agentbox orchestrator` is not a known command, the installed binary
+predates this registry. Stop and ask the user to install or build the current
+AgentBox binary; do not guess the path or edit the file without `show` and
+`validate`.
 
 The registry is versioned YAML:
 
@@ -277,6 +345,10 @@ projects:
   entries match at the same specificity, or the root and remote match
   different entries, stop and ask; the CLI reports the ambiguity and never
   picks one.
+- Prefer `remote` for a shared project entry: it matches every worktree of the
+  repository, including an Orca-managed worktree outside the main checkout.
+  Add `root` for a checkout-specific entry or when the repository has no
+  remote.
 - The schema is strict. Version 1 rejects unknown fields, stages, groups,
   runtimes, agents, and config references. Run
   `agentbox orchestrator config validate` after editing.
@@ -296,7 +368,50 @@ Within one layer, a stage resolves `workers.default`, then its group, then
 `workers.stages.<stage>`. The resolved output names the source of every field,
 for example `global.group:coding` or `project:agentbox.stage:implement`. A
 non-empty later value overrides an earlier one; `model: ""` clears an inherited
-model.
+model, and `profile: ""` or `effort: ""` clears an inherited profile or effort.
+
+### Saving a project-scoped configuration
+
+A configuration authored for one repository belongs in that repository's
+`projects[]` entry, not in `configs[default]` or `global`. A complete
+project-only registry can keep the default empty, so no other project inherits
+the answers:
+
+```yaml
+version: 1
+default: base
+
+configs:
+  base: {}
+
+projects:
+  - name: agentbox
+    remote: github.com/owner/agentbox
+    orchestration:
+      runtime: harness
+      agent: codex
+      model: <orchestrator-model-id>
+      effort: high
+    workers:
+      default:
+        runtime: orca
+        agent: codex
+        profile: enmaas
+        model: <worker-model-id>
+        effort: high
+      groups:
+        coding: {model: <coding-model-id>}
+      stages:
+        review: {agent: claude, model: <reviewer-model-id>, effort: high}
+```
+
+Name a new project entry from the repository basename and keep it unique. Set
+`remote` whenever the repository has an `origin`; add `root` only for the
+checkout-specific case above. A named config may hold the answers only when it
+is referenced by this single project entry, and the user must ask for a shared
+named config explicitly. Never put a project request into `global`, into
+`configs[default]`, or into a named config another project or `global.config`
+already references.
 
 Workflow precedence, highest first:
 
@@ -314,30 +429,42 @@ configuration is approved and no second approval question is needed.
 
 During triage:
 
-1. Resolve the registry for the repository root and remote. Show the selected
+1. If the prompt asks to create, change, or inspect the registry rather than
+   run an issue through the workflow, follow **Configuration authoring** and
+   stop here. The workflow does not begin until the user asks for it.
+2. Resolve the registry for the repository root and remote. Show the selected
    scope and project, the default configuration name, the applied layers, the
    orchestrator selection, every stage's runtime/agent/profile/model/effort,
    and the source of inherited values.
-2. Show prerequisites: the runtime CLI and agent on `PATH`, the AgentBox or
+3. Show prerequisites: the runtime CLI and agent on `PATH`, the AgentBox or
    harness profile, and the credential environment-variable names, never their
    values. For an AgentBox profile, read its model with
    `agentbox profile show --json` and treat a model that disagrees with the
    registry as a blocker. Orca exposes no local model catalog: ask for the
    exact provider model ID and treat a launch failure as a blocker. Never
    invent or silently substitute a runtime, agent, profile, or model.
-3. If an applicable configuration resolves every required choice and the
-   prompt does not say “use the existing configuration”, ask for approval
-   before dispatch.
-4. If no configuration applies or required choices are missing, ask for the
+4. If the prompt does not say “use the existing configuration”, always ask for
+   approval before dispatch, even when the configuration resolves every
+   required choice. An existing file, a previous workflow, or a set of
+   inherited defaults is not approval.
+5. If no configuration applies or required choices are missing, ask for the
    missing orchestration runtime, worker selections, profile, and model/effort
-   values, and whether to save them globally or for this project. Locate the
-   file with `agentbox orchestrator config path` or the `path` field from
-   `config show`, write or update the completed registry entry at the selected
-   scope, then run `agentbox orchestrator config validate` and `config show`
-   again.
+   values, and for the save scope when the prompt does not name it. Honour a
+   scope named in the prompt: a project request saves under `projects[]` and
+   never in `global` or `configs[default]`. Locate the file with
+   `agentbox orchestrator config path` or the `path` field from `config show`,
+   write or update the completed entry at the selected scope, then run
+   `agentbox orchestrator config validate` and `config show` again.
    When the selected runtime uses an AgentBox profile, offer its model from
    `agentbox profile list --json` and state where the value came from.
-5. Record the resolved configuration, the applied layers, and the per-stage
+6. After saving, re-resolve with the same `--project` and `--remote`. For a
+   project request, require `"scope": "project"` and `"project": "<name>"`,
+   and confirm that every answered selection reports a `project:<name>`
+   source. A value that still resolves from `default` or `global` means the
+   save missed the project layer; fix it before dispatch. Report a
+   `default` or `global` scope for a project request as a failure, not a
+   success.
+7. Record the resolved configuration, the applied layers, and the per-stage
    sources in the state record before the first dispatch. A selection that
    cannot be honoured sets `blocked` with the exact value and the single action
    that unblocks it.
@@ -680,7 +807,10 @@ stage work runs inline.
 1. **Triage.** Resolve the registry, ask once for anything it and the prompt
    leave open, confirm inherited defaults, show the resolved selections and
    prerequisites, and obtain approval unless the prompt says “use the existing
-   configuration”. Create the `workflow_id` and write the state record.
+   configuration”. Never skip that approval because a registry exists or
+   because the values are inherited. A prompt that asks to create or change
+   the registry is handled by **Configuration authoring** and does not enter
+   this gate. Create the `workflow_id` and write the state record.
    Gather a tracker-blind triage snapshot: issue title, body, labels, and
    relevant comments; repository scope and policy; relevant duplicate-search
    results; and environment sanity (`gh auth status`, `git`, and the selected

@@ -163,6 +163,14 @@ discover the CLI and HTTP API without reading this repository:
 ./agentbox skills remove
 ```
 
+Install the skills with the same binary that later serves `agentbox`
+commands. A skill installed by a newer build can instruct an agent to run a
+command that an older `agentbox` on `PATH` does not have — for example
+`agentbox orchestrator` reports `unknown command`. Upgrade with
+`go install github.com/dmartinol/agentbox/cmd/agentbox@latest` (or keep using
+the `./agentbox` build that installed the skill) before following the
+orchestrator configuration steps.
+
 Three skills ship: `agentbox-cli` (run lifecycle), `agentbox-api` (local HTTP
 API), and `agentbox-orchestrator` (the issue-to-PR orchestrator flow: triage,
 per-stage workers with the agent, model, and effort they actually applied
@@ -227,6 +235,11 @@ overrides. Resolve it with:
 
 The shipped orchestrator skill shows the resolved selections and prerequisites
 and waits for approval unless the prompt says "use the existing configuration".
+When the prompt asks to create or change the configuration, the skill
+interviews for every setting first. A request "for this project" is saved under
+a `projects[]` entry and verified to resolve with `scope: project`; it is never
+written into `global` or the shared default. If `agentbox orchestrator` is
+unknown, upgrade the binary before editing the registry.
 See the [orchestrator configuration reference](docs/_cli/orchestrator.md) and
 the [example registry](docs/examples/orchestration.yaml).
 
