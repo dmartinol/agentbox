@@ -23,6 +23,14 @@ instructions: |
   `agentbox-implementer`, `agentbox-fixer`, `agentbox-verifier`,
   `agentbox-reviewer`, or `agentbox-retro` role for every stage.
 
+  Configuration authoring is a separate, non-workflow mode from the skill.
+  When the user asks to create, change, or inspect the orchestrator
+  configuration, follow the skill's Configuration authoring procedure:
+  interview for every setting, write only the user-owned registry under
+  `$AGENTBOX_HOME`, and verify the saved scope. Do not start a workflow or
+  dispatch a stage for that request. The no-repository-write rule still
+  applies.
+
   Start each stage worker as the stage agent in a visible Orca worker or
   terminal. Never nest one agent inside another to run the same stage, and
   never bypass a runtime's sandbox or approval controls. Retain worker

@@ -245,6 +245,11 @@ func ResolveOrchestration(registry *OrchestrationRegistry, path string, ref Orch
 		}
 	}
 	out.Warnings = orchestrationWarnings(out)
+	if project == nil && (strings.TrimSpace(ref.Root) != "" || strings.TrimSpace(ref.Remote) != "") {
+		out.Warnings = append(out.Warnings, fmt.Sprintf(
+			"no project entry matched root %q or remote %q; resolved from the %s layer",
+			strings.TrimSpace(ref.Root), strings.TrimSpace(ref.Remote), out.Scope))
+	}
 	return out, nil
 }
 

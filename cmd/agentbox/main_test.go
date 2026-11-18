@@ -25,13 +25,20 @@ func captureStdout(t *testing.T, action func() error) (string, error) {
 	}
 	previous := os.Stdout
 	os.Stdout = write
+	done := make(chan struct{})
+	var body []byte
+	var readErr error
+	go func() {
+		body, readErr = io.ReadAll(read)
+		close(done)
+	}()
 	callErr := action()
 	_ = write.Close()
 	os.Stdout = previous
+	<-done
 	defer read.Close()
-	body, err := io.ReadAll(read)
-	if err != nil {
-		t.Fatal(err)
+	if readErr != nil {
+		t.Fatal(readErr)
 	}
 	return string(bytes.TrimSpace(body)), callErr
 }

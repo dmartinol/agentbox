@@ -28,6 +28,76 @@ existing configuration.”** If the registry is absent or leaves required
 choices open, the skill asks for the missing values and saves the completed
 configuration at the selected scope.
 
+## Creating or updating a configuration
+{: #orchestrator-config-authoring }
+
+A prompt that asks to create or change the configuration — for example “let's
+create the orchestration config for this project” — is a configuration
+authoring request, not a workflow. The shipped skill interviews for every
+required setting and saves the answers at the scope the prompt names.
+
+The registry file itself is always the user-owned file under
+`$AGENTBOX_HOME`. “Project scope” means a `projects[]` entry in that file, not
+a file inside the repository and not a value in the global layer. Write every
+confirmed answer into the project entry, even when it matches an inherited
+default, so the entry records the choice instead of depending on the shared
+layer.
+
+- **Project scope** is used for “for this project”, “project config”, or a
+  named repository. Save the answers under a `projects[]` entry as inline
+  `orchestration` and `workers` overrides. Do not put them in `global`,
+  `configs[default]`, or a named config another project or `global.config`
+  already references.
+- **Global scope** is written only when the user asks for it. Save it under
+  `global`, or as the named default.
+
+A project-only registry can keep the default empty, so no other repository
+inherits the answers:
+
+```yaml
+version: 1
+default: base
+
+configs:
+  base: {}
+
+projects:
+  - name: agentbox
+    remote: github.com/owner/agentbox
+    orchestration:
+      runtime: harness
+      agent: codex
+      model: <orchestrator-model-id>
+      effort: high
+    workers:
+      default:
+        runtime: orca
+        agent: codex
+        profile: enmaas
+        model: <worker-model-id>
+        effort: high
+      groups:
+        coding: {model: <coding-model-id>}
+      stages:
+        review: {agent: claude, model: <reviewer-model-id>, effort: high}
+```
+
+Set `remote` when the repository has an origin, so every worktree matches; an
+Orca-managed worktree usually sits outside the main checkout. Add `root` only
+for a checkout-specific entry or when the repository has no remote.
+
+After writing, validate and re-resolve with the same `--project` and
+`--remote`. A project request is complete only when the output reports
+`"scope": "project"` and `"project": "<name>"`, and every answered selection
+reports a `project:<name>` source. A value that still resolves from `default`
+or `global` means the project layer missed it; fix the entry instead of
+reporting success.
+
+The `agentbox` binary must include `agentbox orchestrator`. If the command is
+unknown, install or build the current AgentBox binary before editing the
+registry. The skill stops rather than guessing the path or skipping
+validation.
+
 ## Schema
 {: #orchestrator-config-schema }
 
@@ -220,7 +290,10 @@ agentbox orchestrator config show [--file PATH] [--project ROOT] [--remote URL] 
 
 A missing registry is not an error: the result reports `present: false` and
 `scope: none`, and the skill asks for the missing choices. A malformed or
-ambiguous registry is an error.
+ambiguous registry is an error. When `--project` or `--remote` is supplied and
+no project entry matches, the result keeps the `default` or `global` scope and
+adds a warning that names the unmatched root and remote. A project request
+must treat that warning as a failure rather than accepting the fallback.
 
 **Examples**
 

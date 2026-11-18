@@ -121,6 +121,18 @@ when that source applies, and saves or updates the completed configuration at
 the selected global or project scope. An unavailable runtime, agent, profile,
 model, or effort is a blocker, never a silent substitution.
 
+A prompt that asks to create or change the configuration — such as “let's
+create the orchestration config for this project” — is handled by the
+skill's configuration-authoring mode, not by a workflow. It interviews for
+the orchestrator and worker selections, the stage-group and per-stage
+differences, and the save scope before writing. A project request is saved
+under a `projects[]` entry with inline overrides; it is never written into
+`global`, `configs[default]`, or a config shared with another project. After
+writing, the skill re-resolves and requires `scope: project` with a
+`project:<name>` source for every answered selection. If
+`agentbox orchestrator` is unknown, stop and install or build the current
+AgentBox binary instead of editing the file without validation.
+
 ## Layout: one canonical copy plus links
 {: #skills-layout }
 

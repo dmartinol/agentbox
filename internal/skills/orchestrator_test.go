@@ -147,6 +147,67 @@ func TestOrchestratorSkillRegistryConfiguration(t *testing.T) {
 		"Orca exposes no local model catalog",
 		"Never invent or silently substitute a runtime, agent, profile, or model",
 		"Record the resolved configuration, the applied layers, and the per-stage sources in the state record",
+		"### Saving a project-scoped configuration",
+		"A configuration authored for one repository belongs in that repository's `projects[]` entry",
+		"Never put a project request into `global`, into `configs[default]`",
+		"Prefer `remote` for a shared project entry",
+	)
+}
+
+// TestOrchestratorSkillConfigurationAuthoring covers the create/update mode:
+// an explicit interview, project-scoped writes, stale-binary handling, and
+// post-save scope verification.
+func TestOrchestratorSkillConfigurationAuthoring(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"## Configuration authoring (MUST)",
+		"is a configuration-authoring request, not a workflow",
+		"do not treat an existing registry as permission to skip the interview",
+		"The registry file itself is always the user-owned file under `$AGENTBOX_HOME`",
+		"“Project scope” means a `projects[]` entry in that file, not a file inside the repository",
+		"If the command is unknown, stop and ask the user to install or build the current AgentBox binary",
+		"Resolve the current registry for the repository",
+		"Use the result only as context and as proposed defaults labelled with their source",
+		"It does not replace the interview",
+		"Interview before writing",
+		"orchestrator runtime, agent, model, and effort",
+		"worker runtime, agent, profile (when the runtime uses one), model, and effort",
+		"any `coding` or `other` group difference",
+		"any per-stage override",
+		"State the allowed runtime values (`orca`, `agentbox`, `harness`) and agent values (`claude`, `codex`, `opencode`)",
+		"Confirm the scope, asking only when the prompt does not name one",
+		"Ask for each setting, or present a table of proposed values with their sources and ask the user to confirm or change each one",
+		"Do not replace the interview with a single “use these values?” question",
+		"`agentbox profile list --json`",
+		"Never invent a model, profile, runtime, effort, or credential value",
+		"Honour the scope named in the prompt",
+		"A project request MUST write a `projects[]` entry for the current repository",
+		"It MUST NOT write the answers into `configs[default]`, `global`, or a named config shared with other projects",
+		"If the working directory has no Git root or origin, ask which repository the entry is for and use its absolute `root`",
+		"Write every confirmed answer into the project entry, including an answer that happens to match an inherited default",
+		"Show the exact YAML or diff, the registry path, and the effective selections",
+		"Wait for explicit confirmation, then write it",
+		"Validate and re-resolve with the same `--project` and `--remote` values",
+		"require `\"scope\": \"project\"` and `\"project\": \"<name>\"`",
+		"check that every answered selection reports a `project:<name>` source",
+		"If a value still resolves from `default` or `global`, the save is incomplete",
+		"Do not report success until the scope and sources match the request",
+		"Report the registry path, scope, project name, and a compact table of the saved selections",
+	)
+}
+
+// TestOrchestratorSkillWorkflowApproval covers the workflow gate: an existing
+// registry never replaces explicit approval, and a mis-scoped project request
+// is a failure.
+func TestOrchestratorSkillWorkflowApproval(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"always ask for approval before dispatch, even when the configuration resolves every required choice",
+		"An existing file, a previous workflow, or a set of inherited defaults is not approval",
+		"Honour a scope named in the prompt: a project request saves under `projects[]` and never in `global` or `configs[default]`",
+		"A value that still resolves from `default` or `global` means the save missed the project layer",
+		"Report a `default` or `global` scope for a project request as a failure, not a success",
+		"A prompt that asks to create or change the registry is handled by **Configuration authoring** and does not enter this gate",
 	)
 }
 
