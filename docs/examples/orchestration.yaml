@@ -1,0 +1,53 @@
+# User-owned AgentBox orchestrator registry. Install this file at
+# $AGENTBOX_HOME/orchestration.yaml (default ~/.agentbox/orchestration.yaml).
+# Replace every <...> placeholder with a value available to the selected
+# runtime, profile, or provider. This file never contains credentials.
+version: 1
+
+# The named configuration used when no global or project layer applies.
+default: standard
+
+configs:
+  standard:
+    orchestration:
+      runtime: orca
+      agent: codex
+      model: <orchestrator-model-id>
+      effort: high
+    workers:
+      default:
+        runtime: orca
+        agent: codex
+        model: <worker-model-id>
+        effort: medium
+      groups:
+        coding:
+          effort: high
+      stages:
+        review:
+          agent: claude
+          model: <reviewer-model-id>
+          effort: high
+  heavy:
+    workers:
+      groups:
+        coding:
+          model: <heavy-coding-model-id>
+          effort: high
+
+global:
+  config: standard
+  workers:
+    groups:
+      coding:
+        profile: enmaas
+
+projects:
+  - name: agentbox
+    root: /Users/example/projects/agentbox
+    remote: github.com/dmartinol/agentbox
+    config: heavy
+    workers:
+      stages:
+        implement:
+          effort: high

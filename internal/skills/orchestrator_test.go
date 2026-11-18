@@ -119,6 +119,37 @@ func TestOrchestratorSkillSelection(t *testing.T) {
 	)
 }
 
+// TestOrchestratorSkillRegistryConfiguration covers the user-owned registry,
+// deterministic layer precedence, approval, model discovery, and provenance.
+func TestOrchestratorSkillRegistryConfiguration(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"## Registry-backed orchestration configuration",
+		"`$AGENTBOX_HOME/orchestration.yaml`",
+		"`~/.agentbox/orchestration.yaml`",
+		"never contains credentials",
+		"agentbox orchestrator config show --project",
+		"`default` names the configuration used when no global or project layer applies",
+		"The fixed stage groups are `coding` for `plan`, `implement`, and `fix`",
+		"`other` for `triage`, `verify`, `review`, and `retro`",
+		"Project entries match the canonical absolute `root`",
+		"the CLI reports the ambiguity and never picks one",
+		"Registry resolution order (later wins, field by field)",
+		"Within one layer, a stage resolves `workers.default`, then its group, then `workers.stages.<stage>`",
+		"`model: \"\"` clears an inherited model",
+		"Workflow precedence, highest first",
+		"explicit choices in the current prompt",
+		"the matching registry project layer",
+		"If the prompt explicitly says **“use the existing configuration”**",
+		"ask for approval before dispatch",
+		"If no configuration applies or required choices are missing, ask for the missing orchestration runtime",
+		"`agentbox profile list --json`",
+		"Orca exposes no local model catalog",
+		"Never invent or silently substitute a runtime, agent, profile, or model",
+		"Record the resolved configuration, the applied layers, and the per-stage sources in the state record",
+	)
+}
+
 // TestOrchestratorSkillStageDispatch covers per-stage workers, isolated
 // worktrees, and fresh verify and review worktrees at the PR head.
 func TestOrchestratorSkillStageDispatch(t *testing.T) {
@@ -609,7 +640,7 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 		"issue.md":       {"## Summary", "## Current behavior", "## Proposed design", "## Acceptance criteria", "## Test plan", "## Risks", "## Out of scope", "## Related"},
 		"pr.md":          {"## Summary", "## Changes", "## Evidence", "Closes #<issue>", "## Risks", "## Provenance"},
 		"verdict.md":     {"## Verdict", "## Severity bar", "## Review scope", "## Findings", "## Evidence at commit", "## Required changes", "## Follow-ups", "## Provenance"},
-		"state.md":       {"<!-- orchestrator-state -->", "schema: 2", "workflow_id:", "findings:", "review_cycles_max:"},
+		"state.md":       {"<!-- orchestrator-state -->", "schema: 2", "workflow_id:", "configuration:", "selection_sources:", "findings:", "review_cycles_max:"},
 		"review-task.md": {"## Role", "## Scope", "## Severity bar", "## Checklist", "## Output", "## Provenance"},
 		"verify-task.md": {"## Role", "## Scope", "## Output", "## Provenance"},
 	}

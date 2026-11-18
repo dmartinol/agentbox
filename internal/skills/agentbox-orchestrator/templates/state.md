@@ -14,6 +14,21 @@ orchestrator:
   agent: <agent-id>
   model: <model-id>
   effort: <effort-level>
+configuration:
+  registry: ~/.agentbox/orchestration.yaml
+  default: <default-config>
+  scope: <project|global|default|none>
+  project: <project-name>
+  sources: [<applied-layer>, ...]
+  selection_sources:
+    orchestrator: <source>
+    triage: <source>
+    plan: <source>
+    implement: <source>
+    fix: <source>
+    verify: <source>
+    review: <source>
+    retro: <source>
 triage:
   decision: <ready|needs-info|out-of-scope|blocked>
   reason: <one sentence>

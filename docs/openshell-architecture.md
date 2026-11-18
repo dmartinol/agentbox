@@ -674,6 +674,7 @@ Default AgentBox state is stored under:
   policies/
   mcps/
   skills/
+  orchestration.yaml
   worktrees/
 ```
 

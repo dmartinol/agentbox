@@ -29,7 +29,7 @@ Three usage skills and eight harness agent roles are shipped:
 | --- | --- |
 | `agentbox-cli` | Starting, inspecting, attaching to, syncing, and deleting runs; project, profile, and policy basics; the blocked-host recovery path. |
 | `agentbox-api` | The local HTTP API at `http://127.0.0.1:8080/api/...` with `curl`, plus a map of the Fleet and Setup surfaces. |
-| `agentbox-orchestrator` | The issue-to-PR orchestrator flow: triage, a selected worker per stage with the agent, model, and effort it actually applied (`not-applicable` for AgentBox workers), visible and retained workers, isolated verify and review worktrees detached at the PR head, a stage-aware forge matrix, provenance-marked comments and PRs, a severity-gated finding ledger with delta re-review and a bounded cycle cap, gated merge, and close, with a GitHub tracker adapter. It ships `issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`, and `verify-task.md` templates. |
+| `agentbox-orchestrator` | The issue-to-PR orchestrator flow: triage, a selected worker per stage with the agent, model, and effort it actually applied (`not-applicable` for AgentBox workers), a user-owned registry at `~/.agentbox/orchestration.yaml` for global and per-project runtime, worker, profile, model, and effort selection, visible and retained workers, isolated verify and review worktrees detached at the PR head, a stage-aware forge matrix, provenance-marked comments and PRs, a severity-gated finding ledger with delta re-review and a bounded cycle cap, gated merge, and close, with a GitHub tracker adapter. It ships `issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`, and `verify-task.md` templates. |
 
 The agent roles are one controller plus the orchestrator's stage roles. They
 are rendered into each harness's native agent format from one canonical
@@ -89,6 +89,37 @@ is ambiguous, not a reason to create a duplicate. Never use
 `--dangerously-bypass-approvals-and-sandbox` or an equivalent; an unsupported
 profile, model, effort, or runtime is a blocker rather than a silent
 substitution.
+
+## Registry-backed orchestration configuration
+{: #skills-orchestrator-registry }
+
+The orchestrator skill resolves runtime and model selections from a
+user-owned registry at `$AGENTBOX_HOME/orchestration.yaml` (default
+`~/.agentbox/orchestration.yaml`). The registry supports global and
+per-project layers, a named default, fixed `coding` and `other` stage groups,
+and per-stage overrides. It never contains credentials; record only
+environment-variable names.
+
+```sh
+agentbox orchestrator config show --project "$(git rev-parse --show-toplevel)" \
+  --remote "$(git remote get-url origin 2>/dev/null)" --json
+agentbox orchestrator config validate
+```
+
+The schema, layer precedence, project matching, prerequisites, and JSON shape
+are documented on the
+[orchestrator configuration page]({{ '/cli-reference/orchestrator/' | relative_url }}).
+The resolved selections and their sources are recorded in the workflow state
+record.
+
+When the applicable configuration resolves every required choice, the skill
+shows the settings and prerequisites and waits for approval, unless the prompt
+explicitly says **“use the existing configuration.”** If no configuration
+applies or required choices are missing, it asks for the missing values,
+offers AgentBox profile models discovered with `agentbox profile list --json`
+when that source applies, and saves or updates the completed configuration at
+the selected global or project scope. An unavailable runtime, agent, profile,
+model, or effort is a blocker, never a silent substitution.
 
 ## Layout: one canonical copy plus links
 {: #skills-layout }

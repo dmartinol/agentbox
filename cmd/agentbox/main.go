@@ -93,6 +93,8 @@ func dispatch(ctx context.Context, a *app.App, args []string) error {
 		return skillCmd(ctx, a, args[1:])
 	case "skills":
 		return skillsCmd(args[1:])
+	case "orchestrator":
+		return orchestratorCmd(a, args[1:])
 	case "agent":
 		return agentCmd(ctx, a, args[1:])
 	case "gui":
@@ -125,6 +127,7 @@ func usage() {
 	fmt.Println("  mcp list|show|create|delete|servers")
 	fmt.Println("  skill list|show|create|delete|available")
 	fmt.Println("  skills install|update|remove|list|show|roles")
+	fmt.Println("  orchestrator config path|show|validate")
 	fmt.Println("  agent start|list|show|attach|logs|stop|sync|diff|delete")
 	fmt.Println("  gui [--address host:port]")
 }
