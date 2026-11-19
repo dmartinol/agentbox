@@ -129,6 +129,7 @@ describe('resource lifecycle panels', () => {
     await user.click(await screen.findByText('Repository details'));
     const details = screen.getByText('Repository details').closest('details');
     if (!details) throw new Error('repository details missing');
+    expect(within(details).getByText('Read-only · edit .agentbox/config.yaml or run agentbox repo setup')).toBeInTheDocument();
     expect(await within(details).findByText((_, node) => node?.tagName === 'DD'
       && node.textContent === 'present · /repo/.agentbox/config.yaml · sha256:manifest')).toBeInTheDocument();
     expect(within(details).getByText((_, node) => node?.tagName === 'DD'

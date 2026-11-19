@@ -41,19 +41,26 @@ function imageSourceLabel(source?: string): string {
 
 function policyProvenanceLines(run: Run): string[] {
   const provenance = run.policy_provenance;
-  if (!provenance) {
-    return ['Policy provenance: Not recorded (pre-#79 run)'];
-  }
-  return [
+  const lines = provenance ? [
     `Policy provenance: ${provenance.source}`,
     `Gateway: ${provenance.gateway}`,
     `Provider: ${provenance.provider}`,
     `Mode: ${provenance.mode}`,
     `Provider host: ${provenance.host}:${provenance.port}`,
     `Provider rule: ${provenance.rule}`,
-    `Agent binary: ${provenance.agent_binary}`,
-    ...(provenance.legacy_path ? [`Legacy policy: ${provenance.legacy_path}`] : [])
-  ];
+    `Agent binary: ${provenance.agent_binary}`
+  ] : ['Policy provenance: Not recorded (pre-#79 run)'];
+  lines.push(
+    `Repository manifest: ${run.manifest_digest || 'No repository manifest'}`,
+    `Runtime-added hosts: ${run.runtime_hosts?.length ?? 0}`
+  );
+  if (provenance?.legacy_path) lines.push(`Legacy base (network rules only): ${provenance.legacy_path}`);
+  lines.push(
+    run.policy_fragment
+      ? `Repository fragment: ${run.policy_fragment}${run.policy_fragment_digest ? ` (${run.policy_fragment_digest})` : ''}`
+      : 'Repository fragment: none'
+  );
+  return lines;
 }
 
 function RunPolicyProvenance({ run }: { run: Run }) {
@@ -70,7 +77,10 @@ function RunPolicyProvenance({ run }: { run: Run }) {
       <dt className="text-muted">Host</dt><dd className="min-w-0 break-words">{provenance.host}:{provenance.port}</dd>
       <dt className="text-muted">Rule</dt><dd className="min-w-0 break-words">{provenance.rule}</dd>
       <dt className="text-muted">Agent binary</dt><dd className="min-w-0 break-words">{provenance.agent_binary}</dd>
-      {provenance.legacy_path ? <><dt className="text-muted">Legacy policy</dt><dd className="min-w-0 break-words">{provenance.legacy_path}</dd></> : null}
+      <dt className="text-muted">Manifest</dt><dd className="min-w-0 break-words">{run.manifest_digest || 'No repository manifest'}</dd>
+      <dt className="text-muted">Runtime hosts</dt><dd className="min-w-0 break-words">{run.runtime_hosts?.length ?? 0}</dd>
+      {provenance.legacy_path ? <><dt className="text-muted">Legacy base</dt><dd className="min-w-0 break-words">{provenance.legacy_path} (network rules only)</dd></> : null}
+      <dt className="text-muted">Fragment</dt><dd className="min-w-0 break-words">{run.policy_fragment ? <>{run.policy_fragment}{run.policy_fragment_digest ? ` · ${run.policy_fragment_digest}` : ''}</> : 'None'}</dd>
     </dl>
   );
 }
@@ -456,10 +466,7 @@ export function FleetView({
       const policy = await api.runPolicyContent(agent.id);
       const provenance = [
         `Policy file: ${policy.path || agent.policy}`,
-        ...policyProvenanceLines(agent),
-        agent.policy_fragment
-          ? `Repository fragment: ${agent.policy_fragment}${agent.policy_fragment_digest ? ` (${agent.policy_fragment_digest})` : ''}`
-          : 'Repository fragment: none'
+        ...policyProvenanceLines(agent)
       ].join('\n');
       updateLog({ content: `${provenance}\n\n${policy.content}`, loading: false, error: undefined });
     } catch (err) {

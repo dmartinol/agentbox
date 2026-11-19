@@ -174,6 +174,9 @@ func TestStartReportsMissingProfileAndPolicy(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := app.Start(ctx, StartOptions{Profile: "mycodex", Gateway: "openshell", Mode: "bogus"}); err == nil || !strings.Contains(err.Error(), `profile "mycodex" is invalid: mode must be standard or gateway`) {
+		t.Fatalf("invalid profile error = %v", err)
+	}
 	if _, err := app.Start(ctx, StartOptions{Profile: "mycodex", Gateway: "openshell"}); err == nil || !strings.Contains(err.Error(), "references missing legacy policy file") {
 		t.Fatalf("missing policy error = %v", err)
 	}

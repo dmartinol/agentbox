@@ -707,6 +707,46 @@ func TestProfilesEndpointMigratesLegacyPolicyWithoutManualEdit(t *testing.T) {
 	}
 }
 
+func TestProfilesEndpointReportsAuthoritativeDefaultPolicy(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(t.TempDir(), "codex-enmaas.yaml")
+	if err := os.WriteFile(legacyPath, app.DefaultPolicy(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	profile := app.Profile{
+		Version: 1, Name: "codex-enmaas", Agent: "codex", Image: "image", Mode: "gateway",
+		Model: "model", Provider: "provider", Approval: "unattended",
+		BaseURL: "https://models.example.test/v1", APIKeyEnv: "UNIT_MODEL_KEY",
+		Policy: legacyPath,
+	}
+	if err := store.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(&app.App{Store: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	var profiles []struct {
+		Name          string `json:"name"`
+		Policy        string `json:"policy"`
+		DefaultPolicy string `json:"default_policy"`
+	}
+	requestJSON(t, http.MethodGet, httpServer.URL+"/api/profiles", nil, &profiles)
+	wantDefault := filepath.Join(store.PolicyDir(), "codex-enmaas.yaml")
+	if len(profiles) != 1 || profiles[0].Policy != legacyPath || profiles[0].DefaultPolicy != wantDefault {
+		t.Fatalf("profiles = %#v, want policy %q and default %q", profiles, legacyPath, wantDefault)
+	}
+	if profiles[0].Policy == profiles[0].DefaultPolicy {
+		t.Fatalf("legacy policy %q was reported as the default", profiles[0].Policy)
+	}
+}
+
 func TestPolicyContentEndpoints(t *testing.T) {
 	server := newTestServer(t)
 	var created app.PolicyConfiguration

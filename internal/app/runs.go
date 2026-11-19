@@ -70,7 +70,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 		p.Approval = opt.Approval
 	}
 	if err := p.Validate(); err != nil {
-		return Run{}, err
+		return Run{}, fmt.Errorf("profile %q is invalid: %w", p.Name, err)
 	}
 	if _, err := deriveProviderEndpoint(p); err != nil {
 		return Run{}, err

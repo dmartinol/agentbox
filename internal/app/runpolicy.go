@@ -67,7 +67,7 @@ func deriveProviderEndpoint(profile Profile) (providerEndpoint, error) {
 		}
 		port = parsed
 	}
-	return providerEndpoint{provider: profile.Provider, host: endpoint.Hostname(), port: port}, nil
+	return providerEndpoint{provider: profile.Provider, host: strings.ToLower(endpoint.Hostname()), port: port}, nil
 }
 
 func invalidGatewayBaseURLError(profileName, baseURL string) error {
