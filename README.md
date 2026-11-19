@@ -190,7 +190,7 @@ version:
 | --- | --- |
 | `agentbox-cli` | "Start a codex run on the demo project" · "what agents are running?" · "the agent can't reach api.example.com — fix it" · "prepare the worker environment for this repository" · "stop the run but keep the work" |
 | `agentbox-api` | "List every agent run through the AgentBox API" · "start a run from a script" · "where do I change the gateway setting in the web UI?" |
-| `agentbox-orchestrator` | "Take issue 35 to a merged pull request with the orchestrator flow" · "resume the orchestrator run on issue 42" · "let's create the orchestration config for this project" |
+| `agentbox-orchestrator` | "Take issue 35 to a merged pull request with the orchestrator flow" · "run the orchestrator on issue 42" · "resume the orchestrator run on issue 42" |
 
 The same install writes eight harness agent roles in each harness's native
 format: the `agentbox-orchestrator` controller plus `agentbox-triage`,

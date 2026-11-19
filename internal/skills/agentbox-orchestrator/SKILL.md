@@ -19,8 +19,6 @@ Requests like these select this skill:
 - "Take issue 35 to a merged pull request with the orchestrator flow."
 - "Run the orchestrator on issue 42."
 - "Resume the orchestrator run on issue 42."
-- "Let's create the orchestration config for this project." — this is the
-  configuration-authoring mode (see below), not a workflow.
 
 ## Role boundary (MUST)
 
