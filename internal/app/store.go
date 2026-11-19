@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,7 +67,13 @@ func (p Profile) Validate() error {
 		}
 		endpoint, err := url.Parse(p.BaseURL)
 		if p.BaseURL == "" || err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
-			return fmt.Errorf("gateway mode requires an absolute model API base URL")
+			return invalidGatewayBaseURLError(p.Name, p.BaseURL)
+		}
+		if endpoint.Port() != "" {
+			port, err := strconv.Atoi(endpoint.Port())
+			if err != nil || port < 1 || port > 65535 {
+				return fmt.Errorf("profile %q cannot derive its provider host: base_url %q has invalid port %q; use a port from 1 to 65535", p.Name, p.BaseURL, endpoint.Port())
+			}
 		}
 		if !envName.MatchString(p.APIKeyEnv) {
 			return fmt.Errorf("gateway mode requires an API key environment variable name")
@@ -127,6 +134,7 @@ type Run struct {
 	ImageWarnings            []string      `json:"image_warnings,omitempty"`
 	PolicyFragment           string        `json:"policy_fragment,omitempty"`
 	PolicyFragmentDigest     string        `json:"policy_fragment_digest,omitempty"`
+	PolicyProvenance         *RunPolicyProvenance `json:"policy_provenance,omitempty"`
 	RuntimeHosts             []RuntimeHost `json:"runtime_hosts,omitempty"`
 	Mode                     string        `json:"mode"`
 	Model                    string        `json:"model"`

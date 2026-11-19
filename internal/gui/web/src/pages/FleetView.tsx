@@ -39,6 +39,42 @@ function imageSourceLabel(source?: string): string {
   }
 }
 
+function policyProvenanceLines(run: Run): string[] {
+  const provenance = run.policy_provenance;
+  if (!provenance) {
+    return ['Policy provenance: Not recorded (pre-#79 run)'];
+  }
+  return [
+    `Policy provenance: ${provenance.source}`,
+    `Gateway: ${provenance.gateway}`,
+    `Provider: ${provenance.provider}`,
+    `Mode: ${provenance.mode}`,
+    `Provider host: ${provenance.host}:${provenance.port}`,
+    `Provider rule: ${provenance.rule}`,
+    `Agent binary: ${provenance.agent_binary}`,
+    ...(provenance.legacy_path ? [`Legacy policy: ${provenance.legacy_path}`] : [])
+  ];
+}
+
+function RunPolicyProvenance({ run }: { run: Run }) {
+  const provenance = run.policy_provenance;
+  if (!provenance) {
+    return <p className="text-sm text-muted">Not recorded (pre-#79 run)</p>;
+  }
+  return (
+    <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-sm">
+      <dt className="text-muted">Source</dt><dd className="min-w-0 break-words">{provenance.source}</dd>
+      <dt className="text-muted">Gateway</dt><dd className="min-w-0 break-words">{provenance.gateway}</dd>
+      <dt className="text-muted">Provider</dt><dd className="min-w-0 break-words">{provenance.provider}</dd>
+      <dt className="text-muted">Mode</dt><dd className="min-w-0 break-words">{provenance.mode}</dd>
+      <dt className="text-muted">Host</dt><dd className="min-w-0 break-words">{provenance.host}:{provenance.port}</dd>
+      <dt className="text-muted">Rule</dt><dd className="min-w-0 break-words">{provenance.rule}</dd>
+      <dt className="text-muted">Agent binary</dt><dd className="min-w-0 break-words">{provenance.agent_binary}</dd>
+      {provenance.legacy_path ? <><dt className="text-muted">Legacy policy</dt><dd className="min-w-0 break-words">{provenance.legacy_path}</dd></> : null}
+    </dl>
+  );
+}
+
 // Fleet stays live on its own: a run that is still starting must not sit on
 // Creating until someone reloads the page. Poll fast while something is
 // changing or while a terminal is on screen, a little slower while an idle
@@ -420,9 +456,10 @@ export function FleetView({
       const policy = await api.runPolicyContent(agent.id);
       const provenance = [
         `Policy file: ${policy.path || agent.policy}`,
+        ...policyProvenanceLines(agent),
         agent.policy_fragment
           ? `Repository fragment: ${agent.policy_fragment}${agent.policy_fragment_digest ? ` (${agent.policy_fragment_digest})` : ''}`
-          : 'Repository fragment: none (profile policy)'
+          : 'Repository fragment: none'
       ].join('\n');
       updateLog({ content: `${provenance}\n\n${policy.content}`, loading: false, error: undefined });
     } catch (err) {
@@ -638,6 +675,10 @@ export function FleetView({
                   </div>
                 ))}
               </dl>
+
+              <Disclosure summary="Policy provenance">
+                <RunPolicyProvenance run={selected} />
+              </Disclosure>
 
               {selected.runtime_hosts?.length ? (
                 <Disclosure summary={`Runtime host rules (${selected.runtime_hosts.length})`}>

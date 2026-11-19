@@ -408,16 +408,16 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
             <Input id="profile-api-key-env" disabled={useProviderSettings} value={form.api_key_env ?? ''} onChange={(event) => setForm({ ...form, api_key_env: event.target.value })} />
           </Field>
           <Field
-            label="Policy"
+            label="Legacy policy"
             htmlFor="profile-policy"
             required
             className="sm:col-span-2"
             helper={(
               <>
-                A policy is required. Choose the AgentBox default or a reusable policy.
+                Deprecated. New runs derive their baseline from the AgentBox default and add provider and repository rules. A Profile.Policy path other than the generated default remains a legacy network-rule source.
                 {showOriginalDefaultOption ? <span className="block">The original policy remains available; choose the AgentBox default to use one named for this profile.</span> : null}
                 {policiesLoading ? <span className="block" role="status">Loading policies…</span> : null}
-                {policiesReady && !policyError && reusablePolicies.length === 0 ? <span className="block">No reusable policies yet — create one under Setup → Policies.</span> : null}
+                {policiesReady && !policyError && reusablePolicies.length === 0 ? <span className="block">No reusable legacy policies yet.</span> : null}
               </>
             )}
             error={missingPolicy ? `Policy ${form.policy} no longer exists; pick another policy.` : undefined}

@@ -11,8 +11,56 @@ import { Field } from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
 import { Modal } from '../../components/ui/dialog';
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
+import { Disclosure } from '../../components/ui/disclosure';
 
 const emptyProject: Project = { version: 1, name: '', root: '', worktree: true };
+
+function ProjectRepositoryDetails({ project }: { project: Project }) {
+  const status = project.repo_status;
+  if (!status) {
+    return <p className="text-sm text-muted">Repository status unavailable.</p>;
+  }
+  return (
+    <div className="space-y-2 text-sm">
+      <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-2 gap-y-1">
+        <dt className="text-muted">Manifest</dt>
+        <dd className="min-w-0">{status.manifest_present ? 'present' : 'absent'} · <span className="break-all">{status.manifest_path}</span>{status.manifest_digest ? ` · ${status.manifest_digest}` : ''}</dd>
+        <dt className="text-muted">Fragment</dt>
+        <dd className="min-w-0">{status.fragment_status}{status.fragment_path ? ' · ' : ''}{status.fragment_path ? <span className="break-all">{status.fragment_path}</span> : null}{status.fragment_digest ? ` · ${status.fragment_digest}` : ''}</dd>
+      </dl>
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted">Manifest host rules</div>
+        {status.host_rules?.length ? (
+          <ul className="mt-1 space-y-1">
+            {status.host_rules.map((rule) => (
+              <li key={`${rule.host}:${rule.port}`} className="break-all font-mono text-xs">
+                {rule.host}:{rule.port} — {rule.binaries.join(', ')}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="mt-1 text-xs text-muted">None</p>}
+      </div>
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted">Worker images</div>
+        <ul className="mt-1 space-y-1">
+          {status.worker_images.map((image) => (
+            <li key={image.agent} className="break-all text-xs">
+              {image.agent}: {image.status}{image.reference ? ` · ${image.reference}` : ''}
+            </li>
+          ))}
+        </ul>
+      </div>
+      {status.warnings?.length ? (
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted">Warnings</div>
+          <ul className="mt-1 list-disc space-y-1 pl-4 text-xs">
+            {status.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function ProjectsPanel({ onChanged }: { onChanged?: () => void }) {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -82,7 +130,12 @@ export function ProjectsPanel({ onChanged }: { onChanged?: () => void }) {
               <TR key={project.name}>
                 <TD className="truncate font-medium"><span title={project.name}>{project.name}</span></TD>
                 <TD label="Git root">
-                  <ExpandableValue value={project.root} label={`Git root for ${project.name}`} max={40} />
+                  <div className="space-y-1">
+                    <ExpandableValue value={project.root} label={`Git root for ${project.name}`} max={40} />
+                    <Disclosure summary="Repository details">
+                      <ProjectRepositoryDetails project={project} />
+                    </Disclosure>
+                  </div>
                 </TD>
                 <TD label="Isolation">{project.worktree === false ? 'direct' : 'worktree'}</TD>
                 <TD label="Actions">

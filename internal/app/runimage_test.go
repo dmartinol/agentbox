@@ -162,7 +162,7 @@ func (f *runImageFixture) profile() Profile {
 		Agent:    "codex",
 		Image:    f.baseRef,
 		Mode:     "standard",
-		Provider: "provider",
+		Provider: "openai",
 		Policy:   filepath.Join(f.store.PolicyDir(), "profile.yaml"),
 		Approval: "prompted",
 	}
@@ -494,6 +494,9 @@ func TestStartRecordsRepositoryImage(t *testing.T) {
 	}
 	if loaded.Image != run.Image || loaded.BaseImage != run.BaseImage || loaded.ImageSource != run.ImageSource || loaded.ImageRepo != run.ImageRepo || loaded.ManifestDigest != run.ManifestDigest || loaded.PolicyFragment != run.PolicyFragment || loaded.PolicyFragmentDigest != run.PolicyFragmentDigest {
 		t.Fatalf("run record lost image provenance: %+v", loaded)
+	}
+	if !reflect.DeepEqual(loaded.PolicyProvenance, run.PolicyProvenance) {
+		t.Fatalf("run record lost policy provenance: %+v", loaded.PolicyProvenance)
 	}
 }
 

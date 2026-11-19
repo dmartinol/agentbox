@@ -182,6 +182,8 @@ An AgentBox profile selects:
 - approval mode;
 - policy;
 - optional model API base URL and credential environment name.
+- `Profile.Policy`, retained for phase-1 compatibility and deprecated as a
+  user-editable policy base: only its network rules participate in new runs.
 
 ### Approval defaults
 
@@ -219,8 +221,9 @@ Gateway mode routes model traffic through an OpenShell-registered provider.
 - AgentBox generates agent-specific gateway configuration at run startup.
 - The profile base URL is the exact model API endpoint, commonly ending in
   `/v1`.
-- The provider host is normalized for OpenShell network policy and is not
-  necessarily the same string as the profile base URL.
+- The run policy derives the provider host and port from the absolute profile
+  base URL. HTTPS defaults to port 443 and HTTP to port 80; no host is stored
+  in the profile.
 - Codex runs without its background daemon and without its nested sandbox, so
   shell network calls follow the run policy instead of Codex's default
   network-disabled sandbox.
@@ -403,25 +406,49 @@ run policy file with its repository-fragment path and digest.
 
 ## Policy layer
 
-When a profile is created without an explicit policy, AgentBox creates:
+When a profile is created without an explicit policy, AgentBox creates and
+references:
 
 ```text
 $AGENTBOX_HOME/policies/<profile-name>.yaml
 ```
 
-At run start, AgentBox:
+The stored file is only a generated-default marker; it may be absent at run
+start and contributes nothing. A path is treated as the generated default only
+when `filepath.Clean(Profile.Policy)` equals
+`filepath.Clean(Store.PolicyDir()/<profile name>.yaml)`.
 
-1. loads the profile policy;
-2. adapts agent binary paths for the selected agent;
-3. when a repository image is active, unions the repository fragment into
-   that policy — identical rules collapse to one, and a named rule the two
-   sources define differently is rejected so neither side silently wins;
-4. writes a run-specific policy;
-5. passes it to OpenShell during sandbox creation;
-6. fetches and verifies the effective policy before starting the agent.
+At run start, AgentBox derives each run policy in this order:
 
-Applying a reusable policy configuration to a repository run recomposes that
-run's fragment, so the repository host rules survive the replacement policy.
+1. starts from `DefaultPolicy`, which owns filesystem access, the sandbox
+   process user/group, and `landlock.compatibility: hard_requirement`;
+2. adds a binary-scoped provider rule scoped to the selected agent's launcher;
+3. when `Profile.Policy` is a legacy path, adds only that file's network rules;
+4. when a repository image is active, unions the repository fragment's network
+   rules.
+
+Provider and repository rules with the same canonical scope collapse to one.
+The same endpoint with different binaries remains separate. A fragment rule
+with the same name but different content is rejected. A legacy file cannot
+replace the default static sections. AgentBox writes a run-specific policy,
+passes it to OpenShell during sandbox creation, and verifies the effective
+policy before starting the agent.
+
+Standard mode derives its host from the built-in `openai` or `anthropic`
+provider. Gateway mode derives host and port from `Profile.BaseURL`. Provider
+rule names use `provider-<slug>-<port>`; long names are shortened with a
+SHA-256 suffix.
+
+The run records a `policy_provenance` object with its source
+(`derived` or `derived+legacy`), gateway, provider, mode, host, port, provider
+rule, agent binary, and optional legacy path. Historical runs without the
+object display **Not recorded (pre-#79 run)**.
+
+The Projects API reports repository policy status read-only: manifest presence,
+path, and digest; fragment path, digest, and absent/current/stale/invalid
+status; manifest host rules; each agent's worker-image
+current/stale/missing/unknown status; and warnings. Project registration and
+setup remain the only mutation paths.
 
 This is why a run can fail before the agent starts if the effective policy does
 not allow the expected endpoint or lacks the required Landlock/network
@@ -466,9 +493,9 @@ failure still leaves the live fix recorded.
 
 A successful edit returns the path it wrote as `policyPath`. Reusable policy
 configurations are only templates, so run copies are excluded from
-`GET /api/policies` and listed in Setup → Policies under **Agent run policies**.
+`GET /api/policies`; the Setup sheet no longer has a Policies tab.
 `GET /api/runs/{id}/policy/content` returns that run copy as
-`{"path":"...","content":"..."}` for inspection. The Policies panel retains
+`{"path":"...","content":"..."}` for inspection. The local policy API retains
 legacy `Profile.Policy` editing and listing until #79, but it no longer offers
 unscoped add-host or apply actions.
 

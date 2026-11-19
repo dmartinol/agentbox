@@ -36,6 +36,7 @@ export interface Run {
   image_warnings?: string[];
   policy_fragment?: string;
   policy_fragment_digest?: string;
+  policy_provenance?: RunPolicyProvenance;
   runtime_hosts?: RuntimeHost[];
   mode: string;
   model: string;
@@ -52,6 +53,41 @@ export interface Run {
   skills_warnings?: string[];
 }
 
+export interface RunPolicyProvenance {
+  source: 'derived' | 'derived+legacy';
+  gateway: string;
+  provider: string;
+  mode: string;
+  host: string;
+  port: number;
+  rule: string;
+  agent_binary: string;
+  legacy_path?: string;
+}
+
+export interface ProjectRepoStatus {
+  manifest_present: boolean;
+  manifest_path: string;
+  manifest_digest?: string;
+  fragment_path?: string;
+  fragment_digest?: string;
+  fragment_status: 'absent' | 'current' | 'stale' | 'invalid';
+  host_rules?: RepoHostRule[];
+  worker_images: Array<{
+    agent: string;
+    status: 'current' | 'stale' | 'missing' | 'unknown';
+    reference?: string;
+    manifest_digest?: string;
+  }>;
+  warnings?: string[];
+}
+
+export interface RepoHostRule {
+  host: string;
+  port: number;
+  binaries: string[];
+}
+
 export interface Project {
   version: number;
   name: string;
@@ -60,6 +96,7 @@ export interface Project {
   used_by?: string[];
   manifest?: boolean;
   repo?: string;
+  repo_status?: ProjectRepoStatus;
 }
 
 export interface Profile {

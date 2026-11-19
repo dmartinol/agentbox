@@ -46,9 +46,9 @@ type RepoToolchain struct {
 // RepoHostRule is one exact runtime egress allowance: a host, a port, and the
 // binaries that may reach it.
 type RepoHostRule struct {
-	Host     string   `yaml:"host"`
-	Port     int      `yaml:"port"`
-	Binaries []string `yaml:"binaries"`
+	Host     string   `yaml:"host" json:"host"`
+	Port     int      `yaml:"port" json:"port"`
+	Binaries []string `yaml:"binaries" json:"binaries"`
 }
 
 // RepoConfigPath returns the manifest path under a repository root.

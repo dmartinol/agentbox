@@ -210,14 +210,9 @@ func composeRepoPolicy(base []byte, baseSource string, fragment []byte, fragment
 	}
 	for name, rule := range fragmentPolicy.Network {
 		rule.Name = name
-		if existing, ok := basePolicy.Network[name]; ok {
-			existing.Name = name
-			if !reflect.DeepEqual(canonicalRule(existing), canonicalRule(rule)) {
-				return nil, fmt.Errorf("network rule %q is defined differently by %s and %s; align them before running", name, baseSource, fragmentSource)
-			}
-			continue
+		if err := mergeNetworkRule(&basePolicy, name, rule, fragmentSource); err != nil {
+			return nil, err
 		}
-		basePolicy.Network[name] = rule
 	}
 	return yaml.Marshal(basePolicy)
 }
