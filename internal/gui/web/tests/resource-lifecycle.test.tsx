@@ -149,6 +149,8 @@ describe('resource lifecycle panels', () => {
         { reference: 'held-image', agent: 'codex', version: '1', recipe: 1, used_by: ['profile codex'] }
       ],
       'GET /api/registry': { reference: 'quay.io/team/openshell' },
+      'GET /api/projects': [],
+      'GET /api/profiles': [],
       'POST /api/registry/clear': { cleared: true }
     });
     render(<ImagesPanel openLog={() => undefined} updateLog={() => undefined} />);
@@ -163,7 +165,7 @@ describe('resource lifecycle panels', () => {
 
   it('disables registry clear when no reference is saved', async () => {
     const user = userEvent.setup();
-    mockRoutes({ 'GET /api/images': [], 'GET /api/registry': { reference: '' } });
+    mockRoutes({ 'GET /api/images': [], 'GET /api/registry': { reference: '' }, 'GET /api/projects': [], 'GET /api/profiles': [] });
     render(<ImagesPanel openLog={() => undefined} updateLog={() => undefined} />);
     const clear = await screen.findByRole('button', { name: 'Clear' });
     expect(clear).toHaveAttribute('aria-disabled', 'true');

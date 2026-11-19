@@ -52,7 +52,7 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 | Providers | Name, type, credential-env name, usage count | Full credential names, full usage lists, edit/delete | Compact card: identity plus inline metadata; actions beneath |
 | Profiles | Name, agent, mode, model, provider | Expandable model, edit/delete | Compact card: identity plus inline metadata; actions beneath |
 | Projects | Name, isolation | Expandable Git root, edit/delete | Compact card: identity plus inline metadata; actions beneath |
-| Images | Reference, agent, version, recipe, platform | Expandable reference, delete; registry matches | Compact card: identity plus inline metadata; actions beneath |
+| Images | Reference, agent, version, recipe, platform | Expandable reference, delete; registry matches; repository setup (project, agents, validation plan, streamed build) | Compact card: identity plus inline metadata; actions beneath; setup form wraps with its actions |
 | Gateways | Name, status, type | Expandable endpoint, inspect payload, remove | Compact card; toolbar wraps |
 | Policies | Name, usage count | Expandable path, add host, apply, edit, delete; run-policy copies | Compact card: identity plus inline metadata; actions beneath |
 | MCP Tools | Name, agent, server names | Expandable server list, edit/delete | Compact card; explanatory panel below |

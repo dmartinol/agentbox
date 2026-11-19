@@ -50,6 +50,7 @@ export interface Project {
   root: string;
   worktree?: boolean;
   used_by?: string[];
+  manifest?: boolean;
 }
 
 export interface Profile {
@@ -191,6 +192,28 @@ export interface Settings {
 
 export interface Registry {
   reference: string;
+}
+
+export interface RepoSetupImage {
+  agent: string;
+  base: string;
+  tag: string;
+  manifest_digest: string;
+  built: boolean;
+  image_id?: string;
+  digest?: string;
+}
+
+export interface RepoSetupResult {
+  repo: string;
+  root: string;
+  manifest_path: string;
+  manifest_digest: string;
+  agents: string[];
+  fragment_path: string;
+  fragment_status: string;
+  images: RepoSetupImage[];
+  dry?: boolean;
 }
 
 export interface GuiTask {

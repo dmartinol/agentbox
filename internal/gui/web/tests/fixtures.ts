@@ -157,7 +157,7 @@ export const overview: Overview = {
     }
   ],
   runs,
-  projects: [{ version: 1, name: 'demo', root: '/repo', worktree: true }],
+  projects: [{ version: 1, name: 'demo', root: '/repo', worktree: true, manifest: true }],
   profiles: [{ version: 1, name: 'codex-default', agent: 'codex', image: 'localhost/openshell:codex-1.0.0-r3', mode: 'gateway', model: 'model-x', provider: 'model-gateway', base_url: 'https://models.example.test/v1', api_key_env: 'UNIT_MODEL_KEY', policy: '/policies/default.yaml', approval: 'unattended' }],
   images: [
     { reference: 'localhost/openshell:opencode-2.0.0-r3', agent: 'opencode', version: '2.0.0', recipe: 3, os: 'linux', arch: 'arm64' },

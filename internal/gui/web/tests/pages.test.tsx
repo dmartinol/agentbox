@@ -80,6 +80,7 @@ function defaultRoutes(): Record<string, unknown> {
     'GET /api/providers/model-gateway/models?gateway=openshell': ['gpt-6-luna', 'model-x'],
     'GET /api/gateways': overview.gateways,
     'GET /api/images': overview.images,
+    'GET /api/projects': overview.projects,
     'GET /api/registry': { reference: 'quay.io/team/openshell' },
     'GET /api/runs/run-active/logs': { logs: 'agent log output' },
     'GET /api/runs/run-active/logs?tail=200': { logs: 'agent log output' },
@@ -577,6 +578,8 @@ describe('image builds', () => {
       if (url === '/api/skills' && method === 'GET') return jsonResponse(skillEntries);
       if (url === '/api/providers?gateway=openshell' && method === 'GET') return jsonResponse(providers);
       if (url === '/api/images' && method === 'GET') return jsonResponse(overview.images);
+      if (url === '/api/projects' && method === 'GET') return jsonResponse(overview.projects);
+      if (url === '/api/profiles' && method === 'GET') return jsonResponse(overview.profiles);
       if (url === '/api/registry' && method === 'GET') return jsonResponse({ reference: 'quay.io/team/openshell' });
       if (url === '/api/images/build' && method === 'POST') {
         return jsonResponse({ id: 'build-task', status: 'running', output: 'build line one\n' });
@@ -601,6 +604,93 @@ describe('image builds', () => {
     await waitFor(() => expect(screen.getByText(/build line two/i)).toBeInTheDocument(), { timeout: 1800 });
     await user.click(screen.getByRole('button', { name: /stop/i }));
     await waitFor(() => expect(screen.getByText(/build stopped/i)).toBeInTheDocument());
+  });
+});
+
+describe('repository setup', () => {
+  const ownedProject = { version: 1, name: 'owned', root: '/owned', worktree: true, manifest: true };
+  const plan = {
+    repo: 'github.com/owner/repo',
+    root: '/owned',
+    manifest_path: '/owned/.agentbox/config.yaml',
+    manifest_digest: 'sha256:9f2c',
+    agents: ['codex'],
+    fragment_path: '/policies/repo-github-com-owner-repo.yaml',
+    fragment_status: 'preview',
+    images: [],
+    dry: true
+  };
+
+  const openImagesTab = async (user: ReturnType<typeof userEvent.setup>) => {
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /setup/i }))[0]);
+    await user.click(await screen.findByRole('tab', { name: 'Images' }));
+  };
+
+  it('marks projects without a manifest and defaults agents from profiles', async () => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/projects': [
+        { version: 1, name: 'demo', root: '/repo', worktree: true, manifest: false },
+        ownedProject
+      ]
+    });
+    const user = userEvent.setup();
+    await openImagesTab(user);
+    const projectSelect = await screen.findByRole('combobox', { name: /project/i });
+    expect(within(projectSelect).getByText('demo — no manifest')).toBeInTheDocument();
+    expect(within(projectSelect).getByText('owned')).toBeInTheDocument();
+    expect(await screen.findByText(/No \.agentbox\/config\.yaml committed/)).toBeInTheDocument();
+    // Agent checkboxes default to the agents present in local profiles.
+    expect(screen.getByRole('checkbox', { name: 'codex' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'claude' })).not.toBeChecked();
+  });
+
+  it('validates the manifest and shows the plan without building', async () => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/projects': [{ version: 1, name: 'demo', root: '/repo', worktree: true, manifest: false }, ownedProject],
+      'POST /api/repos/setup': plan
+    });
+    const user = userEvent.setup();
+    await openImagesTab(user);
+    await user.selectOptions(await screen.findByRole('combobox', { name: /project/i }), 'owned');
+    await user.click(screen.getByRole('button', { name: 'Validate' }));
+    expect(await screen.findByText('github.com/owner/repo')).toBeInTheDocument();
+    expect(screen.getByText('sha256:9f2c')).toBeInTheDocument();
+    expect(screen.getByText(/repo-github-com-owner-repo\.yaml/)).toBeInTheDocument();
+    expect(screen.getByText('(preview)')).toBeInTheDocument();
+    expect(screen.getByText(/nothing was built or written/i)).toBeInTheDocument();
+  });
+
+  it('starts the setup task and streams its output', async () => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/repos/setup': { id: 'repo-task', status: 'running', output: 'setup line one\n' },
+      'GET /api/tasks/repo-task': {
+        id: 'repo-task',
+        status: 'succeeded',
+        output: 'setup line one\nsetup line two\ncodex image: localhost/openshell:repo-github-com-owner-repo-codex-1a2b3c4d (built)\nprofiles need no change\n'
+      }
+    });
+    const user = userEvent.setup();
+    await openImagesTab(user);
+    await user.click(await screen.findByRole('button', { name: 'Set up repository' }));
+    expect(await screen.findByText(/Set up repository · demo/i)).toBeInTheDocument();
+    expect(await screen.findByText(/setup line one/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/profiles need no change/i)).toBeInTheDocument(), { timeout: 2500 });
+  });
+
+  it('shows actionable validation errors next to the action', async () => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/repos/setup': { mockStatus: 500, body: { error: 'no repository manifest at /repo/.agentbox/config.yaml; author .agentbox/config.yaml first and commit it' } }
+    });
+    const user = userEvent.setup();
+    await openImagesTab(user);
+    await user.click(await screen.findByRole('button', { name: 'Set up repository' }));
+    expect(await screen.findByText('Repository setup failed')).toBeInTheDocument();
+    expect(screen.getByText(/no repository manifest at \/repo\/\.agentbox\/config\.yaml/)).toBeInTheDocument();
   });
 });
 

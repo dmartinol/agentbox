@@ -117,6 +117,46 @@ func baseImageLabels(agent, version string) map[string]string {
 	}
 }
 
+func TestRepoSetupSummaryReportsReferences(t *testing.T) {
+	env := newRepoSetupEnv(t, repoSetupManifest)
+	if err := env.store.SaveProfile(profileFixture("codex-work", "codex", "/p.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	app := App{Store: env.store, Runner: env.runner}
+	dry, err := app.RepoSetup(context.Background(), RepoSetupOptions{Dry: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary := dry.Summary()
+	for _, want := range []string{
+		"dry run: manifest validated; nothing was built or written",
+		"repo:      github.com/owner/repo",
+		"codex image: tag resolves at build time from the newest local codex image (recipe r" + CurrentImageRecipe() + ")",
+		"fragment:  " + dry.FragmentPath + " (preview)",
+		"profiles need no change",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("dry summary missing %q:\n%s", want, summary)
+		}
+	}
+	applied := dry
+	applied.Dry = false
+	applied.Images = []RepoImageRecord{{Agent: "codex", Base: "localhost/openshell:codex-0.167.0-r4", Tag: "localhost/openshell:repo-github-com-owner-repo-codex-1a2b3c4d", Built: true}}
+	summary = applied.Summary()
+	for _, want := range []string{
+		"codex image: localhost/openshell:repo-github-com-owner-repo-codex-1a2b3c4d (built)",
+		"  base:   localhost/openshell:codex-0.167.0-r4",
+		"fragment:  " + applied.FragmentPath,
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("applied summary missing %q:\n%s", want, summary)
+		}
+	}
+	if strings.Contains(summary, "dry run") {
+		t.Fatalf("applied summary mentions dry run:\n%s", summary)
+	}
+}
+
 func TestRepoSetupDryRunValidatesWithoutSideEffects(t *testing.T) {
 	env := newRepoSetupEnv(t, repoSetupManifest)
 	if err := env.store.SaveProfile(profileFixture("codex-work", "codex", "/p.yaml")); err != nil {

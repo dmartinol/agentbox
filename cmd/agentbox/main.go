@@ -647,26 +647,7 @@ func repoCmd(ctx context.Context, a *app.App, args []string) error {
 }
 
 func printRepoSetup(result app.RepoSetupResult) {
-	if result.Dry {
-		fmt.Println("dry run: manifest validated; nothing was built or written")
-	}
-	fmt.Printf("repo:      %s\n", result.Repo)
-	fmt.Printf("manifest:  %s (%s)\n", result.ManifestPath, result.ManifestDigest)
-	for _, image := range result.Images {
-		state := "built"
-		if !image.Built {
-			state = "already present"
-		}
-		fmt.Printf("%s image: %s (%s)\n", image.Agent, image.Tag, state)
-		fmt.Printf("  base:   %s\n", image.Base)
-	}
-	if len(result.Images) == 0 {
-		for _, agent := range result.Agents {
-			fmt.Printf("%s image: tag resolves at build time from the newest local %s image (recipe r%s)\n", agent, agent, app.CurrentImageRecipe())
-		}
-	}
-	fmt.Printf("fragment:  %s (%s)\n", result.FragmentPath, result.FragmentStatus)
-	fmt.Println("profiles need no change: repository runs resolve the repository image and fragment automatically")
+	fmt.Print(result.Summary())
 }
 
 func gatewayCmd(ctx context.Context, a *app.App, args []string) error {
