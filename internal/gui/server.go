@@ -837,7 +837,7 @@ func (s *Server) prepareProfilePolicy(profile app.Profile) (app.Profile, bool, e
 	}
 	if _, err := os.Stat(profile.Policy); errors.Is(err, os.ErrNotExist) {
 		if profile.Policy != defaultPolicy {
-			return profile, changed, fmt.Errorf("profile %q references missing policy file %s; edit the profile or restore the policy", profile.Name, profile.Policy)
+			return profile, changed, fmt.Errorf("profile %q references missing policy file %s; restore the policy or use the AgentBox default", profile.Name, profile.Policy)
 		}
 		if _, err := s.app.Store.CreatePolicyConfiguration(profile.Name); err != nil {
 			return profile, changed, err

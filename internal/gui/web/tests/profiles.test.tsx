@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProfilesPanel } from '../src/pages/setup/ProfilesPanel';
-import type { PolicyConfiguration, Profile } from '../src/types';
+import type { Profile } from '../src/types';
 import { overview, providers } from './fixtures';
 
 const profile: Profile = {
@@ -20,18 +20,6 @@ const profile: Profile = {
   api_key_env: 'UNIT_MODEL_KEY'
 };
 
-const sharedPolicy: PolicyConfiguration = {
-  name: 'shared-policy',
-  path: '/policies/shared-policy.yaml',
-  used_by: ['codex-default', 'claude-default']
-};
-
-const defaultPolicy: PolicyConfiguration = {
-  name: profile.name,
-  path: profile.policy,
-  used_by: [profile.name]
-};
-
 function jsonResponse(value: unknown, status = 200) {
   return {
     ok: status >= 200 && status < 300,
@@ -40,15 +28,7 @@ function jsonResponse(value: unknown, status = 200) {
   };
 }
 
-function setupApi({
-  profiles = [profile],
-  policies = [sharedPolicy],
-  getPolicies
-}: {
-  profiles?: Profile[];
-  policies?: PolicyConfiguration[];
-  getPolicies?: () => Promise<PolicyConfiguration[]>;
-} = {}) {
+function setupApi({ profiles = [profile], saveError }: { profiles?: Profile[]; saveError?: string } = {}) {
   let currentProfiles = profiles;
   const savedProfiles: Profile[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -57,8 +37,8 @@ function setupApi({
     if (method === 'GET' && url === '/api/profiles') return jsonResponse(currentProfiles);
     if (method === 'GET' && url === '/api/images') return jsonResponse(overview.images);
     if (method === 'GET' && url === '/api/providers') return jsonResponse(providers);
-    if (method === 'GET' && url === '/api/policies') return jsonResponse(getPolicies ? await getPolicies() : policies);
     if (method === 'POST' && url === '/api/profiles') {
+      if (saveError) return jsonResponse({ error: saveError }, 400);
       const body = JSON.parse(String(init?.body)) as Profile;
       savedProfiles.push(body);
       currentProfiles = [...currentProfiles.filter((item) => item.name !== body.name), body];
@@ -97,180 +77,66 @@ afterEach(() => {
   cleanup();
 });
 
-describe('profile policy selection', () => {
-  it('selects the AgentBox default first and submits an empty policy', async () => {
-    const { savedProfiles } = setupApi({ profiles: [], policies: [sharedPolicy] });
+describe('profile policy', () => {
+  it('shows the generated AgentBox default, makes no policy request, and submits an empty policy', async () => {
+    const { savedProfiles, fetchMock } = setupApi({ profiles: [] });
     const user = await openCreate();
-    const policySelect = screen.getByRole('combobox', { name: 'Legacy policy' });
+    const policy = screen.getByRole('textbox', { name: 'Policy' });
 
-    expect(within(policySelect).getAllByRole('option')[0]).toHaveTextContent('Default created by AgentBox');
-    expect(within(policySelect).queryByRole('option', { name: /^None$/i })).not.toBeInTheDocument();
-    expect(policySelect).toHaveValue('');
-    expect(screen.getByText(/Deprecated\. New runs derive their baseline/)).toBeInTheDocument();
+    expect(policy).toHaveValue('AgentBox default (generated per profile)');
+    expect(policy).toHaveAttribute('readonly');
+    expect(screen.getByText(/AgentBox derives the run policy at start/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Use AgentBox default' })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => input.toString() === '/api/policies')).toBe(false);
 
     await fillRequiredFields(user);
-    expect(policySelect).toHaveDisplayValue(/Default created by AgentBox \(policies\/new-profile\.yaml\)/);
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(savedProfiles).toHaveLength(1));
+    expect(savedProfiles[0]?.policy).toBe('');
+  });
+
+  it('shows an existing generated-default profile as the AgentBox default when editing', async () => {
+    const { savedProfiles } = setupApi({ profiles: [profile] });
+    const user = await openEdit(profile);
+
+    expect(screen.getByRole('textbox', { name: 'Policy' })).toHaveValue('AgentBox default (generated per profile)');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(savedProfiles).toHaveLength(1));
+    expect(savedProfiles[0]?.policy).toBe('');
+  });
+
+  it('keeps a legacy policy path read-only and switches to the AgentBox default on request', async () => {
+    const legacyProfile: Profile = { ...profile, policy: '/tmp/legacy/codex-default.yaml' };
+    const { savedProfiles } = setupApi({ profiles: [legacyProfile] });
+    const user = await openEdit(legacyProfile);
+    const policy = screen.getByRole('textbox', { name: 'Policy' });
+
+    expect(policy).toHaveValue('/tmp/legacy/codex-default.yaml');
+    expect(policy).toHaveAttribute('readonly');
+    expect(screen.getByText(/this legacy file contributes its network rules only/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Use AgentBox default' }));
+    expect(policy).toHaveValue('AgentBox default (generated per profile)');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(savedProfiles).toHaveLength(1));
     expect(savedProfiles[0]?.policy).toBe('');
   });
 
-  it('lists reusable policies by name with use context and submits the selected full path', async () => {
-    const beta: PolicyConfiguration = { name: 'beta', path: '/policies/beta.yaml', used_by: ['one'] };
-    const alpha: PolicyConfiguration = { name: 'alpha', path: '/policies/alpha.yaml', used_by: ['one', 'two'] };
-    const { savedProfiles } = setupApi({ profiles: [], policies: [beta, alpha] });
-    const user = await openCreate();
-    const policySelect = screen.getByRole('combobox', { name: 'Legacy policy' });
-    const options = within(policySelect).getAllByRole('option');
-
-    expect(options.map((option) => option.textContent)).toEqual([
-      'Default created by AgentBox (policies/<profile-name>.yaml)',
-      'alpha — used by 2 profiles',
-      'beta — used by 1 profile'
-    ]);
-    await user.selectOptions(policySelect, '/policies/alpha.yaml');
-    await fillRequiredFields(user);
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-
-    await waitFor(() => expect(savedProfiles).toHaveLength(1));
-    expect(savedProfiles[0]?.policy).toBe('/policies/alpha.yaml');
-  });
-
-  it.each([
-    { name: 'default policy', target: { ...profile, policy: '/policies/codex-default.yaml' }, expected: '' },
-    { name: 'reusable policy', target: { ...profile, policy: '/policies/shared-policy.yaml' }, expected: '/policies/shared-policy.yaml' }
-  ])('preselects the $name when editing', async ({ target, expected }) => {
-    setupApi({ profiles: [target], policies: [
-      { name: 'codex-default', path: '/policies/codex-default.yaml', used_by: [profile.name] },
-      sharedPolicy
-    ] });
-    await openEdit(target);
-    const policySelect = await screen.findByRole('combobox', { name: 'Legacy policy' });
-
-    await waitFor(() => expect(policySelect).toHaveValue(expected));
-    if (!expected) {
-      expect(within(policySelect).queryByRole('option', { name: /codex-default — used by/ })).not.toBeInTheDocument();
-    }
-  });
-
-  it('preserves the original generated policy path when renaming its profile', async () => {
-    const { savedProfiles } = setupApi({
-      profiles: [profile],
-      policies: [defaultPolicy, sharedPolicy]
+  it('surfaces the backend legacy-policy error instead of blocking Save locally', async () => {
+    const legacyProfile: Profile = { ...profile, policy: '/policies/deleted-policy.yaml' };
+    setupApi({
+      profiles: [legacyProfile],
+      saveError: 'profile "codex-default" references missing policy file /policies/deleted-policy.yaml; restore the policy or use the AgentBox default'
     });
-    const user = await openEdit(profile);
-    const nameInput = screen.getByRole('textbox', { name: 'Name' });
-    const policySelect = screen.getByRole('combobox', { name: 'Legacy policy' });
+    const user = await openEdit(legacyProfile);
 
-    await screen.findByRole('option', { name: /shared-policy/ });
-    await user.clear(nameInput);
-    await user.type(nameInput, 'renamed-codex');
-
-    expect(policySelect).toHaveValue(profile.policy);
-    expect(within(policySelect).getByRole('option', { name: new RegExp(`Original default — ${profile.policy}`) })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Policy' })).toHaveValue('/policies/deleted-policy.yaml');
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(savedProfiles).toHaveLength(1));
-    expect(savedProfiles[0]?.name).toBe('renamed-codex');
-    expect(savedProfiles[0]?.policy).toBe(profile.policy);
-  });
-
-  it('lets a renamed profile switch to its new AgentBox default', async () => {
-    const { savedProfiles } = setupApi({
-      profiles: [profile],
-      policies: [defaultPolicy, sharedPolicy]
-    });
-    const user = await openEdit(profile);
-    await screen.findByRole('option', { name: /shared-policy/ });
-    await user.clear(screen.getByRole('textbox', { name: 'Name' }));
-    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'renamed-codex');
-
-    const policySelect = screen.getByRole('combobox', { name: 'Legacy policy' });
-    expect(policySelect).toHaveValue(profile.policy);
-    await user.selectOptions(policySelect, '');
-    expect(policySelect).toHaveValue('');
-    expect(within(policySelect).getByRole('option', { name: /Original default —/ })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-
-    await waitFor(() => expect(savedProfiles).toHaveLength(1));
-    expect(savedProfiles[0]?.name).toBe('renamed-codex');
-    expect(savedProfiles[0]?.policy).toBe('');
-  });
-
-  it('preserves a legacy policy that shares the default basename but lives elsewhere', async () => {
-    const legacyPolicy: PolicyConfiguration = { name: 'codex-default', path: '/tmp/legacy/codex-default.yaml', used_by: [profile.name] };
-    const legacyProfile: Profile = { ...profile, policy: legacyPolicy.path };
-    const { savedProfiles } = setupApi({ profiles: [legacyProfile], policies: [legacyPolicy, sharedPolicy] });
-    const user = await openEdit(legacyProfile);
-    const policySelect = await screen.findByRole('combobox', { name: 'Legacy policy' });
-
-    await screen.findByRole('option', { name: /shared-policy/ });
-    expect(policySelect).toHaveValue(legacyPolicy.path);
-    expect(policySelect).not.toHaveDisplayValue(/Default created by AgentBox/);
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-
-    await waitFor(() => expect(savedProfiles).toHaveLength(1));
-    expect(savedProfiles[0]?.policy).toBe(legacyPolicy.path);
-  });
-
-  it('keeps the current selection visible and disables the select while policies load', async () => {
-    let resolvePolicies!: (value: PolicyConfiguration[]) => void;
-    const pendingPolicies = new Promise<PolicyConfiguration[]>((resolve) => { resolvePolicies = resolve; });
-    setupApi({ profiles: [{ ...profile, policy: sharedPolicy.path }], getPolicies: () => pendingPolicies });
-    await openEdit({ ...profile, policy: sharedPolicy.path });
-    const policySelect = screen.getByRole('combobox', { name: 'Legacy policy' });
-
-    expect(await screen.findByRole('status')).toHaveTextContent('Loading policies…');
-    expect(policySelect).toBeDisabled();
-    expect(policySelect).toHaveValue(sharedPolicy.path);
-
-    resolvePolicies([sharedPolicy]);
-    await waitFor(() => expect(policySelect).toBeEnabled());
-    expect(policySelect).toHaveValue(sharedPolicy.path);
-  });
-
-  it('shows a policy load error with retry and preserves the current selection', async () => {
-    let calls = 0;
-    setupApi({
-      profiles: [{ ...profile, policy: sharedPolicy.path }],
-      getPolicies: async () => {
-        calls += 1;
-        if (calls === 1) throw new Error('Policies are temporarily unavailable.');
-        return [sharedPolicy];
-      }
-    });
-    const user = await openEdit({ ...profile, policy: sharedPolicy.path });
-    const policySelect = screen.getByRole('combobox', { name: 'Legacy policy' });
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('Policies are temporarily unavailable.');
-    expect(policySelect).toHaveValue(sharedPolicy.path);
-    await user.click(screen.getByRole('button', { name: 'Retry' }));
-    await waitFor(() => expect(policySelect).toHaveValue(sharedPolicy.path));
-    expect(await screen.findByRole('option', { name: /shared-policy — used by 2 profiles/ })).toBeInTheDocument();
-    expect(calls).toBe(2);
-  });
-
-  it('shows guidance when there are no reusable policies', async () => {
-    setupApi({ profiles: [], policies: [] });
-    await openCreate();
-    const policySelect = await screen.findByRole('combobox', { name: 'Legacy policy' });
-
-    expect(await screen.findByText('No reusable legacy policies yet.')).toBeInTheDocument();
-    expect(within(policySelect).getAllByRole('option')).toHaveLength(1);
-    expect(within(policySelect).getAllByRole('option')[0]).toHaveTextContent('Default created by AgentBox');
-  });
-
-  it('keeps a missing policy selected, explains how to fix it, and blocks save', async () => {
-    setupApi({ profiles: [{ ...profile, policy: '/policies/deleted-policy.yaml' }], policies: [sharedPolicy] });
-    await openEdit({ ...profile, policy: '/policies/deleted-policy.yaml' });
-    const policySelect = screen.getByRole('combobox', { name: 'Legacy policy' });
-
-    expect(await screen.findByRole('option', { name: 'deleted-policy.yaml (missing)' })).toHaveValue('/policies/deleted-policy.yaml');
-    expect(policySelect).toHaveValue('/policies/deleted-policy.yaml');
-    expect(screen.getByText('Policy /policies/deleted-policy.yaml no longer exists; pick another policy.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    expect(await screen.findByText(/references missing policy file/)).toBeInTheDocument();
+    expect(screen.getByText(/use the AgentBox default/)).toBeInTheDocument();
   });
 });
 
@@ -278,7 +144,7 @@ describe('profile image selection', () => {
   it('keeps a missing profile image visible and saves a newly selected image', async () => {
     const staleImage = 'localhost/openshell:codex-1.0.0-r4';
     const staleProfile = { ...profile, image: staleImage };
-    const { savedProfiles } = setupApi({ profiles: [staleProfile], policies: [defaultPolicy] });
+    const { savedProfiles } = setupApi({ profiles: [staleProfile] });
     const user = await openEdit(staleProfile);
     const imageSelect = screen.getByRole('combobox', { name: 'Image' });
 
@@ -296,7 +162,7 @@ describe('profile image selection', () => {
 
 describe('profile approval defaults', () => {
   it('creates profiles with unattended approval and an explicit no-prompt label', async () => {
-    const { savedProfiles } = setupApi({ profiles: [], policies: [sharedPolicy] });
+    const { savedProfiles } = setupApi({ profiles: [] });
     const user = await openCreate();
     const approval = screen.getByRole('combobox', { name: 'Approval' });
 
@@ -310,7 +176,7 @@ describe('profile approval defaults', () => {
   });
 
   it('keeps prompted approval when editing an existing profile', async () => {
-    setupApi({ profiles: [profile], policies: [sharedPolicy] });
+    setupApi({ profiles: [profile] });
     await openEdit(profile);
 
     expect(screen.getByRole('combobox', { name: 'Approval' })).toHaveValue('prompted');

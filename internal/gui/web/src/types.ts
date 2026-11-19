@@ -156,13 +156,6 @@ export interface Provider {
   error?: string;
 }
 
-export interface PolicyConfiguration {
-  name: string;
-  path: string;
-  used_by?: string[];
-  default_for?: string;
-}
-
 export interface MCPTools {
   version: number;
   name: string;

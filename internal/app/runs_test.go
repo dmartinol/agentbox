@@ -301,8 +301,8 @@ func TestVerifyEffectivePolicyAcceptsGatewayWithExplicitPort(t *testing.T) {
 		"version": 1,
 		"landlock": {"compatibility": "hard_requirement"},
 		"network_policies": {
-			"provider-models-example-test-8443": {
-				"name": "provider-models-example-test-8443",
+			"_provider_unit-provider": {
+				"name": "_provider_unit-provider",
 				"endpoints": [{"host": "models.example.test", "port": 8443, "protocol": "tcp"}],
 				"binaries": [{"path": "/usr/local/bin/codex"}]
 			}
@@ -327,6 +327,42 @@ func TestVerifyEffectivePolicyAcceptsGatewayWithExplicitPort(t *testing.T) {
 	err := app.VerifyEffectivePolicy(context.Background(), run, profile)
 	if err == nil || !strings.Contains(err.Error(), "models.example.test:8443") {
 		t.Fatalf("wrong-port gateway policy error = %v", err)
+	}
+}
+
+func TestVerifyEffectivePolicyRequiresComposedProviderEndpointInEveryMode(t *testing.T) {
+	effectivePolicy := []byte(`{
+		"version": 1,
+		"landlock": {"compatibility": "hard_requirement"},
+		"network_policies": {
+			"_provider_openai": {
+				"name": "_provider_openai",
+				"endpoints": [{"host": "api.openai.com", "port": 443, "path": "/v1/**", "protocol": "rest"}],
+				"binaries": [{"path": "/usr/local/bin/codex"}]
+			}
+		}
+	}`)
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && commandHasArg(call, "policy") {
+			return effectivePolicy, nil
+		}
+		return nil, nil
+	}}
+	profile := testProfile("codex", "standard", "prompted")
+	app := App{Runner: runner}
+	run := Run{Sandbox: "sandbox-unit123", Gateway: "gateway-one", Mode: "standard", Approval: "prompted"}
+	if err := app.VerifyEffectivePolicy(context.Background(), run, profile); err != nil {
+		t.Fatalf("valid composed standard policy rejected: %v", err)
+	}
+
+	effectivePolicy = []byte(`{
+		"version": 1,
+		"landlock": {"compatibility": "hard_requirement"},
+		"network_policies": {}
+	}`)
+	err := app.VerifyEffectivePolicy(context.Background(), run, profile)
+	if err == nil || !strings.Contains(err.Error(), "api.openai.com:443") || !strings.Contains(err.Error(), `provider "openai" is not ready`) {
+		t.Fatalf("missing composed endpoint error = %v", err)
 	}
 }
 

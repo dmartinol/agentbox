@@ -14,7 +14,6 @@ import type {
   DenialPreview,
   DenialRequest,
   PolicyDenial,
-  PolicyConfiguration,
   Profile,
   Project,
   Provider,
@@ -119,12 +118,6 @@ export const api = {
   startGateway: () => post<{ ok: true }>('/api/gateways/start'),
   deleteGateway: (name: string) => post<{ deleted: true }>(`/api/gateways/${encodeURIComponent(name)}/delete`),
   gatewayInfo: (name: string) => request<unknown>(`/api/gateways/${encodeURIComponent(name)}/info`),
-
-  policies: () => request<PolicyConfiguration[]>('/api/policies'),
-  createPolicy: (name: string) => post<PolicyConfiguration>('/api/policies', { name }),
-  policyContent: (name: string) => request<{ name: string; content: string }>(`/api/policies/${encodeURIComponent(name)}`),
-  savePolicyContent: (name: string, content: string) => post<PolicyConfiguration>(`/api/policies/${encodeURIComponent(name)}`, { content }),
-  deletePolicy: (name: string) => post<{ deleted: true }>(`/api/policies/${encodeURIComponent(name)}/delete`),
 
   mcps: () => request<MCPTools[]>('/api/mcps'),
   createMCP: (entry: MCPTools) => post<MCPTools>('/api/mcps', entry),

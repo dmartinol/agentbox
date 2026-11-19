@@ -75,7 +75,7 @@ function RunPolicyProvenance({ run }: { run: Run }) {
       <dt className="text-muted">Provider</dt><dd className="min-w-0 break-words">{provenance.provider}</dd>
       <dt className="text-muted">Mode</dt><dd className="min-w-0 break-words">{provenance.mode}</dd>
       <dt className="text-muted">Host</dt><dd className="min-w-0 break-words">{provenance.host}:{provenance.port}</dd>
-      <dt className="text-muted">Rule</dt><dd className="min-w-0 break-words">{provenance.rule}</dd>
+      <dt className="text-muted">Provider rule</dt><dd className="min-w-0 break-words">{provenance.rule}</dd>
       <dt className="text-muted">Agent binary</dt><dd className="min-w-0 break-words">{provenance.agent_binary}</dd>
       <dt className="text-muted">Manifest</dt><dd className="min-w-0 break-words">{run.manifest_digest || 'No repository manifest'}</dd>
       <dt className="text-muted">Runtime hosts</dt><dd className="min-w-0 break-words">{run.runtime_hosts?.length ?? 0}</dd>

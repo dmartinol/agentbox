@@ -221,7 +221,7 @@ describe('fleet shell', () => {
       if (url === '/api/skills' && method === 'GET') return jsonResponse(skillEntries);
       if (url === '/api/doctor' && method === 'GET') return jsonResponse(overview.doctor);
       if (url === '/api/runs' && method === 'POST') {
-        return jsonResponse({ error: 'profile "codex-enmaas" references missing policy file ~/.agentbox/policies/codex-enmaas.yaml; edit the profile or restore the policy' }, 400);
+        return jsonResponse({ error: 'profile "codex-enmaas" references missing policy file ~/.agentbox/policies/codex-enmaas.yaml; restore the policy or use the AgentBox default' }, 400);
       }
       throw new Error(`unmocked start request ${method} ${url}`);
     }));
@@ -421,7 +421,6 @@ describe('compact resource cards', () => {
 });
 
 describe('destructive row actions', () => {
-  const policies = [{ name: 'codex-default', path: '/policies/codex-default.yaml', used_by: ['codex-default'] }];
 
   it.each([
     ['providers', <ProvidersPanel />, 'model-gateway'],
@@ -435,7 +434,6 @@ describe('destructive row actions', () => {
     mockRoutes({
       ...defaultRoutes(),
       'GET /api/projects': overview.projects,
-      'GET /api/policies': policies,
       'GET /api/mcps/local': []
     });
     render(panel);
@@ -575,7 +573,7 @@ describe('run policy provenance', () => {
         mode: 'standard',
         host: 'api.openai.com',
         port: 443,
-        rule: 'provider-openai-443',
+        rule: '_provider_openai',
         agent_binary: '/usr/local/bin/codex',
         legacy_path: '/tmp/legacy-codex.yaml'
       }
@@ -596,7 +594,7 @@ describe('run policy provenance', () => {
     await user.click(within(panel).getByText('Policy provenance'));
     const provenanceDetails = within(panel).getByText('Policy provenance').closest('details');
     if (!provenanceDetails) throw new Error('policy provenance details missing');
-    expect(within(provenanceDetails).getByText('provider-openai-443')).toBeInTheDocument();
+    expect(within(provenanceDetails).getByText('_provider_openai')).toBeInTheDocument();
     expect(within(provenanceDetails).getByText('api.openai.com:443')).toBeInTheDocument();
     expect(within(provenanceDetails).getByText('sha256:manifest-a')).toBeInTheDocument();
     expect(within(provenanceDetails).getByText((_, node) => node?.tagName === 'DD' && node.textContent === '2')).toBeInTheDocument();
@@ -604,7 +602,7 @@ describe('run policy provenance', () => {
     expect(within(provenanceDetails).getByText('/state/policies/repo-demo.yaml · sha256:fragment-a')).toBeInTheDocument();
     await user.click(within(panel).getByRole('button', { name: 'View policy' }));
     expect(await screen.findByText(/Policy provenance: derived/)).toBeInTheDocument();
-    expect(screen.getByText(/Provider rule: provider-openai-443/)).toBeInTheDocument();
+    expect(screen.getByText(/Provider rule: _provider_openai/)).toBeInTheDocument();
     expect(screen.getByText(/Repository manifest: sha256:manifest-a/)).toBeInTheDocument();
     expect(screen.getByText(/Runtime-added hosts: 2/)).toBeInTheDocument();
     expect(screen.getByText(/Legacy base \(network rules only\): \/tmp\/legacy-codex\.yaml/)).toBeInTheDocument();
@@ -621,7 +619,7 @@ describe('run policy provenance', () => {
         mode: 'standard',
         host: 'api.openai.com',
         port: 443,
-        rule: 'provider-openai-443',
+        rule: '_provider_openai',
         agent_binary: '/usr/local/bin/codex'
       }
     };
@@ -718,8 +716,8 @@ describe('profiles', () => {
 
     const image = within(dialog).getByLabelText(/^Image/);
     expect(image).toHaveValue('localhost/openshell:codex-1.0.0-r3');
-    expect(within(dialog).getByLabelText(/^Legacy policy/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/Deprecated\. New runs derive their baseline/)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/^Policy$/)).toHaveValue('AgentBox default (generated per profile)');
+    expect(within(dialog).getByText(/AgentBox derives the run policy at start/)).toBeInTheDocument();
     const imageOptions = within(image).getAllByRole('option');
     expect(imageOptions.map((option) => (option as HTMLOptionElement).value)).toEqual([
       'localhost/openshell:codex-1.0.0-r3',
