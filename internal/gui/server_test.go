@@ -2022,18 +2022,14 @@ func TestResourceListsExposeUsage(t *testing.T) {
 		t.Fatalf("projects = %#v", projects)
 	}
 	var profiles []struct {
-		Name         string   `json:"name"`
-		UsedBy       []string `json:"used_by"`
-		LastForAgent bool     `json:"last_for_agent"`
+		Name   string   `json:"name"`
+		UsedBy []string `json:"used_by"`
 	}
 	if response := requestJSON(t, http.MethodGet, server.URL+"/api/profiles", nil, &profiles); response.StatusCode != http.StatusOK {
 		t.Fatalf("profiles status = %d", response.StatusCode)
 	}
-	if !slices.Equal(profiles[0].UsedBy, []string{"live-run"}) || profiles[0].LastForAgent {
+	if !slices.Equal(profiles[0].UsedBy, []string{"live-run"}) {
 		t.Fatalf("profiles = %#v", profiles)
-	}
-	if profiles[1].LastForAgent {
-		t.Fatalf("second profile marked last: %#v", profiles)
 	}
 	var gateways []struct {
 		Name   string   `json:"name"`
@@ -2125,8 +2121,11 @@ func TestProfileDeleteEndpoint(t *testing.T) {
 	if response := requestJSON(t, http.MethodPost, server.URL+"/api/profiles/one/delete", nil, &deleted); response.StatusCode != http.StatusOK || !deleted.Deleted {
 		t.Fatalf("delete status=%d deleted=%v", response.StatusCode, deleted)
 	}
-	if response := requestJSON(t, http.MethodPost, server.URL+"/api/profiles/two/delete", nil, &conflict); response.StatusCode != http.StatusConflict {
-		t.Fatalf("last-agent status = %d", response.StatusCode)
+	deleted = struct {
+		Deleted bool `json:"deleted"`
+	}{}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/profiles/two/delete", nil, &deleted); response.StatusCode != http.StatusOK || !deleted.Deleted {
+		t.Fatalf("last-profile delete status=%d deleted=%v", response.StatusCode, deleted)
 	}
 	if response := requestJSON(t, http.MethodPost, server.URL+"/api/profiles/missing/delete", nil, &conflict); response.StatusCode != http.StatusNotFound {
 		t.Fatalf("missing status = %d", response.StatusCode)

@@ -728,7 +728,6 @@ type projectRecord struct {
 type profileRecord struct {
 	app.Profile
 	UsedBy        []string `json:"used_by,omitempty"`
-	LastForAgent  bool     `json:"last_for_agent,omitempty"`
 	DefaultPolicy string   `json:"default_policy"`
 }
 
@@ -813,7 +812,6 @@ func (s *Server) profilesWithUsage(ctx context.Context) ([]profileRecord, error)
 		records = append(records, profileRecord{
 			Profile:       profile,
 			UsedBy:        usage.UsedBy[profile.Name],
-			LastForAgent:  usage.LastForAgent[profile.Name],
 			DefaultPolicy: filepath.Join(s.app.Store.PolicyDir(), profile.Name+".yaml"),
 		})
 	}

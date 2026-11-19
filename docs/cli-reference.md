@@ -120,7 +120,7 @@ change adds no CLI commands. Its guarded lifecycle routes are:
 | Route | Result |
 | --- | --- |
 | `POST /api/projects/{name}/delete` | `200` after removing `projects/<name>.yaml`; `409` with `dependents` when any run references it; `404` when absent. |
-| `POST /api/profiles/{name}/delete` | `200` after removing `profiles/<name>.yaml`; `409` with `dependents` for a non-terminal run or the last profile for that agent; `404` when absent. |
+| `POST /api/profiles/{name}/delete` | `200` after removing `profiles/<name>.yaml`; `409` with `dependents` for a non-terminal run; `404` when absent. |
 | `POST /api/policies/{name}/delete` | `200` after removing `policies/<name>.yaml`; `409` with `dependents` for a referencing profile or an existing generated default; `404` when absent. |
 | `POST /api/gateways/{name}/delete` | `200` after `openshell gateway remove <name>`; `409` with `dependents` for a non-terminal run. |
 | `POST /api/registry/clear` | `200` idempotently after removing `registry.yaml`; no Podman logout or image operation. |

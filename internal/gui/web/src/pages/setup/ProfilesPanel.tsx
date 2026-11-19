@@ -333,9 +333,7 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
                       disabledReason={
                         profile.used_by?.length
                           ? `Used by active runs: ${profile.used_by.join(', ')}`
-                          : profile.last_for_agent
-                            ? 'Last profile for its agent'
-                            : undefined
+                          : undefined
                       }
                       onClick={() => { setDeleteProfile(profile); setDeleteError(''); }}
                     >
