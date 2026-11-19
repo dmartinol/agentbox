@@ -3,8 +3,10 @@ layout: docs
 title: AgentBox
 permalink: /
 nav_sections:
-  - title: Develop inside a sandbox
-    id: develop-inside-a-sandbox
+  - title: Build the agent environment
+    id: build-the-agent-environment
+  - title: Configure the project
+    id: configure-the-project
   - title: Follow the development lifecycle
     id: follow-the-development-lifecycle
   - title: Choose your next step
@@ -24,13 +26,36 @@ fix a defect, run checks, or review a change.
 [Explore the ADLC]({{ '/adlc/' | relative_url }}) ·
 [Copy an example prompt]({{ '/prompts/' | relative_url }})
 
-## Develop inside a sandbox
+## Build the agent environment
 
-- **Your project:** start from an existing Git checkout and give each run its own worktree and branch.
-- **Your development environment:** declare repository tools, build checks, and required network hosts.
-- **Your agent and model:** choose a configured agent profile and model provider.
-- **Your view of the work:** use the CLI or web GUI to inspect progress, attach, and review diffs.
-- **Your results:** sync changes back to the local run worktree before integration.
+Build a revisioned OpenShell image for the harness you use: Codex, Claude Code,
+or OpenCode. AgentBox runs the selected harness inside a local sandbox backed
+by Podman.
+
+- **Harness image:** build or update an image for a selected coding harness.
+- **Project configuration:** describe the repository's tools, pinned
+  toolchains, setup checks, and network hosts in `.agentbox/config.yaml`.
+- **Sandboxed runs:** start agents against an isolated copy of the Git project,
+  then inspect and sync their work for review.
+
+## Configure the project
+
+AgentBox uses project configuration to build a repository image on top of the
+selected harness image and generate the matching network policy. When a run
+hits a blocked host, AgentBox surfaces the denial and lets you add the host to
+the run policy; you can also save that rule in the project configuration for
+future runs.
+
+The manifest is authored from repository and CI evidence, then reviewed by
+you. AgentBox validates it and builds the image and policy from the declared
+requirements. See [Project configuration]({{ '/repository-setup/' | relative_url }})
+for the workflow.
+
+## Use it across the development lifecycle
+
+Choose a configured agent profile and model provider. Use the CLI or web GUI to
+inspect progress, attach, and review diffs. Sync results to the local run
+worktree before integration.
 
 The sandbox uses a repository copy. Sync transfers results back; it does not
 merge them into your main branch.
@@ -39,7 +64,8 @@ merge them into your main branch.
 
 Direct individual agent runs yourself, or use the optional orchestration skill
 to coordinate triage, planning, implementation, verification, independent
-review, and gated merge.
+review, and gated merge. Configure the worker runtime and harness by supported
+stage to choose which work runs in AgentBox's OpenShell sandbox.
 
 ![Issue-to-PR ADLC. AgentBox workers run in OpenShell sandboxes; the host controller coordinates and performs forge operations the workers cannot.]({{ '/assets/adlc.svg' | relative_url }})
 
@@ -57,7 +83,7 @@ isolation.
 | I want to… | Start here |
 | --- | --- |
 | Run my first development task | [Getting started]({{ '/getting-started/' | relative_url }}) |
-| Give agents the project's tools and dependencies | [Repository setup]({{ '/repository-setup/' | relative_url }}) |
+| Configure the project's image and network access | [Project configuration]({{ '/repository-setup/' | relative_url }}) |
 | Operate AgentBox through my coding assistant | [Example prompts]({{ '/prompts/' | relative_url }}) |
 | Coordinate an issue-to-PR workflow | [Optional orchestration]({{ '/orchestration/' | relative_url }}) |
 | Look up a command or runtime detail | [CLI reference]({{ '/cli-reference/' | relative_url }}) · [Architecture]({{ '/architecture/' | relative_url }}) |
