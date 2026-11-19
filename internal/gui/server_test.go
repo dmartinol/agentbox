@@ -503,7 +503,7 @@ func newRepoSetupServer(t *testing.T, manifest string) (*httptest.Server, app.St
 	runner := testRunner()
 	runner.gitRoot = repoRoot
 	runner.gitRemote = "git@github.com:owner/repo.git"
-	runner.images = `[{"Names":["localhost/openshell:codex-0.167.0-r4"],"Digest":"sha256:image","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"0.167.0","agentbox.recipe":"4"}}]`
+	runner.images = `[{"Names":["localhost/openshell:codex-0.167.0-r5"],"Digest":"sha256:image","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"0.167.0","agentbox.recipe":"5"}}]`
 	server, store := newTestServerAndStore(t, runner)
 	if err := store.SaveProject(app.Project{Version: 1, Name: "owned", Root: repoRoot}); err != nil {
 		t.Fatal(err)
@@ -1215,7 +1215,7 @@ type buildTaskRunner struct{}
 
 func (buildTaskRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
 	if name == "podman" && len(args) > 1 && args[0] == "image" && args[1] == "inspect" {
-		if args[2] == "docker.io/library/node:22-bookworm-slim" {
+		if args[2] == "docker.io/library/node:22-trixie-slim" {
 			return []byte("sha256:base-digest"), nil
 		}
 		return []byte("sha256:image-id sha256:image-digest"), nil
@@ -1255,7 +1255,7 @@ func TestImageBuildEndpointStartsCapturedTask(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !strings.Contains(task.Output, "simulated build output") || !strings.Contains(task.Output, "localhost/openshell:codex-0.167.0-r4") {
+	if !strings.Contains(task.Output, "simulated build output") || !strings.Contains(task.Output, "localhost/openshell:codex-0.167.0-r5") {
 		t.Fatalf("build task output = %q", task.Output)
 	}
 }
@@ -1889,7 +1889,7 @@ func (r *imageRefreshRunner) Output(_ context.Context, name string, args ...stri
 		return nil, fmt.Errorf("unexpected output command: %s %v", name, args)
 	}
 	joined := strings.Join(args, " ")
-	if strings.Contains(joined, "docker.io/library/node:22-bookworm-slim") {
+	if strings.Contains(joined, "docker.io/library/node:22-trixie-slim") {
 		return []byte("sha256:base\n"), nil
 	}
 	for _, agent := range []string{"codex", "claude", "opencode"} {
@@ -1945,9 +1945,9 @@ func TestImageRefreshEndpointBuildsAllAgentsWithoutDeletingImages(t *testing.T) 
 		t.Fatalf("refresh task = %#v", task)
 	}
 	for _, tag := range []string{
-		"localhost/openshell:codex-0.167.0-r4",
-		"localhost/openshell:claude-2.1.321-r4",
-		"localhost/openshell:opencode-2.2.6-r4",
+		"localhost/openshell:codex-0.167.0-r5",
+		"localhost/openshell:claude-2.1.321-r5",
+		"localhost/openshell:opencode-2.2.6-r5",
 	} {
 		if !strings.Contains(task.Output, "Built image: "+tag+"\n") {
 			t.Fatalf("refresh output does not include %q:\n%s", tag, task.Output)

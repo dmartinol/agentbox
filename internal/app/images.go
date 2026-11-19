@@ -11,13 +11,13 @@ import (
 	"strings"
 )
 
-const recipeRevision = "4"
+const recipeRevision = "5"
 
 func CurrentImageRecipe() string {
 	return recipeRevision
 }
 
-const baseImage = "docker.io/library/node:22-bookworm-slim"
+const baseImage = "docker.io/library/node:22-trixie-slim"
 
 // recipePackages is the fixed toolset installed in every agent image. The
 // recipe revision, not package pinning, is the reproducibility boundary.

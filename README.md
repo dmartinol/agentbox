@@ -94,7 +94,7 @@ The live suite checks:
 
 - `doctor` dependencies and gateway connectivity
 - Podman exposure from the active gateway
-- at least one AgentBox image and r4 metadata for all built-in agents
+- at least one AgentBox image and r5 metadata for all built-in agents
 - real profile validation and a launch preview when `AGENTBOX_LIVE_PROFILE` is set
 - run state, base/effective policy, and loaded policy revision when `AGENTBOX_LIVE_RUN` is set
 - live policy allow/deny behavior when a sandbox network binary is available
@@ -290,7 +290,7 @@ Image build help and command discovery:
 ./agentbox image build --help
 ```
 
-If `--version` is omitted, AgentBox discovers and uses the latest compatible release for the selected agent. In the GUI build dialog, **Discover latest** queries npm and fills the exact version field so it can be inspected before building. The build pins the Node base image by digest and tags the result as `localhost/openshell:<agent>-<version>-r4`.
+If `--version` is omitted, AgentBox discovers and uses the latest compatible release for the selected agent. In the GUI build dialog, **Discover latest** queries npm and fills the exact version field so it can be inspected before building. The build pins the Node base image by digest and tags the result as `localhost/openshell:<agent>-<version>-r5`.
 
 Configure an external image registry:
 
@@ -298,7 +298,7 @@ Configure an external image registry:
 ./agentbox image registry set quay.io/dmartino/openshell
 ./agentbox image registry discover
 ./agentbox image registry discover --json
-./agentbox image registry push localhost/openshell:codex-0.167.0-r4
+./agentbox image registry push localhost/openshell:codex-0.167.0-r5
 ./agentbox image registry show --json
 ./agentbox image registry clear
 ```
@@ -316,9 +316,9 @@ One registry repository holds all AgentBox agent images. The agent, version, rec
 Example:
 
 ```text
-quay.io/dmartino/openshell:codex-0.167.0-r4-linux-arm64
-quay.io/dmartino/openshell:claude-2.1.319-r4-linux-arm64
-quay.io/dmartino/openshell:opencode-2.2.6-r4-linux-arm64
+quay.io/dmartino/openshell:codex-0.167.0-r5-linux-arm64
+quay.io/dmartino/openshell:claude-2.1.319-r5-linux-arm64
+quay.io/dmartino/openshell:opencode-2.2.6-r5-linux-arm64
 ```
 
 The `-<os>-<arch>` suffix is used for single-architecture images. A future multi-architecture manifest may publish the architecture-free tag as an additional alias.
@@ -326,12 +326,13 @@ The `-<os>-<arch>` suffix is used for single-architecture images. A future multi
 Local builds use the same agent-in-tag convention:
 
 ```text
-localhost/openshell:codex-0.167.0-r4
+localhost/openshell:codex-0.167.0-r5
 ```
 
-Recipe `r4` images include a fixed local-work toolset: `git`, `tmux`,
-`ca-certificates`, `curl`, `jq`, `ripgrep`, `unzip`, `less`, `git-lfs`, and
-`procps`. Rebuild at newer harness versions with
+Recipe `r5` images use a Debian trixie base, whose GNU make 4.4 can spawn
+recipes under OpenShell's seccomp policy, and include a fixed local-work
+toolset: `git`, `tmux`, `ca-certificates`, `curl`, `jq`, `ripgrep`, `unzip`,
+`less`, `git-lfs`, and `procps`. Rebuild at newer harness versions with
 **Refresh all agents** in Setup → Images. Remove one image with
 `./agentbox image rm REF`, or remove every image that no profile and no
 non-terminal run references with `./agentbox image prune`; prune also removes
@@ -403,7 +404,7 @@ Then create a profile that uses the provider:
 ```sh
 ./agentbox profile create \
   --agent codex \
-  --image localhost/openshell:codex-0.167.0-r4 \
+  --image localhost/openshell:codex-0.167.0-r5 \
   --mode gateway \
   --model exact-model-id \
   --base-url https://models.example.com/v1 \

@@ -95,7 +95,7 @@ inference endpoint with OpenShell. Direct `openai` and `anthropic` providers use
 profile mode `standard`; OpenAI/Anthropic-compatible gateways use mode `gateway`
 and require an exact model ID.
 
-Recipe `r4` images ship a local-work toolset: `curl`, `jq`, `rg`, `unzip`,
+Recipe `r5` images ship a local-work toolset: `curl`, `jq`, `rg`, `unzip`,
 `less`, `git-lfs`, and `ps`. They deliberately omit `gh` and `openssh-client`.
 AgentBox adds no forge credential, no git credential helper, and no generated
 `.gitconfig`, so do not paste a token into a profile or prompt. Sandboxes have
@@ -173,7 +173,7 @@ pass `--discard`; it removes the sandbox, worktree, and run branch.
 
 ```sh
 agentbox image list               # local images and recipe revisions
-agentbox image build AGENT        # build the latest release at recipe r4
+agentbox image build AGENT        # build the latest release at the current recipe revision
 agentbox image rm REF             # delete one image; refuses profiles/active runs
 agentbox image prune              # delete images nothing references
 ```
