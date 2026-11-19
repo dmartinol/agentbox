@@ -21,7 +21,7 @@ Closes #<issue>
 | --- | --- |
 | Kind | feat / fix / docs / refactor / chore |
 | Issue | `#<issue>` — what it delivers, slice `n/m` of `#<epic>` |
-| Workflow | `workflow-id` · [agent roles](README.md#agent-roles) |
+| Workflow | `workflow-id` · [agent roles](../blob/HEAD/README.md#agent-roles) |
 | Surface | CLI `command` · Fleet · Setup → tab · API · skills · backend only |
 | Behavior | one line: what a user can do or see now that they could not before |
 | Size | `n` files · `n` commits · +`x`/−`y` |

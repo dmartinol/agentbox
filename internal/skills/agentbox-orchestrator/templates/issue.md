@@ -19,7 +19,7 @@ rewrite them. Repository contract: AGENTS.md.
 | Epic | `#<epic>` — name (`n` of `m`) |
 | Depends on | `#<issue>` · `none` |
 | Blocks | `#<issue>` · `none` |
-| Roles | `agentbox-triage` → `agentbox-planner` → `agentbox-implementer` · [agent roles](README.md#agent-roles) |
+| Roles | `agentbox-triage` → `agentbox-planner` → `agentbox-implementer` · [agent roles](../blob/HEAD/README.md#agent-roles) |
 | Surface | Fleet · Setup → tab · CLI `command` · API · skills · backend |
 | Change | one line: the behavior, not the files |
 | Risk | low / medium / high — one clause |
