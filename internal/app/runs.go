@@ -51,8 +51,13 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 		}
 		return Run{}, err
 	}
-	if opt.Image != "" {
-		p.Image = opt.Image
+	override := strings.TrimSpace(opt.Image)
+	forceProfileImage := false
+	if override == "profile" {
+		override, forceProfileImage = "", true
+	}
+	if override != "" {
+		p.Image = override
 	}
 	if opt.Model != "" {
 		p.Model = opt.Model
@@ -156,7 +161,21 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if _, err := a.Runner.Output(ctx, "openshell", "provider", "get", p.Provider, "--gateway", opt.Gateway); err != nil {
 		return Run{}, fmt.Errorf("provider %q unavailable: %w", p.Provider, err)
 	}
-	if _, err := a.Runner.Output(ctx, "podman", "image", "inspect", p.Image); err != nil {
+	runImage := RunImage{Image: p.Image, BaseImage: p.Image, Source: ImageSourceProfile}
+	switch {
+	case override != "":
+		runImage = RunImage{Image: override, Source: ImageSourceOverride}
+	case !forceProfileImage:
+		runImage, err = a.ResolveRunImage(ctx, p, sourceRoot)
+		if err != nil {
+			return Run{}, err
+		}
+	}
+	policy, err = runImage.ComposePolicy(policy)
+	if err != nil {
+		return Run{}, err
+	}
+	if _, err := a.Runner.Output(ctx, "podman", "image", "inspect", runImage.Image); err != nil {
 		return Run{}, fmt.Errorf("image unavailable locally: %w", err)
 	}
 	id, err := NewID()
@@ -167,7 +186,10 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if runName == "" {
 		runName = id
 	}
-	preview := Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, ProfileName: p.Name, Gateway: opt.Gateway, Agent: p.Agent, Image: p.Image, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: StatusCreating, StatusDetail: "dry run preview", WorktreeIsolated: useWorktree, SyncState: SyncStateUnknown}
+	preview := Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, ProfileName: p.Name, Gateway: opt.Gateway, Agent: p.Agent, Image: runImage.Image, BaseImage: runImage.BaseImage, ImageSource: string(runImage.Source), ImageRepo: runImage.Repo, ManifestDigest: runImage.ManifestDigest, ImageWarnings: runImage.Warnings, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: StatusCreating, StatusDetail: "dry run preview", WorktreeIsolated: useWorktree, SyncState: SyncStateUnknown}
+	if runImage.Source == ImageSourceRepo {
+		preview.PolicyFragment = runImage.FragmentPath
+	}
 	if selection != nil {
 		preview.MCP = selection.Entry.Name
 		preview.MCPWarnings = selection.Warnings()
@@ -202,7 +224,15 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	r.Created = time.Now().UTC()
 	r.Gateway = opt.Gateway
 	r.Agent = p.Agent
-	r.Image = p.Image
+	r.Image = runImage.Image
+	r.BaseImage = runImage.BaseImage
+	r.ImageSource = string(runImage.Source)
+	r.ImageRepo = runImage.Repo
+	r.ManifestDigest = runImage.ManifestDigest
+	r.ImageWarnings = runImage.Warnings
+	if runImage.Source == ImageSourceRepo {
+		r.PolicyFragment = runImage.FragmentPath
+	}
 	r.Mode = p.Mode
 	r.Model = p.Model
 	r.Approval = p.Approval
@@ -282,7 +312,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 }
 
 func sandboxCreateArgs(r Run, p Profile, gateway string) []string {
-	args := []string{"sandbox", "create", "--name", r.Sandbox, "--from", p.Image, "--provider", p.Provider}
+	args := []string{"sandbox", "create", "--name", r.Sandbox, "--from", r.Image, "--provider", p.Provider}
 	args = append(args, "--policy", r.Policy, "--detach", "--no-auto-providers", "--approval-mode", "manual", "--label", "agentbox-run="+r.ID, "--gateway", gateway, "--", "/bin/sh", "-c", "while [ ! -f /workspace/ready ]; do sleep 1; done; exec /bin/sh /workspace/state/bootstrap.sh")
 	return args
 }

@@ -358,6 +358,28 @@ setup. The same flow is exposed to the GUI as an explicit action in
 Setup → Images (Repository images) backed by `POST /api/repos/setup`,
 which validates with `dry` and streams the build as a cancellable task.
 
+### Run image resolution
+
+Run start selects the effective image and never builds one:
+
+- A project without `.agentbox/config.yaml` keeps the profile image and
+  records `image_source: profile`.
+- A project with a manifest uses the repository image whose content matches
+  the manifest on a current-recipe base, preferring the newest base, and
+  records `image_source: repo`. The tag hash covers the base reference, so
+  resolution recomputes it for each candidate base rather than relying on
+  extra image labels.
+- `--image <tag>` (GUI: image override) uses that tag as-is and records
+  `image_source: override`; `--image profile` forces the profile image.
+
+The run record captures the effective image, its base image, the source, the
+normalized repository identity, the manifest digest, the repository fragment
+path when one was composed, and any warnings. Missing or unusable artifacts
+never fail the run: it falls back to the profile image with a warning naming
+`agentbox repo setup --agent <agent>`. Manifest drift and a newer local base
+warn and still use the image, so a hosts-only manifest change does not
+invalidate a correct image.
+
 ## Policy layer
 
 When a profile is created without an explicit policy, AgentBox creates:
@@ -370,9 +392,12 @@ At run start, AgentBox:
 
 1. loads the profile policy;
 2. adapts agent binary paths for the selected agent;
-3. writes a run-specific policy;
-4. passes it to OpenShell during sandbox creation;
-5. fetches and verifies the effective policy before starting the agent.
+3. when a repository image is active, unions the repository fragment into
+   that policy — identical rules collapse to one, and a named rule the two
+   sources define differently is rejected so neither side silently wins;
+4. writes a run-specific policy;
+5. passes it to OpenShell during sandbox creation;
+6. fetches and verifies the effective policy before starting the agent.
 
 This is why a run can fail before the agent starts if the effective policy does
 not allow the expected endpoint or lacks the required Landlock/network
@@ -440,20 +465,24 @@ The default policy grants write access to `/workspace`, `/tmp`, and
 A run is created as follows:
 
 1. Load the AgentBox profile.
-2. Validate image, provider, model, policy, and approval settings, then decide
+2. Validate provider, model, policy, and approval settings, then decide
    whether the provider is registered with the gateway.
-3. Create an isolated Git worktree or reserve a direct checkout.
-4. Save the run record.
-5. Create a source Git bundle.
-6. Generate run-specific agent configuration on the host.
-7. Create the sandbox from the selected image, inference provider, and policy.
-8. Upload the source bundle.
-9. Upload and extract the configuration archive into `/workspace/state`.
-10. Clone the source bundle into `/workspace/project`.
-11. Verify the effective OpenShell policy.
-12. Mark the sandbox ready.
-13. Start tmux and the agent session.
-14. Probe the new run once and cache its derived status.
+3. Resolve the effective image — profile, repository image, or per-run
+   override — and compose the policy, recording image and policy provenance
+   and any drift warnings.
+4. Create an isolated Git worktree or reserve a direct checkout.
+5. Save the run record.
+6. Create a source Git bundle.
+7. Generate run-specific agent configuration on the host.
+8. Create the sandbox from the effective image, inference provider, and
+   composed policy.
+9. Upload the source bundle.
+10. Upload and extract the configuration archive into `/workspace/state`.
+11. Clone the source bundle into `/workspace/project`.
+12. Verify the effective OpenShell policy.
+13. Mark the sandbox ready.
+14. Start tmux and the agent session.
+15. Probe the new run once and cache its derived status.
 
 ## Runtime configuration location
 

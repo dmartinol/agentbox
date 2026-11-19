@@ -120,6 +120,12 @@ type Run struct {
 	Gateway                  string    `json:"gateway"`
 	Agent                    string    `json:"agent"`
 	Image                    string    `json:"image"`
+	BaseImage                string    `json:"base_image,omitempty"`
+	ImageSource              string    `json:"image_source,omitempty"`
+	ImageRepo                string    `json:"image_repo,omitempty"`
+	ManifestDigest           string    `json:"manifest_digest,omitempty"`
+	ImageWarnings            []string  `json:"image_warnings,omitempty"`
+	PolicyFragment           string    `json:"policy_fragment,omitempty"`
 	Mode                     string    `json:"mode"`
 	Model                    string    `json:"model"`
 	Approval                 string    `json:"approval"`
