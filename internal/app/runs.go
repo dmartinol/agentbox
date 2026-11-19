@@ -6,11 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 const bootstrapScript = `#!/bin/sh
@@ -317,12 +318,24 @@ func (a *App) VerifyEffectivePolicy(ctx context.Context, r Run, p Profile) error
 	}
 	s := strings.ToLower(string(b))
 	if r.Mode == "gateway" {
-		endpoint, err := url.Parse(p.BaseURL)
-		if err != nil || endpoint.Host == "" {
-			return fmt.Errorf("gateway profile lacks a valid model API base URL")
+		endpoint, err := deriveProviderEndpoint(p)
+		if err != nil {
+			return err
 		}
-		if !strings.Contains(s, strings.ToLower(endpoint.Host)) {
-			return fmt.Errorf("effective policy lacks gateway endpoint %q; provider not ready", endpoint.Host)
+		var effective Policy
+		if err := yaml.Unmarshal(b, &effective); err != nil {
+			return fmt.Errorf("effective policy could not be parsed: %w", err)
+		}
+		endpointAllowed := false
+		for _, rule := range effective.Network {
+			for _, candidate := range rule.Endpoints {
+				if strings.EqualFold(candidate.Host, endpoint.host) && candidate.Port == endpoint.port {
+					endpointAllowed = true
+				}
+			}
+		}
+		if !endpointAllowed {
+			return fmt.Errorf("effective policy lacks gateway endpoint %q; provider not ready", fmt.Sprintf("%s:%d", endpoint.host, endpoint.port))
 		}
 		if strings.Contains(s, "api.openai.com") || strings.Contains(s, "api.anthropic.com") {
 			return fmt.Errorf("effective policy allows direct model-provider egress in gateway mode")

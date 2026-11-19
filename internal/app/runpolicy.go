@@ -142,7 +142,7 @@ func deriveRunPolicy(profile Profile, gateway string, legacy map[string]NetworkR
 	}
 	agentBinary, err := AgentBinary(profile.Agent)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("profile %q cannot derive its agent binary: %v", profile.Name, err)
 	}
 	var policy Policy
 	if err := yaml.Unmarshal(DefaultPolicy(), &policy); err != nil {
@@ -156,35 +156,35 @@ func deriveRunPolicy(profile Profile, gateway string, legacy map[string]NetworkR
 		Binaries:  []Binary{{Path: agentBinary}},
 	}
 	if err := mergeNetworkRule(&policy, ruleName, providerRule, "generated provider rule"); err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("profile %q cannot derive its run policy: %w", profile.Name, err)
 	}
 	for name, rule := range legacy {
 		rule.Name = name
 		if err := mergeNetworkRule(&policy, name, rule, "legacy policy "+legacyPath); err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("profile %q cannot derive its run policy: %w", profile.Name, err)
 		}
 	}
 	if runImage.Source == ImageSourceRepo {
 		var fragment Policy
 		if err := yaml.Unmarshal(runImage.fragment, &fragment); err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("profile %q cannot compose repository policy fragment %s: %v", profile.Name, runImage.FragmentPath, err)
 		}
 		if _, err := ParsePolicy(runImage.fragment); err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("profile %q cannot compose repository policy fragment %s: %v", profile.Name, runImage.FragmentPath, err)
 		}
 		for name, rule := range fragment.Network {
 			rule.Name = name
 			if err := mergeNetworkRule(&policy, name, rule, "repository fragment "+runImage.FragmentPath); err != nil {
-				return nil, nil, err
+				return nil, nil, fmt.Errorf("profile %q cannot derive its run policy: %w", profile.Name, err)
 			}
 		}
 	}
 	out, err := yaml.Marshal(policy)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("profile %q cannot derive its run policy: %w", profile.Name, err)
 	}
 	if _, err := ParsePolicy(out); err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("profile %q cannot derive its run policy: %w", profile.Name, err)
 	}
 	provenance := &RunPolicyProvenance{
 		Source: "derived", Gateway: gateway, Provider: endpoint.provider,

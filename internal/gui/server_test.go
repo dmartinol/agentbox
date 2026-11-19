@@ -521,9 +521,9 @@ func newRepoSetupServer(t *testing.T, manifest string) (*httptest.Server, app.St
 func TestProjectsEndpointReportsManifestPresence(t *testing.T) {
 	server, _, _ := newRepoSetupServer(t, guiRepoManifest)
 	var projects []struct {
-		Name     string `json:"name"`
-		Manifest bool   `json:"manifest"`
-		Repo     string `json:"repo"`
+		Name       string                 `json:"name"`
+		Manifest   bool                   `json:"manifest"`
+		Repo       string                 `json:"repo"`
 		RepoStatus *app.ProjectRepoStatus `json:"repo_status"`
 	}
 	requestJSON(t, http.MethodGet, server.URL+"/api/projects", nil, &projects)

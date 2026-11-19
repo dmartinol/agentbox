@@ -428,16 +428,17 @@ At run start, AgentBox derives each run policy in this order:
    rules.
 
 Provider and repository rules with the same canonical scope collapse to one.
-The same endpoint with different binaries remains separate. A fragment rule
-with the same name but different content is rejected. A legacy file cannot
+The same endpoint with different binaries remains separate. Any rule with the
+same name but different content is rejected. A legacy file cannot
 replace the default static sections. AgentBox writes a run-specific policy,
 passes it to OpenShell during sandbox creation, and verifies the effective
 policy before starting the agent.
 
 Standard mode derives its host from the built-in `openai` or `anthropic`
-provider. Gateway mode derives host and port from `Profile.BaseURL`. Provider
-rule names use `provider-<slug>-<port>`; long names are shortened with a
-SHA-256 suffix.
+provider. Gateway mode derives host and port from `Profile.BaseURL`, using 443
+for `https` and 80 for `http` unless the absolute URL has an explicit port.
+Provider rule names use `provider-<slug>-<port>`; long names are shortened
+with a SHA-256 suffix.
 
 The run records a `policy_provenance` object with its source
 (`derived` or `derived+legacy`), gateway, provider, mode, host, port, provider

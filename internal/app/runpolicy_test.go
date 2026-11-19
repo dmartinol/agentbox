@@ -84,6 +84,9 @@ func TestProviderRuleShapeAndLongName(t *testing.T) {
 	if len(provenance.Rule) != 63 || !strings.HasPrefix(provenance.Rule, "provider-") {
 		t.Fatalf("long rule = %q (%d)", provenance.Rule, len(provenance.Rule))
 	}
+	if provenance.Rule != "provider-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-f04464" {
+		t.Fatalf("long rule hash = %q", provenance.Rule)
+	}
 	if _, err := ParsePolicy(policy); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +213,7 @@ func TestDerivedPolicyDeduplicatesAndPreservesConflicts(t *testing.T) {
 	fragment = testPolicyBytes(t, map[string]NetworkRule{"provider-openai-443": different})
 	runImage.fragment = fragment
 	_, _, err = deriveRunPolicy(profile, "openshell", nil, "", runImage)
-	if err == nil || !strings.Contains(err.Error(), `network rule "provider-openai-443"`) {
+	if err == nil || !strings.Contains(err.Error(), `profile "standard"`) || !strings.Contains(err.Error(), `network rule "provider-openai-443"`) {
 		t.Fatalf("conflict error = %v", err)
 	}
 }

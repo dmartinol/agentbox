@@ -290,6 +290,40 @@ func TestWaitForSandboxDeletedPollsUntilGone(t *testing.T) {
 	}
 }
 
+func TestVerifyEffectivePolicyAcceptsGatewayWithExplicitPort(t *testing.T) {
+	effectivePolicy := []byte(`{
+		"version": 1,
+		"landlock": {"compatibility": "hard_requirement"},
+		"network_policies": {
+			"provider-models-example-test-8443": {
+				"name": "provider-models-example-test-8443",
+				"endpoints": [{"host": "models.example.test", "port": 8443, "protocol": "tcp"}],
+				"binaries": [{"path": "/usr/local/bin/codex"}]
+			}
+		}
+	}`)
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && commandHasArg(call, "policy") {
+			return effectivePolicy, nil
+		}
+		return nil, nil
+	}}
+	profile := testProfile("codex", "gateway", "prompted")
+	profile.BaseURL = "https://models.example.test:8443/v1"
+	app := App{Runner: runner}
+	run := Run{Sandbox: "sandbox-unit123", Gateway: "gateway-one", Mode: "gateway", Approval: "prompted"}
+
+	if err := app.VerifyEffectivePolicy(context.Background(), run, profile); err != nil {
+		t.Fatalf("valid explicit-port gateway policy rejected: %v", err)
+	}
+
+	effectivePolicy = []byte(strings.Replace(string(effectivePolicy), `"port": 8443`, `"port": 443`, 1))
+	err := app.VerifyEffectivePolicy(context.Background(), run, profile)
+	if err == nil || !strings.Contains(err.Error(), "models.example.test:8443") {
+		t.Fatalf("wrong-port gateway policy error = %v", err)
+	}
+}
+
 func TestSandboxCreateArgsUsesExactlyOneProvider(t *testing.T) {
 	run := Run{ID: "run-unit", Sandbox: "sandbox-unit", Policy: "/tmp/policy.yaml", Image: "localhost/openshell:repo-example-codex-abcdef12"}
 	profile := testProfile("codex", "standard", "prompted")

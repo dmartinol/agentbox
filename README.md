@@ -413,8 +413,8 @@ Then create a profile that uses the provider:
 ```
 
 If `--policy` is omitted, AgentBox creates and references a default policy at
-`$AGENTBOX_HOME/policies/<profile-name>.yaml`. In the GUI, leave the profile's
-Policy field blank to get the same behavior; existing profiles that still use
+`$AGENTBOX_HOME/policies/<profile-name>.yaml`. In the GUI, leave the deprecated
+Legacy policy field blank to get the same behavior; existing profiles that still use
 the old `~/.agentbox/policies/...` reference are migrated automatically when
 the profile list is loaded.
 

@@ -296,7 +296,7 @@ func profileCmd(ctx context.Context, a *app.App, args []string) error {
 		mode := f.String("mode", "standard", "standard or gateway")
 		model := f.String("model", "", "exact default model")
 		provider := f.String("provider", "", "OpenShell provider name")
-		policy := f.String("policy", "", "sandbox policy path")
+		policy := f.String("policy", "", "deprecated legacy policy path; only network rules are added to derived runs")
 		approval := f.String("approval", app.DefaultApproval, "prompted or unattended; unattended — no permission prompts")
 		baseURL := f.String("base-url", "", "gateway model API base URL")
 		apiKeyEnv := f.String("api-key-env", "", "environment variable holding the gateway API key")

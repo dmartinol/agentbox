@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sort"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +58,84 @@ func TestProjectRepoStatusReportsDriftAndInventoryErrors(t *testing.T) {
 	for _, worker := range status.WorkerImages {
 		if worker.Status != "unknown" {
 			t.Fatalf("worker status = %+v", status.WorkerImages)
+		}
+	}
+}
+
+func TestProjectRepoStatusSkipsInventoryWithoutUsableManifestOrIdentity(t *testing.T) {
+	f := newRunImageFixture(t, runRepoManifest)
+	f.writeFragment(t)
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if call.name == "git" && commandHasArg(call, "remote") {
+			return nil, errors.New("origin unavailable")
+		}
+		if call.name == "podman" {
+			t.Errorf("image inventory called without repository identity: %#v", call)
+		}
+		return nil, nil
+	}}
+	app := &App{Store: f.store, Runner: runner}
+
+	status := app.ProjectRepoStatus(context.Background(), f.root)
+	if status.ManifestDigest != f.digest() {
+		t.Fatalf("manifest digest = %q, want %q", status.ManifestDigest, f.digest())
+	}
+	for _, worker := range status.WorkerImages {
+		if worker.Status != "unknown" {
+			t.Fatalf("worker status = %+v, want unknown", status.WorkerImages)
+		}
+	}
+	if !sort.StringsAreSorted(status.Warnings) {
+		t.Fatalf("warnings are not sorted: %v", status.Warnings)
+	}
+
+	f = newRunImageFixture(t, "")
+	app, runner = f.app(t)
+	status = app.ProjectRepoStatus(context.Background(), f.root)
+	if status.ManifestPresent || status.ManifestDigest != "" {
+		t.Fatalf("absent manifest reported as present: %+v", status)
+	}
+	for _, worker := range status.WorkerImages {
+		if worker.Status != "missing" {
+			t.Fatalf("worker status = %+v, want missing", status.WorkerImages)
+		}
+	}
+	for _, call := range runner.outputs {
+		if call.name == "podman" {
+			t.Fatalf("image inventory called without a manifest: %#v", call)
+		}
+	}
+}
+
+func TestProjectRepoStatusInvalidManifestDoesNotReportCurrentImage(t *testing.T) {
+	f := newRunImageFixture(t, runRepoManifest)
+	f.writeFragment(t)
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if call.name == "git" && commandHasArg(call, "remote") {
+			return nil, errors.New("origin unavailable")
+		}
+		return nil, nil
+	}}
+	app := &App{Store: f.store, Runner: runner}
+	if err := writeRepoManifest(t, f.root, "schema: 1\nunknown_field: true\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	status := app.ProjectRepoStatus(context.Background(), f.root)
+	if status.ManifestDigest != "" {
+		t.Fatalf("invalid manifest digest = %q, want empty", status.ManifestDigest)
+	}
+	for _, worker := range status.WorkerImages {
+		if worker.Status != "missing" {
+			t.Fatalf("worker status = %+v, want missing", status.WorkerImages)
+		}
+	}
+	if len(status.Warnings) != 2 || !strings.Contains(status.Warnings[0], "repository identity unavailable") || !strings.Contains(status.Warnings[1], "invalid") {
+		t.Fatalf("warnings = %v, want sorted identity and invalid-manifest warnings", status.Warnings)
+	}
+	for _, call := range runner.outputs {
+		if call.name == "podman" {
+			t.Fatalf("image inventory called with an invalid manifest: %#v", call)
 		}
 	}
 }

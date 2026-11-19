@@ -719,9 +719,9 @@ type projectRequest struct {
 
 type projectRecord struct {
 	app.Project
-	UsedBy   []string `json:"used_by,omitempty"`
-	Manifest bool     `json:"manifest"`
-	Repo     string   `json:"repo,omitempty"`
+	UsedBy     []string               `json:"used_by,omitempty"`
+	Manifest   bool                   `json:"manifest"`
+	Repo       string                 `json:"repo,omitempty"`
 	RepoStatus *app.ProjectRepoStatus `json:"repo_status,omitempty"`
 }
 

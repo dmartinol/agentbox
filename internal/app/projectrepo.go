@@ -11,29 +11,29 @@ import (
 )
 
 const (
-	ProjectRepoFragmentAbsent = "absent"
+	ProjectRepoFragmentAbsent  = "absent"
 	ProjectRepoFragmentCurrent = "current"
-	ProjectRepoFragmentStale = "stale"
+	ProjectRepoFragmentStale   = "stale"
 	ProjectRepoFragmentInvalid = "invalid"
 )
 
 type ProjectWorkerImageStatus struct {
-	Agent   string `json:"agent"`
-	Status  string `json:"status"`
-	Reference string `json:"reference,omitempty"`
-	ManifestDigest string `json:"manifest_digest,omitempty"`
+	Agent           string `json:"agent"`
+	Status          string `json:"status"`
+	Reference       string `json:"reference,omitempty"`
+	ManifestDigest  string `json:"manifest_digest,omitempty"`
 }
 
 type ProjectRepoStatus struct {
-	ManifestPresent bool `json:"manifest_present"`
-	ManifestPath string `json:"manifest_path"`
-	ManifestDigest string `json:"manifest_digest,omitempty"`
-	FragmentPath string `json:"fragment_path,omitempty"`
-	FragmentDigest string `json:"fragment_digest,omitempty"`
-	FragmentStatus string `json:"fragment_status"`
-	HostRules []RepoHostRule `json:"host_rules,omitempty"`
-	WorkerImages []ProjectWorkerImageStatus `json:"worker_images"`
-	Warnings []string `json:"warnings,omitempty"`
+	ManifestPresent bool                       `json:"manifest_present"`
+	ManifestPath    string                     `json:"manifest_path"`
+	ManifestDigest  string                     `json:"manifest_digest,omitempty"`
+	FragmentPath    string                     `json:"fragment_path,omitempty"`
+	FragmentDigest  string                     `json:"fragment_digest,omitempty"`
+	FragmentStatus  string                     `json:"fragment_status"`
+	HostRules       []RepoHostRule             `json:"host_rules,omitempty"`
+	WorkerImages    []ProjectWorkerImageStatus `json:"worker_images"`
+	Warnings        []string                   `json:"warnings,omitempty"`
 }
 
 func (a *App) ProjectRepoStatus(ctx context.Context, root string) ProjectRepoStatus {
@@ -57,6 +57,9 @@ func (a *App) ProjectRepoStatus(ctx context.Context, root string) ProjectRepoSta
 		} else {
 			manifestValid = true
 			status.ManifestDigest = repoManifestDigest(manifest)
+			if status.ManifestDigest == "" {
+				status.Warnings = append(status.Warnings, fmt.Sprintf("repository manifest %s has no content digest; run `agentbox repo setup` to refresh repository images", status.ManifestPath))
+			}
 			status.HostRules = append(status.HostRules, config.Hosts...)
 		}
 	}
@@ -64,13 +67,26 @@ func (a *App) ProjectRepoStatus(ctx context.Context, root string) ProjectRepoSta
 	repo, identityErr := a.RepoIdentity(ctx, root)
 	if identityErr != nil {
 		status.Warnings = append(status.Warnings, fmt.Sprintf("repository identity unavailable: %v", identityErr))
+	} else if repo == "" {
+		status.Warnings = append(status.Warnings, "repository identity unavailable: origin remote could not be normalized")
 	}
 	if repo != "" {
 		status.FragmentPath = a.storeRepoFragmentPath(repo)
 	}
-	images, imageErr := a.LocalImages(ctx)
-	if imageErr != nil {
-		status.Warnings = append(status.Warnings, fmt.Sprintf("local image inventory unavailable: %v", imageErr))
+
+	var images []ImageArtifact
+	imageInventoryTried := false
+	imageInventoryAvailable := false
+	manifestUsable := manifestValid && status.ManifestDigest != ""
+	if manifestUsable && identityErr == nil && repo != "" {
+		var imageErr error
+		imageInventoryTried = true
+		images, imageErr = a.LocalImages(ctx)
+		if imageErr != nil {
+			status.Warnings = append(status.Warnings, fmt.Sprintf("local image inventory unavailable: %v", imageErr))
+		} else {
+			imageInventoryAvailable = true
+		}
 	}
 
 	if status.FragmentPath != "" {
@@ -104,7 +120,9 @@ func (a *App) ProjectRepoStatus(ctx context.Context, root string) ProjectRepoSta
 
 	for _, agent := range []string{"claude", "codex", "opencode"} {
 		worker := ProjectWorkerImageStatus{Agent: agent, Status: "missing"}
-		if identityErr != nil || imageErr != nil || repo == "" {
+		if !manifestUsable {
+			worker.Status = "missing"
+		} else if identityErr != nil || repo == "" || (imageInventoryTried && !imageInventoryAvailable) {
 			worker.Status = "unknown"
 		} else if found, ok := projectWorkerImage(images, repo, agent, status.ManifestDigest); ok {
 			worker.Status = "current"
@@ -120,6 +138,7 @@ func (a *App) ProjectRepoStatus(ctx context.Context, root string) ProjectRepoSta
 	sort.Slice(status.WorkerImages, func(left, right int) bool {
 		return status.WorkerImages[left].Agent < status.WorkerImages[right].Agent
 	})
+	sort.Strings(status.Warnings)
 	return status
 }
 
@@ -128,6 +147,9 @@ func (a *App) storeRepoFragmentPath(repo string) string {
 }
 
 func projectWorkerImage(images []ImageArtifact, repo, agent, manifestDigest string) (ImageArtifact, bool) {
+	if manifestDigest == "" {
+		return ImageArtifact{}, false
+	}
 	recipe, err := strconv.Atoi(CurrentImageRecipe())
 	if err != nil {
 		return ImageArtifact{}, false
