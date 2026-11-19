@@ -50,7 +50,7 @@ export function LogDrawer({
               ) : null}
             </div>
             <div className="flex items-center gap-1">
-              {!empty && !state.error ? <CopyButton value={content} label="output" /> : null}
+              {!empty ? <CopyButton value={content} label="output" /> : null}
               {state.taskId && state.taskStatus === 'running' ? (
                 <Button size="xs" variant="danger" loading={stopping} onClick={() => onStop?.(state.taskId!)}>
                   <Square className="size-3" /> {stopping ? 'Stopping' : 'Stop'}
@@ -64,15 +64,18 @@ export function LogDrawer({
           <div className="agentbox-scrollbar min-h-0 flex-1 overflow-auto bg-surface-2 p-3">
             {state.error ? (
               <div role="alert" className="space-y-1 text-sm text-danger">
-                <div className="font-semibold">Unable to load output</div>
+                <div className="font-semibold">{state.taskStatus === 'failed' ? 'Task failed' : 'Unable to load output'}</div>
                 <div className="break-words">{state.error}</div>
               </div>
-            ) : empty ? (
-              <div className="text-sm text-muted" role={state.loading ? 'status' : undefined}>
-                {state.loading ? 'Loading output…' : 'No output recorded.'}
-              </div>
+            ) : null}
+            {empty ? (
+              state.error ? null : (
+                <div className="text-sm text-muted" role={state.loading ? 'status' : undefined}>
+                  {state.loading ? 'Loading output…' : 'No output recorded.'}
+                </div>
+              )
             ) : (
-              <pre className="agentbox-output font-mono text-xs leading-5 text-foreground">{content}</pre>
+              <pre className={state.error ? 'agentbox-output mt-2 font-mono text-xs leading-5 text-foreground' : 'agentbox-output font-mono text-xs leading-5 text-foreground'}>{content}</pre>
             )}
           </div>
         </Dialog.Content>

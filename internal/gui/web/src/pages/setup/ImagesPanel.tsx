@@ -377,7 +377,7 @@ export function ImagesPanel({
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Agent" htmlFor="image-agent" required>
             <select id="image-agent" className="h-8 rounded-md border border-border bg-surface px-2" value={buildForm.agent} onChange={(event) => setBuildForm({ ...buildForm, agent: event.target.value })}>
-              {['codex', 'claude', 'opencode'].map((agent) => <option key={agent} value={agent}>{agent}</option>)}
+              {SUPPORTED_AGENTS.map((agent) => <option key={agent} value={agent}>{agent}</option>)}
             </select>
           </Field>
           <Field label="Exact version" htmlFor="image-version" helper="Blank resolves latest."><Input id="image-version" value={buildForm.version} onChange={(event) => setBuildForm({ ...buildForm, version: event.target.value })} /></Field>

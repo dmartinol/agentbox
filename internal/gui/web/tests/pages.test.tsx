@@ -681,14 +681,14 @@ describe('repository setup', () => {
     await waitFor(() => expect(screen.getByText(/profiles need no change/i)).toBeInTheDocument(), { timeout: 2500 });
   });
 
-  it('shows the task error in the drawer when the build fails', async () => {
+  it('shows the task error next to the streamed output when the build fails', async () => {
     mockRoutes({
       ...defaultRoutes(),
       'POST /api/repos/setup': { id: 'repo-task-failed', status: 'running', output: '' },
       'GET /api/tasks/repo-task-failed': {
         id: 'repo-task-failed',
         status: 'failed',
-        output: '',
+        output: 'partial build line\n',
         error: 'no local AgentBox image for codex at recipe r4; run `agentbox image build codex` first'
       }
     });
@@ -697,6 +697,10 @@ describe('repository setup', () => {
     await user.click(await screen.findByRole('button', { name: 'Set up repository' }));
     expect(await screen.findByText(/Set up repository · demo/i)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText(/no local AgentBox image for codex/i)).toBeInTheDocument(), { timeout: 2500 });
+    // A failed task is not a failed load: it keeps the streamed output.
+    expect(screen.getByText('Task failed')).toBeInTheDocument();
+    expect(screen.queryByText('Unable to load output')).toBeNull();
+    expect(screen.getByText(/partial build line/)).toBeInTheDocument();
   });
 
   it('shows actionable validation errors next to the action', async () => {
