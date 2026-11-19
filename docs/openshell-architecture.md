@@ -312,9 +312,10 @@ Validation rules (every violation names the offending field):
   repositories), and a repository without a manifest keeps using profile
   images and profile policies unchanged.
 
-AgentBox parses and validates the manifest, and builds the repository
-environment from it with `agentbox repo setup`. The remaining epic work —
-run-time image resolution and full policy derivation — is tracked in
+AgentBox parses and validates the manifest, builds the repository environment
+from it with `agentbox repo setup`, and resolves that environment at run start
+(see [run image resolution](#run-image-resolution)). The remaining epic work —
+full policy derivation from the gateway — is tracked in
 [#42](https://github.com/dmartinol/agentbox/issues/42).
 
 ### Repository setup
@@ -329,9 +330,11 @@ manifest into the two reusable artifacts runs consume:
    under `/usr/local`, single files are installed at the declared `bin`
    path, and each `bin` directory is added to `PATH`), then runs every
    `verify` command as the sandbox user — a broken toolchain fails the
-   build, not the run. Base labels are inherited and three are added:
-   `agentbox.worker=true`, `agentbox.repo=<normalized origin remote>`, and
-   `agentbox.manifest-digest`.
+   build, not the run. Base labels are inherited, and the build also sets
+   `agentbox.worker=true`, `agentbox.repo=<normalized origin remote>`,
+   `agentbox.manifest-digest`, and explicit `agentbox.agent`,
+   `agentbox.version`, and `agentbox.recipe` labels so repository images
+   never depend on label inheritance.
 2. **A policy fragment** at `$AGENTBOX_HOME/policies/repo-<repo>.yaml`,
    shared by every checkout of the repository: the `DefaultPolicy` baseline
    (filesystem, process, hard Landlock requirement) with each `hosts` entry
@@ -358,6 +361,34 @@ setup. The same flow is exposed to the GUI as an explicit action in
 Setup → Images (Repository images) backed by `POST /api/repos/setup`,
 which validates with `dry` and streams the build as a cancellable task.
 
+### Run image resolution
+
+Run start selects the effective image and never builds one:
+
+- A project without `.agentbox/config.yaml` keeps the profile image and
+  records `image_source: profile`.
+- A project with a manifest uses the repository image whose content matches
+  the manifest on a current-recipe base, preferring the newest base, and
+  records `image_source: repo`. The tag hash covers the base reference, so
+  resolution recomputes it for each candidate base rather than relying on
+  extra image labels.
+- `--image <tag>` (GUI: image override) uses that tag as-is and records
+  `image_source: override`; `--image profile` forces the profile image.
+
+The run record captures the effective image, its base image, the source, the
+normalized repository identity, the manifest digest, the repository fragment
+path when one was composed, and any warnings. Missing or unusable artifacts
+never fail the run: it falls back to the profile image with a warning naming
+`agentbox repo setup --agent <agent>`. A policy fragment that is out of date
+with the manifest warns and still uses the image, so a hosts-only manifest
+change does not invalidate a correct image; `agentbox repo setup` refreshes the
+fragment. A repository image built on an older local base than the newest one
+available warns and still runs.
+
+Resolution reads the manifest from the selected project checkout. An isolated
+run worktree carries committed and tracked changes only, so an untracked
+manifest informs resolution but is not present inside the sandbox.
+
 ## Policy layer
 
 When a profile is created without an explicit policy, AgentBox creates:
@@ -370,9 +401,15 @@ At run start, AgentBox:
 
 1. loads the profile policy;
 2. adapts agent binary paths for the selected agent;
-3. writes a run-specific policy;
-4. passes it to OpenShell during sandbox creation;
-5. fetches and verifies the effective policy before starting the agent.
+3. when a repository image is active, unions the repository fragment into
+   that policy — identical rules collapse to one, and a named rule the two
+   sources define differently is rejected so neither side silently wins;
+4. writes a run-specific policy;
+5. passes it to OpenShell during sandbox creation;
+6. fetches and verifies the effective policy before starting the agent.
+
+Applying a reusable policy configuration to a repository run recomposes that
+run's fragment, so the repository host rules survive the replacement policy.
 
 This is why a run can fail before the agent starts if the effective policy does
 not allow the expected endpoint or lacks the required Landlock/network
@@ -440,20 +477,24 @@ The default policy grants write access to `/workspace`, `/tmp`, and
 A run is created as follows:
 
 1. Load the AgentBox profile.
-2. Validate image, provider, model, policy, and approval settings, then decide
+2. Validate provider, model, policy, and approval settings, then decide
    whether the provider is registered with the gateway.
-3. Create an isolated Git worktree or reserve a direct checkout.
-4. Save the run record.
-5. Create a source Git bundle.
-6. Generate run-specific agent configuration on the host.
-7. Create the sandbox from the selected image, inference provider, and policy.
-8. Upload the source bundle.
-9. Upload and extract the configuration archive into `/workspace/state`.
-10. Clone the source bundle into `/workspace/project`.
-11. Verify the effective OpenShell policy.
-12. Mark the sandbox ready.
-13. Start tmux and the agent session.
-14. Probe the new run once and cache its derived status.
+3. Resolve the effective image — profile, repository image, or per-run
+   override — and compose the policy, recording image and policy provenance
+   and any drift warnings.
+4. Create an isolated Git worktree or reserve a direct checkout.
+5. Save the run record.
+6. Create a source Git bundle.
+7. Generate run-specific agent configuration on the host.
+8. Create the sandbox from the effective image, inference provider, and
+   composed policy.
+9. Upload the source bundle.
+10. Upload and extract the configuration archive into `/workspace/state`.
+11. Clone the source bundle into `/workspace/project`.
+12. Verify the effective OpenShell policy.
+13. Mark the sandbox ready.
+14. Start tmux and the agent session.
+15. Probe the new run once and cache its derived status.
 
 ## Runtime configuration location
 

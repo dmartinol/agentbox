@@ -1117,6 +1117,33 @@ describe('mcp start selection', () => {
   });
 });
 
+describe('image start warnings', () => {
+  it('surfaces image warnings returned by the start request', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      const method = init?.method ?? 'GET';
+      if (url === '/api/overview' && method === 'GET') return jsonResponse(overview);
+      if (url === '/api/mcps' && method === 'GET') return jsonResponse(mcps);
+      if (url === '/api/skills' && method === 'GET') return jsonResponse(skillEntries);
+      if (url === '/api/doctor' && method === 'GET') return jsonResponse(overview.doctor);
+      if (url === '/api/runs' && method === 'POST') {
+        return jsonResponse({
+          ...runs[0],
+          image: 'localhost/openshell:codex-0.169.0-r5',
+          image_warnings: ['no current repository image for codex in github.com/owner/repo; run `agentbox repo setup --agent codex` — this run uses the profile image']
+        });
+      }
+      throw new Error(`unmocked request ${method} ${url}`);
+    }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'New agent' }));
+    await user.click(screen.getByRole('button', { name: 'Start' }));
+    expect(await screen.findByText('Image warnings')).toBeInTheDocument();
+    expect(await screen.findByText(/this run uses the profile image/)).toBeInTheDocument();
+  });
+});
+
 
 describe('skills', () => {
   it('lists entries and explains plugin delivery limits', async () => {

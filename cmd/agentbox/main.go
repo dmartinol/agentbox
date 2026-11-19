@@ -1221,7 +1221,7 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		name := f.String("name", "", "optional unique agent name")
 		source := f.String("source", ".", "Git source checkout (when --project is omitted)")
 		gateway := f.String("gateway", "", "OpenShell gateway name")
-		image := f.String("image", "", "image override")
+		image := f.String("image", "", "image override tag, or `profile` to force the profile image")
 		mode := f.String("mode", "", "mode override")
 		model := f.String("model", "", "model override")
 		approval := f.String("approval", "", "approval override")
@@ -1245,6 +1245,9 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
 		}
 		for _, warning := range r.SkillsWarnings {
+			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+		}
+		for _, warning := range r.ImageWarnings {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
 		}
 		return nil

@@ -205,6 +205,81 @@ func TestApplyPolicyConfigurationAdaptsAgentAndAppliesNetwork(t *testing.T) {
 	}
 }
 
+func TestApplyPolicyConfigurationKeepsRepositoryFragment(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(store.PolicyDir(), "standard.yaml")
+	if err := os.WriteFile(configPath, DefaultPolicy(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fragmentPath := filepath.Join(store.PolicyDir(), "repo-example.yaml")
+	fragment := strings.Replace(string(DefaultPolicy()), "network_policies: {}", `network_policies:
+  host-proxy-golang-org-443:
+    name: host-proxy-golang-org-443
+    endpoints:
+      - host: proxy.golang.org
+        port: 443
+        protocol: tcp
+    binaries:
+      - path: /usr/local/go/bin/go
+`, 1)
+	if err := os.WriteFile(fragmentPath, []byte(fragment), 0600); err != nil {
+		t.Fatal(err)
+	}
+	composed, err := composeRepoPolicy(DefaultPolicy(), configPath, []byte(fragment), fragmentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runPolicy := filepath.Join(store.PolicyDir(), "run-unit123.yaml")
+	if err := os.WriteFile(runPolicy, composed, 0600); err != nil {
+		t.Fatal(err)
+	}
+	run := Run{ID: "run-unit123", Policy: runPolicy, PolicyFragment: fragmentPath, Sandbox: "sandbox-unit123", Gateway: "gateway-one", Agent: "codex"}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	app := App{Store: store, Runner: &fakeRunner{}}
+	if err := app.ApplyPolicyConfiguration(context.Background(), "standard", run.ID); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := os.ReadFile(runPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := ParsePolicy(applied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := policy.Network["host-proxy-golang-org-443"]; !ok {
+		t.Fatalf("applied policy lost the repository fragment: %v", policy.Network)
+	}
+}
+
+func TestApplyPolicyConfigurationRequiresRepositoryFragment(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.PolicyDir(), "standard.yaml"), DefaultPolicy(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runPolicy := filepath.Join(store.PolicyDir(), "run-unit123.yaml")
+	if err := os.WriteFile(runPolicy, DefaultPolicy(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run := Run{ID: "run-unit123", Policy: runPolicy, PolicyFragment: filepath.Join(store.PolicyDir(), "missing.yaml"), Sandbox: "sandbox-unit123", Gateway: "gateway-one", Agent: "codex"}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	app := App{Store: store, Runner: &fakeRunner{}}
+	err := app.ApplyPolicyConfiguration(context.Background(), "standard", run.ID)
+	if err == nil || !strings.Contains(err.Error(), "rebuild it with `agentbox repo setup`") {
+		t.Fatalf("error = %v, want a fragment remediation hint", err)
+	}
+}
+
 func TestSavePolicyEditDefersStaticChanges(t *testing.T) {
 	store := Store{Base: t.TempDir()}
 	if err := store.Ensure(); err != nil {

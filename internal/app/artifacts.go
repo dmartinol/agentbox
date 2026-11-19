@@ -22,10 +22,13 @@ type ImageArtifact struct {
 	// Worker marks repository-layered images (agentbox.worker) layered on
 	// top of a base agent image; their agent, version, and recipe labels
 	// describe the base they were built from.
-	Worker     bool     `json:"worker,omitempty"`
-	Repo       string   `json:"repo,omitempty"`
-	ID         string   `json:"-"`
-	References []string `json:"-"`
+	Worker bool   `json:"worker,omitempty"`
+	Repo   string `json:"repo,omitempty"`
+	// ManifestDigest is the `.agentbox/config.yaml` digest the repository
+	// image was built from, so run details can report drift.
+	ManifestDigest string   `json:"manifest_digest,omitempty"`
+	ID             string   `json:"-"`
+	References     []string `json:"-"`
 }
 
 var remoteImageTag = regexp.MustCompile(`^(claude|codex|opencode)-(.+)-r([0-9]+)(?:-([a-z0-9]+)-([a-z0-9]+))?$`)
@@ -101,17 +104,18 @@ func parseLocalImages(data []byte) ([]ImageArtifact, error) {
 			continue
 		}
 		artifact := ImageArtifact{
-			Reference:  preferredImageReference(record.Names, label("agent"), label("version"), recipe),
-			References: record.Names,
-			Agent:      label("agent"),
-			Version:    label("version"),
-			Recipe:     recipe,
-			OS:         record.OS,
-			Arch:       record.Arch,
-			Digest:     record.Digest,
-			Worker:     label("worker") == "true",
-			Repo:       label("repo"),
-			ID:         record.ID,
+			Reference:      preferredImageReference(record.Names, label("agent"), label("version"), recipe),
+			References:     record.Names,
+			Agent:          label("agent"),
+			Version:        label("version"),
+			Recipe:         recipe,
+			OS:             record.OS,
+			Arch:           record.Arch,
+			Digest:         record.Digest,
+			Worker:         label("worker") == "true",
+			Repo:           label("repo"),
+			ManifestDigest: label("manifest-digest"),
+			ID:             record.ID,
 		}
 		if artifact.Agent == "" || artifact.Version == "" || artifact.Reference == "" {
 			continue

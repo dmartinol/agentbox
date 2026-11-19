@@ -598,6 +598,16 @@ func (a *App) ApplyPolicyConfiguration(ctx context.Context, policyName, runID st
 	if err != nil {
 		return err
 	}
+	if run.PolicyFragment != "" {
+		fragment, err := os.ReadFile(run.PolicyFragment)
+		if err != nil {
+			return fmt.Errorf("run policy fragment %s is unavailable; rebuild it with `agentbox repo setup`: %w", run.PolicyFragment, err)
+		}
+		next, err = composeRepoPolicy(next, path, fragment, run.PolicyFragment)
+		if err != nil {
+			return err
+		}
+	}
 	old, err := os.ReadFile(run.Policy)
 	if err != nil {
 		return err
