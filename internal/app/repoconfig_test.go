@@ -264,3 +264,18 @@ func TestLoadRepoConfigValid(t *testing.T) {
 		t.Fatalf("RepoConfigPath = %q", got)
 	}
 }
+
+// TestCommittedRepoConfig keeps the repository's own manifest parseable so a
+// typo fails in CI instead of silently disabling the declarations at run time.
+func TestCommittedRepoConfig(t *testing.T) {
+	cfg, err := LoadRepoConfig(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("committed manifest is missing or invalid: %v", err)
+	}
+	if len(cfg.Image.Toolchains) == 0 {
+		t.Fatal("committed manifest declares no toolchains; Go would be unavailable in the sandbox")
+	}
+	if len(cfg.Hosts) == 0 {
+		t.Fatal("committed manifest declares no runtime hosts; module downloads would be blocked")
+	}
+}

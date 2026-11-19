@@ -1,0 +1,33 @@
+schema: 1
+
+image:
+  packages:
+    - make
+    - gcc
+    - libc6-dev
+  toolchains:
+    - name: go
+      url: https://go.dev/dl/go1.26.11.linux-arm64.tar.gz
+      sha256: 6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e
+      bin: /usr/local/go/bin/go
+
+verify:
+  - go version
+  - make --version
+  - gcc --version
+  - node --version
+  - npm --version
+
+hosts:
+  - host: proxy.golang.org
+    port: 443
+    binaries: [/usr/local/go/bin/go]
+  - host: sum.golang.org
+    port: 443
+    binaries: [/usr/local/go/bin/go]
+  - host: registry.npmjs.org
+    port: 443
+    binaries: [/usr/local/bin/npm, /usr/local/bin/node]
+  - host: github.com
+    port: 22
+    binaries: [/usr/bin/git]
