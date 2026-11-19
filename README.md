@@ -472,6 +472,19 @@ images and policies unchanged. See the
 [repository manifest section](docs/openshell-architecture.md#repository-manifest)
 of the architecture document for the schema and validation rules.
 
+Turn a committed manifest into the repository image and policy fragment with:
+
+```sh
+agentbox repo setup --dry     # validate the manifest; fix every reported error
+agentbox repo setup           # build the repository image and write the fragment
+```
+
+`--agent` limits the build to specific agents (default: the agents present in
+local profiles). The image tag is content-addressed, so a hosts-only manifest
+change regenerates only the fragment, and reruns with an unchanged manifest
+skip the build. Setup prints the image tag, base image, manifest digest, and
+fragment path — profiles need no change.
+
 EnMaaS uses one key but more than one API authentication dialect. Create two
 provider configurations with the same `ENMAAS_KEY` credential reference when
 supporting multiple agents:

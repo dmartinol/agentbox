@@ -412,8 +412,8 @@ func TestNormalizeOrchestrationRemote(t *testing.T) {
 		"http://example.com/team/repo/":     "example.com/team/repo",
 		" GIT@GitHub.com:Owner/Repo.git ":   "github.com/owner/repo",
 	} {
-		if got := normalizeOrchestrationRemote(input); got != want {
-			t.Fatalf("normalizeOrchestrationRemote(%q) = %q; want %q", input, got, want)
+		if got := normalizeGitRemote(input); got != want {
+			t.Fatalf("normalizeGitRemote(%q) = %q; want %q", input, got, want)
 		}
 	}
 }

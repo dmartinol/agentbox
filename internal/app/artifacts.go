@@ -12,13 +12,18 @@ import (
 )
 
 type ImageArtifact struct {
-	Reference  string   `json:"reference"`
-	Agent      string   `json:"agent"`
-	Version    string   `json:"version"`
-	Recipe     int      `json:"recipe"`
-	OS         string   `json:"os,omitempty"`
-	Arch       string   `json:"arch,omitempty"`
-	Digest     string   `json:"digest,omitempty"`
+	Reference string `json:"reference"`
+	Agent     string `json:"agent"`
+	Version   string `json:"version"`
+	Recipe    int    `json:"recipe"`
+	OS        string `json:"os,omitempty"`
+	Arch      string `json:"arch,omitempty"`
+	Digest    string `json:"digest,omitempty"`
+	// Worker marks repository-layered images (agentbox.worker) layered on
+	// top of a base agent image; their agent, version, and recipe labels
+	// describe the base they were built from.
+	Worker     bool     `json:"worker,omitempty"`
+	Repo       string   `json:"repo,omitempty"`
 	ID         string   `json:"-"`
 	References []string `json:"-"`
 }
@@ -26,6 +31,12 @@ type ImageArtifact struct {
 var remoteImageTag = regexp.MustCompile(`^(claude|codex|opencode)-(.+)-r([0-9]+)(?:-([a-z0-9]+)-([a-z0-9]+))?$`)
 
 func (img ImageArtifact) RemoteTag() string {
+	// Repository images keep their content-addressed local tag; deriving
+	// one from the base labels would publish repository content under the
+	// base image's remote tag.
+	if img.Worker && strings.HasPrefix(img.Reference, "localhost/openshell:") {
+		return strings.TrimPrefix(img.Reference, "localhost/openshell:")
+	}
 	tag := fmt.Sprintf("%s-%s-r%d", img.Agent, img.Version, img.Recipe)
 	if img.OS != "" && img.Arch != "" {
 		tag += "-" + img.OS + "-" + img.Arch
@@ -98,6 +109,8 @@ func parseLocalImages(data []byte) ([]ImageArtifact, error) {
 			OS:         record.OS,
 			Arch:       record.Arch,
 			Digest:     record.Digest,
+			Worker:     label("worker") == "true",
+			Repo:       label("repo"),
 			ID:         record.ID,
 		}
 		if artifact.Agent == "" || artifact.Version == "" || artifact.Reference == "" {

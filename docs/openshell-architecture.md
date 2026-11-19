@@ -312,10 +312,49 @@ Validation rules (every violation names the offending field):
   repositories), and a repository without a manifest keeps using profile
   images and profile policies unchanged.
 
-AgentBox currently parses and validates the manifest. Building a
-repository-specific image from the `image` and `verify` sections and composing
-run policies from the `hosts` section are tracked in
+AgentBox parses and validates the manifest, and builds the repository
+environment from it with `agentbox repo setup`. The remaining epic work —
+run-time image resolution and full policy derivation — is tracked in
 [#42](https://github.com/dmartinol/agentbox/issues/42).
+
+### Repository setup
+
+`agentbox repo setup [--agent codex,claude] [--dry]` turns a validated
+manifest into the two reusable artifacts runs consume:
+
+1. **One repository image per agent**, layered on the current local base
+   image for that agent (`localhost/openshell:<agent>-<version>-r<recipe>`).
+   The build installs `image.packages` with apt, downloads each toolchain
+   from its pinned URL after verifying its SHA-256 (archives are extracted
+   under `/usr/local`, single files are installed at the declared `bin`
+   path, and each `bin` directory is added to `PATH`), then runs every
+   `verify` command as the sandbox user — a broken toolchain fails the
+   build, not the run. Base labels are inherited and three are added:
+   `agentbox.worker=true`, `agentbox.repo=<normalized origin remote>`, and
+   `agentbox.manifest-digest`.
+2. **A policy fragment** at `$AGENTBOX_HOME/policies/repo-<repo>.yaml`,
+   shared by every checkout of the repository: the `DefaultPolicy` baseline
+   (filesystem, process, hard Landlock requirement) with each `hosts` entry
+   copied verbatim as a binary-scoped network rule named after the host and
+   port. Generation is deterministic and reruns are idempotent.
+
+The image tag is content-addressed from the base reference plus the `image`
+and `verify` sections only:
+`localhost/openshell:repo-<repo>-<agent>-<hash8>`. A hosts-only manifest
+change therefore keeps the previous tag and regenerates only the fragment;
+changed image or verify sections produce a new tag while the previous image
+remains until pruned. Rerunning setup with an unchanged manifest skips the
+build entirely.
+
+`--agent` limits the build to specific agents and defaults to the agents
+present in local profiles. `--dry` validates the manifest and prints the
+plan — repository identity, manifest digest, agents, and fragment path —
+without running podman or writing files.
+
+Setup never creates or edits profiles. It reports the image tag, base image,
+manifest digest, and fragment path for information; run-time resolution of
+the repository image and policy composition are part of run start, not
+setup.
 
 ## Policy layer
 

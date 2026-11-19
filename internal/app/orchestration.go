@@ -348,7 +348,7 @@ func matchOrchestrationProject(registry *OrchestrationRegistry, ref Orchestratio
 	if err != nil {
 		return nil, err
 	}
-	remote := normalizeOrchestrationRemote(ref.Remote)
+	remote := normalizeGitRemote(ref.Remote)
 	var rootMatches []projectMatch
 	var remoteMatches []projectMatch
 	for index := range registry.Projects {
@@ -362,7 +362,7 @@ func matchOrchestrationProject(registry *OrchestrationRegistry, ref Orchestratio
 				rootMatches = append(rootMatches, projectMatch{project: project, depth: len(projectRoot)})
 			}
 		}
-		if remote != "" && project.Remote != "" && normalizeOrchestrationRemote(project.Remote) == remote {
+		if remote != "" && project.Remote != "" && normalizeGitRemote(project.Remote) == remote {
 			remoteMatches = append(remoteMatches, projectMatch{project: project})
 		}
 	}
@@ -460,9 +460,9 @@ func expandOrchestrationHome(path string) string {
 	return path
 }
 
-// normalizeOrchestrationRemote reduces common Git remote forms to
+// normalizeGitRemote reduces common Git remote forms to
 // host/owner/repo for deterministic comparison.
-func normalizeOrchestrationRemote(remote string) string {
+func normalizeGitRemote(remote string) string {
 	remote = strings.TrimSpace(remote)
 	remote = strings.TrimSuffix(remote, "/")
 	remote = strings.TrimSuffix(remote, ".git")
