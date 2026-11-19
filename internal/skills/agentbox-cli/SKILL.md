@@ -1,6 +1,6 @@
 ---
 name: agentbox-cli
-description: "Operate AgentBox from a shell: start, inspect, attach to, sync, and delete OpenShell-backed coding-agent runs, and recover from sandbox policy host blocks. Use when a user asks you to run or manage an agent through the agentbox CLI."
+description: "Operate AgentBox from a shell: start, inspect, attach to, sync, and delete OpenShell-backed coding-agent runs, set up a repository for AgentBox agents (`.agentbox/config.yaml`), and recover from sandbox policy host blocks. Use when a user asks you to run or manage an agent through the agentbox CLI."
 version: "{{VERSION}}"
 ---
 
@@ -9,6 +9,20 @@ version: "{{VERSION}}"
 AgentBox starts one coding agent per OpenShell sandbox, normally in its own Git
 worktree. Use the CLI for every operation; the GUI started by `agentbox gui` is
 a second view of the same state, not a separate control plane.
+
+## Sample prompts
+
+Requests like these select this skill:
+
+- "Start a codex run on the demo project with the enmaas profile."
+- "What agents are running, and does anything need me?"
+- "Attach me to the auth-refactor run."
+- "Show what that run changed, then sync it."
+- "The agent hit a DNS error reaching api.example.com — fix it."
+- "Set up AgentBox for this repository."
+- "Create the .agentbox/config.yaml for this repo."
+- "The agent's sandbox is missing make and go — fix it."
+- "Stop the run but keep the work."
 
 ## Ground rules
 
@@ -22,6 +36,11 @@ a second view of the same state, not a separate control plane.
   must exist in the environment running AgentBox and the gateway.
 - State lives under `~/.agentbox` (override with `AGENTBOX_HOME`). Prefer
   commands over editing that tree by hand.
+- If `agentbox` is missing, or a documented command is unknown, the binary is
+  stale: install the current one with
+  `go install github.com/dmartinol/agentbox/cmd/agentbox@main` and retry.
+- Every environment operation goes through the `agentbox` CLI. Never drive
+  `openshell` or `podman` directly.
 - `--dry-run` previews the plan for `agent start` and `policy edit`; `--json`
   produces machine-readable output for read commands.
 
@@ -81,6 +100,50 @@ Recipe `r4` images ship a local-work toolset: `curl`, `jq`, `rg`, `unzip`,
 AgentBox adds no forge credential, no git credential helper, and no generated
 `.gitconfig`, so do not paste a token into a profile or prompt. Sandboxes have
 no forge reachability unless the run policy is edited to allow those hosts.
+
+## Set up AgentBox for a repository
+
+Requests like "set up AgentBox for this repository", "create the
+`.agentbox/config.yaml`", or "the agent's sandbox is missing make and go"
+resolve to this section.
+
+A repository declares its development and CI needs in a committed
+`.agentbox/config.yaml`: apt packages and pinned toolchains for the repository
+image, verify commands for the image build, and the exact runtime
+egress hosts. Authoring reads repository configuration, so an agent (or a
+human) authors it; no CLI command infers tools or hosts.
+
+One-time initialization derives every entry from repository evidence:
+
+| Evidence | Manifest entry |
+| --- | --- |
+| CI workflow tool versions, `go.mod`, lockfiles | `image.toolchains` pinned to what CI pins, with real SHA-256 checksums |
+| Makefile targets and the tools they invoke | `image.packages` (plain apt names) and `verify` commands matching the targets |
+| Go modules in use | `proxy.golang.org` and `sum.golang.org` on 443, scoped to the go binary |
+| `npm ci` or npm scripts | `registry.npmjs.org` on 443, scoped to npm and node |
+| `git remote get-url origin` | the git host with its protocol port (22 for SSH, 443 for HTTPS), scoped to `/usr/bin/git` |
+
+Every host entry needs evidence; never add a host just in case. Exact
+hostnames only — no wildcards, CIDRs, schemes, or paths — absolute binary
+paths, and no credentials or tokens anywhere in the file. The schema
+reference and a full example live in the repository manifest section of
+`docs/openshell-architecture.md` in the AgentBox repository.
+
+Validate before applying, then apply:
+
+```sh
+agentbox repo setup --dry     # validate the manifest; fix every reported error
+agentbox repo setup           # build the repository image and write the policy fragment
+```
+
+`--agent` limits the build to specific agents; by default setup covers the
+agents present in local profiles. If `agentbox repo` is an unknown command,
+the installed binary predates repository manifests: install the current
+AgentBox (see Ground rules) and retry. Setup prints the image tag, base
+image, manifest digest, and fragment path — report them, and **do not create
+or edit profiles** to reference them: runs for the project use the repository
+image automatically. Extending the manifest later (a new host, a new package)
+is a mechanical edit followed by the same two commands.
 
 ## Observe a run
 
@@ -145,15 +208,26 @@ host, or the agent reports that a domain is blocked.
 4. Network-only changes apply live with `openshell policy set --wait`, so retry
    the operation. Static changes are written to a pending policy for the next
    sandbox; the command prints which case applies.
-5. Never weaken hard isolation, disable Landlock, or bypass the sandbox to make
+5. When the repository has a `.agentbox/config.yaml`, persist the fix: append
+   the host to its `hosts` section scoped to the binary that needed it, and
+   commit the change so future runs start with the host allowed. Never
+   hand-edit policy files to persist a host.
+6. Never weaken hard isolation, disable Landlock, or bypass the sandbox to make
    a command run.
 
-## Clean up
+## Stop and clean up
+
+`stop` is the supported close sequence for an active run: it interrupts the
+agent, waits for it to finish, syncs the sandbox changes into the host
+worktree before the sandbox stops, and keeps the run record, branch, and
+worktree, so work resumes from the synced branch.
 
 ```sh
-agentbox agent stop RUN_ID        # stop the sandbox process, keep the run
+agentbox agent stop RUN_ID        # interrupt, sync, then stop the sandbox; keeps run, branch, and worktree
 agentbox agent delete RUN_ID      # remove sandbox, worktree, and branch
 ```
+
+Never `delete --discard` a run whose changes were not reviewed.
 
 ## Report back to the user
 

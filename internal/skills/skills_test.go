@@ -55,6 +55,30 @@ func TestEmbeddedSkillsAreSelfContained(t *testing.T) {
 	}
 }
 
+// TestEmbeddedSkillsDocumentTriggerPrompts asserts every shipped skill opens
+// with sample prompts, so a user reading an installed skill sees how to
+// trigger it without guessing.
+func TestEmbeddedSkillsDocumentTriggerPrompts(t *testing.T) {
+	prompts := map[string]string{
+		"agentbox-cli":          "Start a codex run on the demo project",
+		"agentbox-api":          "List every agent run through the AgentBox API",
+		"agentbox-orchestrator": "Take issue 35 to a merged pull request with the orchestrator flow",
+	}
+	for _, name := range Names() {
+		content, err := Embedded(name, "9.9.9")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := strings.Join(strings.Fields(string(content)), " ")
+		if !strings.Contains(body, "## Sample prompts") || !strings.Contains(body, "Requests like these select this skill") {
+			t.Fatalf("%s does not document its trigger prompts", name)
+		}
+		if prompt, ok := prompts[name]; ok && !strings.Contains(body, prompt) {
+			t.Fatalf("%s does not show the sample prompt %q", name, prompt)
+		}
+	}
+}
+
 // TestParseFrontMatterRejectsHistoricalUnquotedDescription verifies that the
 // exact front matter that shipped in PR #29 fails the strict check, so the
 // defect cannot silently return.
