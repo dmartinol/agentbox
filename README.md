@@ -446,6 +446,18 @@ reachability unless the run policy is edited to allow those hosts. Use plain
 `git` inside the sandbox, or run forge tooling on the host and sync the result.
 Forge-capable repository access is deferred to [issue #19](https://github.com/dmartinol/agentbox/issues/19).
 
+### Repository manifest
+
+A repository can commit `.agentbox/config.yaml` to declare what its agents
+need: extra apt packages and pinned toolchains for the worker image, build
+verification commands, and the exact network hosts its tools may reach at
+runtime. The file is credential-free — no tokens or keys, exact hosts only —
+and is normally written once by a skill or by hand, then extended mechanically
+when a new host is needed. Repositories without a manifest keep using profile
+images and policies unchanged. See the
+[repository manifest section](docs/openshell-architecture.md#repository-manifest)
+of the architecture document for the schema and validation rules.
+
 EnMaaS uses one key but more than one API authentication dialect. Create two
 provider configurations with the same `ENMAAS_KEY` credential reference when
 supporting multiple agents:
