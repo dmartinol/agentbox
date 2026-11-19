@@ -1017,10 +1017,12 @@ and worktree, so the stage resumes from the synced branch in a fresh dispatch.
 Never `delete --discard` a run whose changes were not reviewed.
 
 A worker blocked by a sandbox host denial is recovered with the run's **Add
-host** remediation — `agentbox policy edit --allow-host HOST RUN_ID`, previewed
-with `--dry-run` — never by hand-editing policies. When the repository has a
-manifest, also append the host to `.agentbox/config.yaml` and commit it, so
-later runs start with the host allowed.
+host** remediation — `agentbox policy edit --allow-host HOST --port PORT
+--binary BINARY RUN_ID`, previewed with `--dry-run` — never by hand-editing
+policies. Use the exact host, port, and binary from the denial. When the
+repository has a manifest, also append the same rule to
+`.agentbox/config.yaml` and commit it, so later runs start with the host
+allowed; the GUI's persist option does this mechanically.
 
 For verify and review, never dispatch with `--project`: that uses the
 registered project's current checkout, whose HEAD may not be the pull request

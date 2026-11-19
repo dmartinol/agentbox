@@ -83,7 +83,7 @@ func TestCLISkillStopAndSyncSequence(t *testing.T) {
 func TestCLISkillHostBlockPersistsToManifest(t *testing.T) {
 	body := cliCollapsed(t)
 	wantAll(t, body,
-		"append the host to its `hosts` section",
+		"add the same `host`/`port`/`binaries` entry to the manifest's `hosts` section",
 		"Never hand-edit policy files to persist a host",
 	)
 }
@@ -117,8 +117,8 @@ func TestOrchestratorSkillAgentBoxWorkerConventions(t *testing.T) {
 		"<branch_prefix>/<project>/issue-<number>-<slug>",
 		"agentbox agent stop RUN_ID",
 		"syncs the changes into the host worktree before the sandbox stops",
-		"agentbox policy edit --allow-host HOST RUN_ID",
-		"append the host to `.agentbox/config.yaml`",
+		"agentbox policy edit --allow-host HOST --port PORT --binary BINARY RUN_ID",
+		"append the same rule to `.agentbox/config.yaml`",
 	)
 }
 

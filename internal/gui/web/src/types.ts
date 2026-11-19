@@ -36,6 +36,7 @@ export interface Run {
   image_warnings?: string[];
   policy_fragment?: string;
   policy_fragment_digest?: string;
+  runtime_hosts?: RuntimeHost[];
   mode: string;
   model: string;
   approval: string;
@@ -292,10 +293,56 @@ export type PolicyEditOutcome =
   | 'no-live-sandbox'
   | 'openshell-rejected';
 
-export interface PolicyHostResponse {
-  outcome: 'live-applied' | 'static-pending';
-  diff?: string;
-  policyPath?: string;
+export interface RuntimeHost {
+  host: string;
+  port: number;
+  binary: string;
+  rule: string;
+  source: 'run' | 'run+manifest' | string;
+  added_at: string;
+}
+
+export interface PolicyDenial {
+  host: string;
+  port: number;
+  binary: string;
+  reason?: string;
+  logLine?: string;
+  valid: boolean;
+  invalidReason?: string;
+}
+
+export interface DenialRequest {
+  host: string;
+  port: number;
+  binary: string;
+  persist?: boolean;
+}
+
+export interface RepoHostRule {
+  host: string;
+  port: number;
+  binaries: string[];
+}
+
+export interface DenialPreview {
+  entry: RepoHostRule;
+  policyPath: string;
+  policyDiff: string;
+  persistAvailable: boolean;
+  persistReason?: string;
+  manifestPath?: string;
+  manifestDiff?: string;
+  fragmentPath?: string;
+  fragmentDiff?: string;
+}
+
+export interface DenialApplyResult extends DenialPreview {
+  outcome: PolicyEditOutcome;
+  rolledBack: boolean;
+  runtimeHost: RuntimeHost;
+  persisted: boolean;
+  fragmentStatus?: string;
 }
 
 export interface RunPolicyContent {
@@ -303,8 +350,8 @@ export interface RunPolicyContent {
   content: string;
 }
 
-export interface PolicyHostError extends Error {
+export interface DenialError extends Error {
   outcome?: PolicyEditOutcome;
-  diff?: string;
+  policyDiff?: string;
   rolledBack?: boolean;
 }

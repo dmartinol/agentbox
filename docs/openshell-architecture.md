@@ -427,40 +427,50 @@ This is why a run can fail before the agent starts if the effective policy does
 not allow the expected endpoint or lacks the required Landlock/network
 configuration.
 
-Network rules are binary-scoped. A host rule added by AgentBox therefore
-allows the agent launcher together with `/usr/local/bin/node`, `/usr/bin/git`,
-`/usr/lib/git-core/**`, `/usr/bin/curl`, and `/usr/bin/git-lfs`.
-The supported agents are Node applications, so listing only the launcher path
-would miss the process that opens the socket; git reaches HTTPS through a
-separate helper binary.
-
 ### Run-scoped host editing
 
-The Fleet **Allow host** action and `agentbox policy edit --allow-host` share
-the same edit path. A run-scoped edit loads the run policy, appends a
-`host-<hostname>` network rule, and writes the result through a temporary copy.
-The rule names the agent launcher derived by the shared `AgentBinary` helper
-plus `/usr/local/bin/node`, `/usr/bin/git`, `/usr/lib/git-core/**`,
-`/usr/bin/curl`, and `/usr/bin/git-lfs`. An explicit `--binary` override
-replaces that set for CLI compatibility.
+Host remediation starts from a sandbox denial, not from a typed host. The
+sandbox log emits entries such as
+`NET:OPEN [MED] DENIED /usr/bin/curl(64) -> api.example.com:443` (or the
+legacy `action=deny dst_host=... dst_port=... binary=...` form). AgentBox
+parses those entries and surfaces the exact host, port, and binary in the
+output drawer. `agentbox policy edit --allow-host HOST --port PORT
+--binary /abs/path RUN_ID` and the Fleet **Add host** action both remediate
+that exact tuple. The CLI requires `--binary` with `--allow-host`; the GUI
+sends back the tuple from the surfaced denial, and the backend verifies that
+it still appears in `openshell logs <sandbox> --source sandbox`.
 
-The GUI endpoint is `POST /api/runs/{id}/policy/host` with `{"host":"..."}`.
-It accepts no agent, binary, or policy name; the run record supplies all three.
-`GET /api/runs/{id}` includes the derived `agent_binary` so the dialog can show
-the launcher without duplicating policy-generation logic in React.
+A denial becomes one exact endpoint and one exact binary path. Globs,
+directory paths, invalid ports, and secret-like values are rejected by the
+same manifest validation used for `.agentbox/config.yaml`. When a rule for
+the same host and port already exists, the missing binary is appended instead
+of creating a duplicate host/port entry.
 
-A successful edit returns the path it wrote as `policyPath`: the run policy for
-`live-applied`, or the `*-pending.yaml` copy for `static-pending`. Reusable
-policy configurations are only templates, so run copies are excluded from
+The GUI endpoints are:
+
+```http
+POST /api/runs/{id}/policy/denial/preview
+POST /api/runs/{id}/policy/denial
+```
+
+Both accept `{"host":"...","port":443,"binary":"/usr/bin/curl","persist":false}`.
+The preview writes nothing; it returns the manifest entry, the run-policy
+diff, persist availability and reason, and, with `persist: true`, the manifest
+and fragment diffs. Applying uses the same `savePolicyEdit`/pending-policy
+machinery as other live edits. When `persist` is selected, the backend appends
+the rule to `hosts` in the repository manifest, regenerates the fragment with
+`applyRepoFragment`, and never builds an image, stages, or commits. Provenance
+is recorded on the run as `runtime_hosts` with `source: "run"` or
+`source: "run+manifest"`; the run rule is saved first so a later persist
+failure still leaves the live fix recorded.
+
+A successful edit returns the path it wrote as `policyPath`. Reusable policy
+configurations are only templates, so run copies are excluded from
 `GET /api/policies` and listed in Setup → Policies under **Agent run policies**.
 `GET /api/runs/{id}/policy/content` returns that run copy as
-`{"path":"...","content":"..."}` for inspection.
-
-After a successful allow, the dialog switches from **Cancel**/**Allow host** to
-**Allow another host**/**Close**, disables the host input, and shows the diff.
-It no longer opens the policy drawer automatically: **View policy** closes the
-dialog and opens the effective policy, so the dialog stays responsive while
-OpenShell is queried.
+`{"path":"...","content":"..."}` for inspection. The Policies panel retains
+legacy `Profile.Policy` editing and listing until #79, but it no longer offers
+unscoped add-host or apply actions.
 
 The edit is allowed only when a non-dry host action reconciles the run to
 Ready, Working, or Waiting. Creating, Failed, Unreachable, Stopped, Completed,
@@ -601,8 +611,9 @@ non-secret variables only.
 MCP endpoints are governed by the run policy like any other network access.
 Network rules are binary-scoped: for a stdio MCP server the rule must name
 the server process binary (for example the `node` path inside the image),
-not the agent binary. Use the existing policy host-rule editing to allow
-MCP endpoints; AgentBox never edits policies automatically.
+not the agent binary. Use the denial-driven host remediation described above,
+or `agentbox policy edit --allow-host ... --binary ...`, to allow an MCP
+endpoint. AgentBox only edits a policy in response to that explicit action.
 
 Setup lists the complete saved entry, including names that are no longer present
 in host configuration. Editing reopens the create dialog with the name read-only,

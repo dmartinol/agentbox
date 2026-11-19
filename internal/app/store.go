@@ -102,37 +102,38 @@ func (p Project) Validate() error {
 }
 
 type Run struct {
-	ID                       string    `json:"id"`
-	Name                     string    `json:"name,omitempty"`
-	Created                  time.Time `json:"created"`
-	Source                   string    `json:"source"`
-	Project                  string    `json:"project,omitempty"`
-	ProfileName              string    `json:"profile,omitempty"`
-	Worktree                 string    `json:"worktree"`
-	WorktreeIsolated         bool      `json:"worktree_isolated,omitempty"`
-	Branch                   string    `json:"branch"`
-	Baseline                 string    `json:"baseline"`
-	LastSynced               string    `json:"last_synced"`
-	Fingerprint              string    `json:"fingerprint,omitempty"`
-	LastSuccessfulSyncAt     time.Time `json:"last_successful_sync_at"`
-	SyncedSandboxFingerprint string    `json:"synced_sandbox_fingerprint"`
-	Sandbox                  string    `json:"sandbox"`
-	Gateway                  string    `json:"gateway"`
-	Agent                    string    `json:"agent"`
-	Image                    string    `json:"image"`
-	BaseImage                string    `json:"base_image,omitempty"`
-	ImageSource              string    `json:"image_source,omitempty"`
-	ImageRepo                string    `json:"image_repo,omitempty"`
-	ManifestDigest           string    `json:"manifest_digest,omitempty"`
-	ImageWarnings            []string  `json:"image_warnings,omitempty"`
-	PolicyFragment           string    `json:"policy_fragment,omitempty"`
-	PolicyFragmentDigest     string    `json:"policy_fragment_digest,omitempty"`
-	Mode                     string    `json:"mode"`
-	Model                    string    `json:"model"`
-	Approval                 string    `json:"approval"`
-	Status                   RunStatus `json:"status"`
-	StatusDetail             string    `json:"status_detail"`
-	Synced                   bool      `json:"synced"`
+	ID                       string        `json:"id"`
+	Name                     string        `json:"name,omitempty"`
+	Created                  time.Time     `json:"created"`
+	Source                   string        `json:"source"`
+	Project                  string        `json:"project,omitempty"`
+	ProfileName              string        `json:"profile,omitempty"`
+	Worktree                 string        `json:"worktree"`
+	WorktreeIsolated         bool          `json:"worktree_isolated,omitempty"`
+	Branch                   string        `json:"branch"`
+	Baseline                 string        `json:"baseline"`
+	LastSynced               string        `json:"last_synced"`
+	Fingerprint              string        `json:"fingerprint,omitempty"`
+	LastSuccessfulSyncAt     time.Time     `json:"last_successful_sync_at"`
+	SyncedSandboxFingerprint string        `json:"synced_sandbox_fingerprint"`
+	Sandbox                  string        `json:"sandbox"`
+	Gateway                  string        `json:"gateway"`
+	Agent                    string        `json:"agent"`
+	Image                    string        `json:"image"`
+	BaseImage                string        `json:"base_image,omitempty"`
+	ImageSource              string        `json:"image_source,omitempty"`
+	ImageRepo                string        `json:"image_repo,omitempty"`
+	ManifestDigest           string        `json:"manifest_digest,omitempty"`
+	ImageWarnings            []string      `json:"image_warnings,omitempty"`
+	PolicyFragment           string        `json:"policy_fragment,omitempty"`
+	PolicyFragmentDigest     string        `json:"policy_fragment_digest,omitempty"`
+	RuntimeHosts             []RuntimeHost `json:"runtime_hosts,omitempty"`
+	Mode                     string        `json:"mode"`
+	Model                    string        `json:"model"`
+	Approval                 string        `json:"approval"`
+	Status                   RunStatus     `json:"status"`
+	StatusDetail             string        `json:"status_detail"`
+	Synced                   bool          `json:"synced"`
 	// SyncState is derived for each read. SaveRun never persists it.
 	SyncState      SyncState `json:"sync_state,omitempty"`
 	Policy         string    `json:"policy"`
@@ -575,6 +576,12 @@ func NewID() (string, error) {
 }
 
 func atomicWrite(path string, b []byte) error {
+	return atomicWriteMode(path, b, 0600)
+}
+
+// atomicWriteMode writes through a temporary file and renames it into place.
+// Callers writing checked-in files use a wider mode than the store default.
+func atomicWriteMode(path string, b []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -584,7 +591,7 @@ func atomicWrite(path string, b []byte) error {
 		return err
 	}
 	defer os.Remove(f.Name())
-	if err := f.Chmod(0600); err != nil {
+	if err := f.Chmod(mode); err != nil {
 		f.Close()
 		return err
 	}

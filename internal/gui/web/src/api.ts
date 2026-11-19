@@ -9,8 +9,11 @@ import type {
   SkillStatus,
   SkillsEntry,
   Overview,
-  PolicyHostError,
-  PolicyHostResponse,
+  DenialApplyResult,
+  DenialError,
+  DenialPreview,
+  DenialRequest,
+  PolicyDenial,
   PolicyConfiguration,
   Profile,
   Project,
@@ -39,23 +42,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const post = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) });
 
-async function allowRunHost(id: string, host: string): Promise<PolicyHostResponse> {
-  const response = await fetch(`/api/runs/${id}/policy/host`, {
+export interface RunLogsResponse {
+  logs: string;
+  denials?: PolicyDenial[];
+  denialsError?: string;
+}
+
+async function postDenial<T>(path: string, input: DenialRequest): Promise<T> {
+  const response = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ host })
+    body: JSON.stringify(input)
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(
       typeof body.error === 'string' ? body.error : `Request failed (${response.status})`
-    ) as PolicyHostError;
+    ) as DenialError;
     error.outcome = body.outcome;
-    error.diff = body.diff;
+    error.policyDiff = body.policyDiff;
     error.rolledBack = body.rolledBack;
     throw error;
   }
-  return body as PolicyHostResponse;
+  return body as T;
 }
 
 export const api = {
@@ -66,14 +75,15 @@ export const api = {
   stopRun: (id: string) => post<Run>(`/api/runs/${id}/stop`),
   syncRun: (id: string) => post<Run>(`/api/runs/${id}/sync`),
   deleteRun: (id: string) => post<{ deleted: true }>(`/api/runs/${id}/delete`, { discard: true }),
-  logs: (id: string, tail?: number) => request<{ logs: string }>(`/api/runs/${id}/logs${tail ? `?tail=${tail}` : ''}`),
+  logs: (id: string, tail?: number) => request<RunLogsResponse>(`/api/runs/${id}/logs${tail ? `?tail=${tail}` : ''}`),
   shells: (id: string) => request<string[]>(`/api/runs/${id}/shells`),
   createShell: (id: string) => post<{ name: string }>(`/api/runs/${id}/shells`),
   deleteShell: (id: string, name: string) => post<{ deleted: true }>(`/api/runs/${id}/shells/${encodeURIComponent(name)}/delete`),
   diff: (id: string) => request<{ diff: string }>(`/api/runs/${id}/diff`),
   policy: (id: string) => request<Record<string, unknown>>(`/api/runs/${id}/policy`),
   runPolicyContent: (id: string) => request<RunPolicyContent>(`/api/runs/${id}/policy/content`),
-  allowHost: (id: string, host: string) => allowRunHost(id, host),
+  previewDenial: (id: string, input: DenialRequest) => postDenial<DenialPreview>(`/api/runs/${id}/policy/denial/preview`, input),
+  applyDenial: (id: string, input: DenialRequest) => postDenial<DenialApplyResult>(`/api/runs/${id}/policy/denial`, input),
 
   projects: () => request<Project[]>('/api/projects'),
   saveProject: (project: Project) => post<Project>('/api/projects', project),
@@ -114,8 +124,6 @@ export const api = {
   createPolicy: (name: string) => post<PolicyConfiguration>('/api/policies', { name }),
   policyContent: (name: string) => request<{ name: string; content: string }>(`/api/policies/${encodeURIComponent(name)}`),
   savePolicyContent: (name: string, content: string) => post<PolicyConfiguration>(`/api/policies/${encodeURIComponent(name)}`, { content }),
-  addPolicyHost: (name: string, agent: string, host: string) => post<PolicyConfiguration>(`/api/policies/${encodeURIComponent(name)}/host`, { agent, host }),
-  applyPolicy: (name: string, runId: string) => post<{ ok: true }>(`/api/policies/${encodeURIComponent(name)}/apply`, { runId }),
   deletePolicy: (name: string) => post<{ deleted: true }>(`/api/policies/${encodeURIComponent(name)}/delete`),
 
   mcps: () => request<MCPTools[]>('/api/mcps'),

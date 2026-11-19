@@ -57,7 +57,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/runs/{id}/diff", s.runDiff)
 	mux.HandleFunc("GET /api/runs/{id}/policy", s.runPolicy)
 	mux.HandleFunc("GET /api/runs/{id}/policy/content", s.runPolicyContent)
-	mux.HandleFunc("POST /api/runs/{id}/policy/host", s.allowRunHost)
+	mux.HandleFunc("POST /api/runs/{id}/policy/denial/preview", s.previewRunDenial)
+	mux.HandleFunc("POST /api/runs/{id}/policy/denial", s.applyRunDenial)
 
 	mux.HandleFunc("GET /api/projects", s.listProjects)
 	mux.HandleFunc("POST /api/projects", s.saveProject)
@@ -97,8 +98,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/policies", s.createPolicy)
 	mux.HandleFunc("GET /api/policies/{name}", s.getPolicyContent)
 	mux.HandleFunc("POST /api/policies/{name}", s.savePolicyContent)
-	mux.HandleFunc("POST /api/policies/{name}/host", s.addPolicyHost)
-	mux.HandleFunc("POST /api/policies/{name}/apply", s.applyPolicy)
 	mux.HandleFunc("POST /api/policies/{name}/delete", s.deletePolicy)
 
 	mux.HandleFunc("GET /api/mcps", s.listMCPs)
@@ -159,6 +158,10 @@ func writeError(w http.ResponseWriter, err error) {
 	}
 	if errors.As(err, &missing) {
 		status = http.StatusNotFound
+	}
+	var validation *app.ValidationError
+	if errors.As(err, &validation) {
+		status = http.StatusBadRequest
 	}
 	var noSandbox *app.NoLiveSandboxError
 	if errors.As(err, &noSandbox) {
@@ -574,12 +577,26 @@ func (s *Server) runLogs(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		tail = 0
 	}
-	logs, err := s.app.TailLogs(r.Context(), r.PathValue("id"), tail)
+	runID := r.PathValue("id")
+	logs, err := s.app.TailLogs(r.Context(), runID, tail)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"logs": string(logs)})
+	response := runLogsResponse{Logs: string(logs), Denials: []app.PolicyDenial{}}
+	denials, denialErr := s.app.RunDenials(r.Context(), runID)
+	if denialErr != nil {
+		response.DenialsError = denialErr.Error()
+	} else {
+		response.Denials = denials
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+type runLogsResponse struct {
+	Logs         string             `json:"logs"`
+	Denials      []app.PolicyDenial `json:"denials"`
+	DenialsError string             `json:"denialsError,omitempty"`
 }
 
 func (s *Server) listRunShells(w http.ResponseWriter, r *http.Request) {
@@ -643,57 +660,55 @@ func (s *Server) runPolicyContent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"path": path, "content": content})
 }
 
-type runHostRequest struct {
-	Host string `json:"host"`
-}
-
-type runHostSuccess struct {
-	Outcome    app.PolicyEditOutcome `json:"outcome"`
-	Diff       string                `json:"diff,omitempty"`
-	PolicyPath string                `json:"policyPath,omitempty"`
-}
-
-type runHostFailure struct {
-	Outcome    app.PolicyEditOutcome `json:"outcome,omitempty"`
-	Error      string                `json:"error"`
-	Diff       string                `json:"diff,omitempty"`
-	RolledBack *bool                 `json:"rolledBack,omitempty"`
-}
-
-func (s *Server) allowRunHost(w http.ResponseWriter, r *http.Request) {
-	var request runHostRequest
+func (s *Server) previewRunDenial(w http.ResponseWriter, r *http.Request) {
+	var request app.DenialRequest
 	if !decode(w, r, &request) {
 		return
 	}
-	host := strings.TrimSpace(request.Host)
-	if host == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Host is required."})
+	preview, err := s.app.PreviewDenial(r.Context(), r.PathValue("id"), request)
+	if err != nil {
+		writeError(w, err)
 		return
 	}
-	result, err := s.app.PolicyEdit(r.Context(), r.PathValue("id"), host, "", false)
-	writeRunHostResult(w, result, err)
+	writeJSON(w, http.StatusOK, preview)
 }
 
-func writeRunHostResult(w http.ResponseWriter, result app.PolicyEditResult, err error) {
+func (s *Server) applyRunDenial(w http.ResponseWriter, r *http.Request) {
+	var request app.DenialRequest
+	if !decode(w, r, &request) {
+		return
+	}
+	result, err := s.app.ApplyDenial(r.Context(), r.PathValue("id"), request)
 	if err != nil {
-		switch result.Outcome {
-		case app.PolicyEditNoLiveSandbox:
-			writeJSON(w, http.StatusConflict, runHostFailure{Outcome: result.Outcome, Error: err.Error()})
-		case app.PolicyEditOpenShellRejected:
-			rolledBack := result.RolledBack
-			writeJSON(w, http.StatusInternalServerError, runHostFailure{
-				Outcome: result.Outcome, Error: err.Error(), Diff: result.Diff, RolledBack: &rolledBack,
-			})
-		default:
-			writeError(w, err)
-		}
+		writeDenialApplyFailure(w, result, err)
 		return
 	}
 	status := http.StatusOK
 	if result.Outcome == app.PolicyEditStaticPending {
 		status = http.StatusAccepted
 	}
-	writeJSON(w, status, runHostSuccess{Outcome: result.Outcome, Diff: result.Diff, PolicyPath: result.PolicyPath})
+	writeJSON(w, status, result)
+}
+
+type denialApplyFailure struct {
+	Error      string                `json:"error"`
+	Outcome    app.PolicyEditOutcome `json:"outcome,omitempty"`
+	RolledBack *bool                 `json:"rolledBack,omitempty"`
+	PolicyDiff string                `json:"policyDiff,omitempty"`
+}
+
+func writeDenialApplyFailure(w http.ResponseWriter, result app.DenialApplyResult, err error) {
+	if result.Outcome == app.PolicyEditOpenShellRejected {
+		rolledBack := result.RolledBack
+		writeJSON(w, http.StatusInternalServerError, denialApplyFailure{
+			Error:      err.Error(),
+			Outcome:    result.Outcome,
+			RolledBack: &rolledBack,
+			PolicyDiff: result.PolicyDiff,
+		})
+		return
+	}
+	writeError(w, err)
 }
 
 type projectRequest struct {
@@ -1528,9 +1543,6 @@ func (s *Server) deletePolicy(w http.ResponseWriter, r *http.Request) {
 type policyRequest struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
-	Agent   string `json:"agent"`
-	Host    string `json:"host"`
-	RunID   string `json:"runId"`
 }
 
 func (s *Server) createPolicy(w http.ResponseWriter, r *http.Request) {
@@ -1571,35 +1583,6 @@ func (s *Server) savePolicyContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, policy)
-}
-
-func (s *Server) addPolicyHost(w http.ResponseWriter, r *http.Request) {
-	var request policyRequest
-	if !decode(w, r, &request) {
-		return
-	}
-	if err := s.app.AddPolicyNetworkRule(r.PathValue("name"), request.Agent, request.Host); err != nil {
-		writeError(w, err)
-		return
-	}
-	policy, err := s.app.Store.LoadPolicyConfiguration(r.PathValue("name"))
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, policy)
-}
-
-func (s *Server) applyPolicy(w http.ResponseWriter, r *http.Request) {
-	var request policyRequest
-	if !decode(w, r, &request) {
-		return
-	}
-	if err := s.app.ApplyPolicyConfiguration(r.Context(), r.PathValue("name"), request.RunID); err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, map[string]bool{"ok": true})
 }
 
 func (s *Server) listMCPs(w http.ResponseWriter, r *http.Request) {

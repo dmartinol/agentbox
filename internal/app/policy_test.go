@@ -49,38 +49,70 @@ func TestDefaultPolicyAllowsAgentTemporaryFiles(t *testing.T) {
 	}
 }
 
-func TestAddNetworkRuleProducesValidRuleAndRejectsBadInputs(t *testing.T) {
-	got, err := addNetworkRule(DefaultPolicy(), "codex", "api.example.test", "")
+func TestAddHostRuleScopesExactlyToTheDenial(t *testing.T) {
+	rule := RepoHostRule{Host: "api.example.test", Port: 8443, Binaries: []string{"/usr/bin/curl"}}
+	got, name, err := addHostRule(DefaultPolicy(), rule)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if name != "host-api-example-test-8443" {
+		t.Fatalf("rule name = %q", name)
 	}
 	policy, err := ParsePolicy(got)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rule, ok := policy.Network["host-api-example-test"]
-	wantBinaries := []string{"/usr/local/bin/codex", "/usr/local/bin/node", "/usr/bin/git", "/usr/lib/git-core/**", "/usr/bin/curl", "/usr/bin/git-lfs"}
-	if !ok || rule.Endpoints[0].Host != "api.example.test" || len(rule.Binaries) != len(wantBinaries) {
-		t.Fatalf("unexpected generated rule: %+v", rule)
+	added := policy.Network[name]
+	if len(added.Endpoints) != 1 || added.Endpoints[0].Host != rule.Host || added.Endpoints[0].Port != 8443 {
+		t.Fatalf("endpoint = %+v", added.Endpoints)
 	}
-	for i, want := range wantBinaries {
-		if rule.Binaries[i].Path != want {
-			t.Fatalf("binary %d = %q; want %q", i, rule.Binaries[i].Path, want)
-		}
+	if len(added.Binaries) != 1 || added.Binaries[0].Path != "/usr/bin/curl" {
+		t.Fatalf("binaries = %+v; want only the denied binary", added.Binaries)
 	}
-	override, err := addNetworkRule(DefaultPolicy(), "codex", "api.example.test", "/usr/bin/curl")
+
+	sameHostOtherPort, otherName, err := addHostRule(got, RepoHostRule{Host: rule.Host, Port: 443, Binaries: []string{"/usr/bin/curl"}})
+	if err != nil || otherName == name {
+		t.Fatalf("second port = %q, %v; want a distinct rule", otherName, err)
+	}
+	if parsed, err := ParsePolicy(sameHostOtherPort); err != nil || parsed.Network[otherName].Endpoints[0].Port != 443 {
+		t.Fatalf("second port policy = %+v, %v", parsed.Network, err)
+	}
+
+	merged, mergedName, err := addHostRule(got, RepoHostRule{Host: rule.Host, Port: 8443, Binaries: []string{"/usr/local/bin/node"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := ParsePolicy(override)
+	if mergedName != name {
+		t.Fatalf("merged rule name = %q; want %q", mergedName, name)
+	}
+	parsed, err := ParsePolicy(merged)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if binaries := parsed.Network["host-api-example-test"].Binaries; len(binaries) != 1 || binaries[0].Path != "/usr/bin/curl" {
-		t.Fatalf("explicit binary override = %+v", binaries)
+	if binaries := parsed.Network[name].Binaries; len(binaries) != 2 || binaries[1].Path != "/usr/local/bin/node" {
+		t.Fatalf("merged binaries = %+v", binaries)
 	}
-	if _, err := addNetworkRule(DefaultPolicy(), "codex", "bad host", "relative/curl"); err == nil {
-		t.Fatal("invalid rule input was accepted")
+}
+
+func TestAddHostRuleRejectsWideningAndInvalidScopes(t *testing.T) {
+	if _, _, err := addHostRule(DefaultPolicy(), RepoHostRule{Host: "*.example.test", Port: 443, Binaries: []string{"/usr/bin/curl"}}); err == nil {
+		t.Fatal("wildcard host was accepted")
+	}
+	if _, _, err := addHostRule(DefaultPolicy(), RepoHostRule{Host: "api.example.test", Port: 443, Binaries: []string{"curl"}}); err == nil {
+		t.Fatal("relative binary was accepted")
+	}
+	if _, _, err := addHostRule(DefaultPolicy(), RepoHostRule{Host: "api.example.test", Port: 443, Binaries: []string{"/usr/bin/*"}}); err == nil {
+		t.Fatal("binary wildcard was accepted")
+	}
+	if _, _, err := addHostRule(DefaultPolicy(), RepoHostRule{Host: "api.example.test", Port: 0, Binaries: []string{"/usr/bin/curl"}}); err == nil {
+		t.Fatal("invalid port was accepted")
+	}
+	first, _, err := addHostRule(DefaultPolicy(), RepoHostRule{Host: "api.example.test", Port: 443, Binaries: []string{"/usr/bin/curl"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := addHostRule(first, RepoHostRule{Host: "api.example.test", Port: 443, Binaries: []string{"/usr/bin/curl"}}); err == nil || !strings.Contains(err.Error(), "already allowed") {
+		t.Fatalf("duplicate rule error = %v", err)
 	}
 }
 
@@ -155,131 +187,6 @@ func TestPolicyForAgentRewritesOnlyAgentBinary(t *testing.T) {
 	}
 }
 
-func TestApplyPolicyConfigurationAdaptsAgentAndAppliesNetwork(t *testing.T) {
-	store := Store{Base: t.TempDir()}
-	if err := store.Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	configPath := filepath.Join(store.PolicyDir(), "standard.yaml")
-	config := strings.Replace(string(DefaultPolicy()), "network_policies: {}", `network_policies:
-  host-api:
-    name: host-api
-    endpoints:
-      - host: api.example.test
-        port: 443
-        protocol: tcp
-    binaries:
-      - path: /usr/local/bin/codex
-      - path: /usr/bin/curl
-`, 1)
-	if err := os.WriteFile(configPath, []byte(config), 0600); err != nil {
-		t.Fatal(err)
-	}
-	runPolicy := filepath.Join(store.PolicyDir(), "run-unit123.yaml")
-	if err := os.WriteFile(runPolicy, DefaultPolicy(), 0600); err != nil {
-		t.Fatal(err)
-	}
-	run := Run{ID: "run-unit123", Policy: runPolicy, Sandbox: "sandbox-unit123", Gateway: "gateway-one", Agent: "claude"}
-	if err := store.SaveRun(run); err != nil {
-		t.Fatal(err)
-	}
-	runner := &fakeRunner{}
-	app := App{Store: store, Runner: runner}
-	if err := app.ApplyPolicyConfiguration(context.Background(), "standard", run.ID); err != nil {
-		t.Fatal(err)
-	}
-	applied, err := os.ReadFile(runPolicy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	parsed, err := ParsePolicy(applied)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rule := parsed.Network["host-api"]
-	if rule.Binaries[0].Path != "/usr/local/bin/claude" || rule.Binaries[1].Path != "/usr/bin/curl" {
-		t.Fatalf("applied binaries were not adapted correctly: %+v", rule.Binaries)
-	}
-	if len(runner.outputs) != 1 || runner.outputs[0].name != "openshell" || !commandHasArg(runner.outputs[0], "--wait") {
-		t.Fatalf("policy was not applied live: %#v", runner.outputs)
-	}
-}
-
-func TestApplyPolicyConfigurationKeepsRepositoryFragment(t *testing.T) {
-	store := Store{Base: t.TempDir()}
-	if err := store.Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	configPath := filepath.Join(store.PolicyDir(), "standard.yaml")
-	if err := os.WriteFile(configPath, DefaultPolicy(), 0600); err != nil {
-		t.Fatal(err)
-	}
-	fragmentPath := filepath.Join(store.PolicyDir(), "repo-example.yaml")
-	fragment := strings.Replace(string(DefaultPolicy()), "network_policies: {}", `network_policies:
-  host-proxy-golang-org-443:
-    name: host-proxy-golang-org-443
-    endpoints:
-      - host: proxy.golang.org
-        port: 443
-        protocol: tcp
-    binaries:
-      - path: /usr/local/go/bin/go
-`, 1)
-	if err := os.WriteFile(fragmentPath, []byte(fragment), 0600); err != nil {
-		t.Fatal(err)
-	}
-	composed, err := composeRepoPolicy(DefaultPolicy(), configPath, []byte(fragment), fragmentPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	runPolicy := filepath.Join(store.PolicyDir(), "run-unit123.yaml")
-	if err := os.WriteFile(runPolicy, composed, 0600); err != nil {
-		t.Fatal(err)
-	}
-	run := Run{ID: "run-unit123", Policy: runPolicy, PolicyFragment: fragmentPath, Sandbox: "sandbox-unit123", Gateway: "gateway-one", Agent: "codex"}
-	if err := store.SaveRun(run); err != nil {
-		t.Fatal(err)
-	}
-	app := App{Store: store, Runner: &fakeRunner{}}
-	if err := app.ApplyPolicyConfiguration(context.Background(), "standard", run.ID); err != nil {
-		t.Fatal(err)
-	}
-	applied, err := os.ReadFile(runPolicy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	policy, err := ParsePolicy(applied)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := policy.Network["host-proxy-golang-org-443"]; !ok {
-		t.Fatalf("applied policy lost the repository fragment: %v", policy.Network)
-	}
-}
-
-func TestApplyPolicyConfigurationRequiresRepositoryFragment(t *testing.T) {
-	store := Store{Base: t.TempDir()}
-	if err := store.Ensure(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(store.PolicyDir(), "standard.yaml"), DefaultPolicy(), 0600); err != nil {
-		t.Fatal(err)
-	}
-	runPolicy := filepath.Join(store.PolicyDir(), "run-unit123.yaml")
-	if err := os.WriteFile(runPolicy, DefaultPolicy(), 0600); err != nil {
-		t.Fatal(err)
-	}
-	run := Run{ID: "run-unit123", Policy: runPolicy, PolicyFragment: filepath.Join(store.PolicyDir(), "missing.yaml"), Sandbox: "sandbox-unit123", Gateway: "gateway-one", Agent: "codex"}
-	if err := store.SaveRun(run); err != nil {
-		t.Fatal(err)
-	}
-	app := App{Store: store, Runner: &fakeRunner{}}
-	err := app.ApplyPolicyConfiguration(context.Background(), "standard", run.ID)
-	if err == nil || !strings.Contains(err.Error(), "rebuild it with `agentbox repo setup`") {
-		t.Fatalf("error = %v, want a fragment remediation hint", err)
-	}
-}
-
 func TestSavePolicyEditDefersStaticChanges(t *testing.T) {
 	store := Store{Base: t.TempDir()}
 	if err := store.Ensure(); err != nil {
@@ -336,7 +243,7 @@ func TestSavePolicyEditAppliesNetworkChangeAndRollsBackOnFailure(t *testing.T) {
 			if err := store.SaveRun(run); err != nil {
 				t.Fatal(err)
 			}
-			next, err := addNetworkRule(old, "codex", "api.example.test", "/usr/bin/codex")
+			next, _, err := addHostRule(old, RepoHostRule{Host: "api.example.test", Port: 443, Binaries: []string{"/usr/bin/codex"}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -395,7 +302,7 @@ func TestPolicyConfigurationContentRoundTrip(t *testing.T) {
 	if !bytes.Equal(loaded, DefaultPolicy()) {
 		t.Fatalf("initial content mismatch:\n%s", loaded)
 	}
-	next, err := addNetworkRule(loaded, "codex", "api.example.test", "/usr/local/bin/codex")
+	next, _, err := addHostRule(loaded, RepoHostRule{Host: "api.example.test", Port: 443, Binaries: []string{"/usr/local/bin/codex"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -580,17 +487,6 @@ func TestAgentBinaryDerivesSupportedLauncherOnly(t *testing.T) {
 	if _, err := AgentBinary("unknown"); err == nil {
 		t.Fatal("unsupported agent was accepted")
 	}
-	paths, err := agentEgressBinaries("codex")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"/usr/local/bin/codex", "/usr/local/bin/node", "/usr/bin/git", "/usr/lib/git-core/**", "/usr/bin/curl", "/usr/bin/git-lfs"}
-	if !slices.Equal(paths, want) {
-		t.Fatalf("egress binaries = %#v; want %#v", paths, want)
-	}
-	if _, err := agentEgressBinaries("unknown"); err == nil {
-		t.Fatal("egress binaries accepted an unsupported agent")
-	}
 }
 
 func TestPolicyEditDryRunPreviewsWithoutMutating(t *testing.T) {
@@ -602,7 +498,7 @@ func TestPolicyEditDryRunPreviewsWithoutMutating(t *testing.T) {
 	runner := &fakeRunner{}
 	app.Runner = runner
 
-	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", "", true)
+	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", 443, "/usr/bin/curl", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -634,7 +530,7 @@ func TestPolicyEditDryRunReportsStaticPreview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := app.PolicyEdit(context.Background(), run.ID, "", "", true)
+	result, err := app.PolicyEdit(context.Background(), run.ID, "", 0, "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -669,7 +565,7 @@ func TestPolicyEditAppliesNetworkChangeLive(t *testing.T) {
 	runner := policyEditRunner("session=1\ndead=0\ncommand=codex\nplan=0\nidle=0\nfinished=0\nexit=\nactivity=\nmtime=\n", nil)
 	app.Runner = runner
 
-	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", "", false)
+	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", 443, "/usr/bin/curl", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -710,7 +606,7 @@ func TestPolicyEditRejectsRunWithoutLiveSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", "", false)
+	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", 443, "/usr/bin/curl", false)
 	var noSandbox *NoLiveSandboxError
 	if err == nil || !errors.As(err, &noSandbox) {
 		t.Fatalf("error = %v", err)
@@ -718,7 +614,7 @@ func TestPolicyEditRejectsRunWithoutLiveSandbox(t *testing.T) {
 	if result.Outcome != PolicyEditNoLiveSandbox || result.Diff != "" {
 		t.Fatalf("result = %+v", result)
 	}
-	if err.Error() != "Allow host is available only for Ready, Working, and Waiting agents." {
+	if err.Error() != "Add host is available only for Ready, Working, and Waiting agents." {
 		t.Fatalf("error text = %q", err.Error())
 	}
 	after, readErr := os.ReadFile(path)
@@ -740,7 +636,7 @@ func TestPolicyEditReportsOpenShellRejectionAndRollback(t *testing.T) {
 	}
 	app.Runner = policyEditRunner("session=1\ndead=0\ncommand=codex\nplan=0\nidle=0\nfinished=0\nexit=\nactivity=\nmtime=\n", errors.New("policy rejected"))
 
-	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", "", false)
+	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", 443, "/usr/bin/curl", false)
 	if err == nil || !strings.Contains(err.Error(), "the local policy was restored: policy rejected") {
 		t.Fatalf("error = %v", err)
 	}
@@ -777,11 +673,23 @@ func TestPolicyEditReportsRollbackFailure(t *testing.T) {
 	}
 	app.Runner = runner
 
-	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", "", false)
+	result, err := app.PolicyEdit(context.Background(), run.ID, "api.example.test", 443, "/usr/bin/curl", false)
 	if err == nil || !strings.Contains(err.Error(), "local policy rollback failed") || !strings.Contains(err.Error(), applyErr.Error()) {
 		t.Fatalf("error = %v", err)
 	}
 	if result.Outcome != PolicyEditOpenShellRejected || result.RolledBack || result.Diff == "" {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestAddHostRulePreservesUnmodeledPolicyFields(t *testing.T) {
+	old := append([]byte(nil), DefaultPolicy()...)
+	old = append(old, []byte("# operator note\ncustom_middleware_timeout: 30s\n")...)
+	got, _, err := addHostRule(old, RepoHostRule{Host: "api.example.test", Port: 443, Binaries: []string{"/usr/bin/curl"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "# operator note") || !strings.Contains(string(got), "custom_middleware_timeout: 30s") {
+		t.Fatalf("policy edit dropped unmodeled content:\n%s", got)
 	}
 }

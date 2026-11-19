@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -360,25 +363,6 @@ func (s Store) EditPolicyConfiguration(ctx context.Context, name string) error {
 	return atomicWrite(path, next)
 }
 
-func (a *App) AddPolicyNetworkRule(policyName, agent, host string) error {
-	path, err := a.Store.PolicyConfigurationPath(policyName)
-	if err != nil {
-		return err
-	}
-	old, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	if _, err := ParsePolicy(old); err != nil {
-		return err
-	}
-	next, err := addNetworkRule(old, agent, host, "")
-	if err != nil {
-		return err
-	}
-	return atomicWrite(path, next)
-}
-
 func (a *App) PolicyShow(ctx context.Context, runID string) (map[string]json.RawMessage, error) {
 	r, err := a.Store.LoadRun(runID)
 	if err != nil {
@@ -409,7 +393,7 @@ func (a *App) PolicyShow(ctx context.Context, runID string) (map[string]json.Raw
 	return out, nil
 }
 
-func (a *App) PolicyEdit(ctx context.Context, runID, allowHost, binary string, dry bool) (PolicyEditResult, error) {
+func (a *App) PolicyEdit(ctx context.Context, runID, allowHost string, port int, binary string, dry bool) (PolicyEditResult, error) {
 	var result PolicyEditResult
 	r, err := a.Store.LoadRun(runID)
 	if err != nil {
@@ -451,7 +435,13 @@ func (a *App) PolicyEdit(ctx context.Context, runID, allowHost, binary string, d
 		return result, err
 	}
 	if allowHost != "" {
-		next, err := addNetworkRule(old, r.Agent, allowHost, binary)
+		if port == 0 {
+			port = 443
+		}
+		if binary == "" {
+			return result, &ValidationError{Message: "A scoped host rule needs the exact --binary that made the request; read it from the run's denial entry."}
+		}
+		next, _, err := addHostRule(old, RepoHostRule{Host: allowHost, Port: port, Binaries: []string{binary}})
 		if err != nil {
 			return result, err
 		}
@@ -493,57 +483,166 @@ func (a *App) PolicyEdit(ctx context.Context, runID, allowHost, binary string, d
 	return result, err
 }
 
-func addNetworkRule(old []byte, agent, host, binary string) ([]byte, error) {
-	paths, err := agentEgressBinaries(agent)
-	if err != nil {
-		return nil, err
+// addHostRule appends one denial-scoped rule to a materialized run policy. It
+// reuses an existing rule for the same host and port and adds only the denied
+// binary, because the manifest rejects duplicate host/port entries. The YAML
+// document is edited as nodes so comments and fields AgentBox does not model
+// survive the change.
+func addHostRule(old []byte, rule RepoHostRule) ([]byte, string, error) {
+	if len(rule.Binaries) != 1 {
+		return nil, "", &ValidationError{Message: "A scoped host rule needs exactly one binary."}
 	}
-	if binary != "" {
-		paths = []string{binary}
+	if err := ValidateHostRule(rule); err != nil {
+		return nil, "", &ValidationError{Message: err.Error()}
 	}
-	for _, path := range paths {
-		if !strings.HasPrefix(path, "/") {
-			return nil, fmt.Errorf("binary must be an absolute path")
+	if _, err := ParsePolicy(old); err != nil {
+		return nil, "", err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(old, &doc); err != nil {
+		return nil, "", fmt.Errorf("invalid YAML: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, "", fmt.Errorf("policy must be a YAML mapping")
+	}
+	root := doc.Content[0]
+	network := mappingValue(root, "network_policies")
+	if network == nil {
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "network_policies"},
+			&yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"},
+		)
+		network = root.Content[len(root.Content)-1]
+	}
+	if network.Kind != yaml.MappingNode {
+		return nil, "", fmt.Errorf("network_policies: must be a mapping")
+	}
+
+	binary := rule.Binaries[0]
+	target := -1
+	for i := 0; i+1 < len(network.Content); i += 2 {
+		value := network.Content[i+1]
+		endpoints := mappingValue(value, "endpoints")
+		if endpoints == nil || endpoints.Kind != yaml.SequenceNode || len(endpoints.Content) != 1 {
+			continue
+		}
+		host := mappingValue(endpoints.Content[0], "host")
+		port := mappingValue(endpoints.Content[0], "port")
+		if host == nil || port == nil {
+			continue
+		}
+		entryPort, err := strconv.Atoi(port.Value)
+		if err != nil || !strings.EqualFold(host.Value, rule.Host) || entryPort != rule.Port {
+			continue
+		}
+		binaries := mappingValue(value, "binaries")
+		if binaries == nil || binaries.Kind != yaml.SequenceNode {
+			return nil, "", fmt.Errorf("network_policies.%s: existing rule has no binaries list", network.Content[i].Value)
+		}
+		for _, existing := range binaries.Content {
+			path := existing.Value
+			if node := mappingValue(existing, "path"); node != nil {
+				path = node.Value
+			}
+			if path == binary {
+				return nil, "", &ValidationError{Message: fmt.Sprintf("%s:%d is already allowed for %s by rule %q.", rule.Host, rule.Port, binary, network.Content[i].Value)}
+			}
+		}
+		if target < 0 {
+			target = i
 		}
 	}
-	name := "host-" + strings.NewReplacer(".", "-", ":", "-").Replace(host)
-	if !safeName.MatchString(name) {
-		return nil, fmt.Errorf("invalid host")
+	if target >= 0 {
+		name := network.Content[target].Value
+		binaries := mappingValue(network.Content[target+1], "binaries")
+		binaries.Content = append(binaries.Content, &yaml.Node{
+			Kind: yaml.MappingNode,
+			Tag:  "!!map",
+			Content: []*yaml.Node{
+				{Kind: yaml.ScalarNode, Tag: "!!str", Value: "path"},
+				{Kind: yaml.ScalarNode, Tag: "!!str", Value: binary},
+			},
+		})
+		next, err := marshalPolicyDocument(&doc)
+		return next, name, err
 	}
-	var root map[string]any
-	if err := yaml.Unmarshal(old, &root); err != nil {
-		return nil, err
+
+	name, err := repoHostRuleName(rule.Host, rule.Port)
+	if err != nil {
+		return nil, "", &ValidationError{Message: err.Error()}
 	}
-	net, ok := root["network_policies"].(map[string]any)
-	if !ok {
-		net = map[string]any{}
+	if mappingValue(network, name) != nil {
+		sum := sha256.Sum256([]byte(binary))
+		for i := 0; ; i++ {
+			suffix := "-" + hex.EncodeToString(sum[:3])
+			if i > 0 {
+				suffix = fmt.Sprintf("-%s-%d", hex.EncodeToString(sum[:3]), i)
+			}
+			base := name
+			if len(base)+len(suffix) > 63 {
+				base = base[:63-len(suffix)]
+			}
+			candidate := base + suffix
+			if mappingValue(network, candidate) == nil {
+				name = candidate
+				break
+			}
+		}
 	}
-	binaries := make([]map[string]any, 0, len(paths))
-	for _, path := range paths {
-		binaries = append(binaries, map[string]any{"path": path})
-	}
-	net[name] = map[string]any{"name": name, "endpoints": []map[string]any{{"host": host, "port": 443, "protocol": "tcp"}}, "binaries": binaries}
-	root["network_policies"] = net
-	return yaml.Marshal(root)
+	network.Content = append(network.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name},
+		&yaml.Node{
+			Kind: yaml.MappingNode,
+			Tag:  "!!map",
+			Content: []*yaml.Node{
+				{Kind: yaml.ScalarNode, Tag: "!!str", Value: "name"},
+				{Kind: yaml.ScalarNode, Tag: "!!str", Value: name},
+				{Kind: yaml.ScalarNode, Tag: "!!str", Value: "endpoints"},
+				{
+					Kind: yaml.SequenceNode,
+					Tag:  "!!seq",
+					Content: []*yaml.Node{{
+						Kind: yaml.MappingNode,
+						Tag:  "!!map",
+						Content: []*yaml.Node{
+							{Kind: yaml.ScalarNode, Tag: "!!str", Value: "host"},
+							{Kind: yaml.ScalarNode, Tag: "!!str", Value: rule.Host},
+							{Kind: yaml.ScalarNode, Tag: "!!str", Value: "port"},
+							{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(rule.Port)},
+							{Kind: yaml.ScalarNode, Tag: "!!str", Value: "protocol"},
+							{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tcp"},
+						},
+					}},
+				},
+				{Kind: yaml.ScalarNode, Tag: "!!str", Value: "binaries"},
+				{
+					Kind: yaml.SequenceNode,
+					Tag:  "!!seq",
+					Content: []*yaml.Node{{
+						Kind: yaml.MappingNode,
+						Tag:  "!!map",
+						Content: []*yaml.Node{
+							{Kind: yaml.ScalarNode, Tag: "!!str", Value: "path"},
+							{Kind: yaml.ScalarNode, Tag: "!!str", Value: binary},
+						},
+					}},
+				},
+			},
+		},
+	)
+	next, err := marshalPolicyDocument(&doc)
+	return next, name, err
 }
 
-// agentEgressBinaries lists the executables that actually open sockets for a
-// run. The supported agents are Node applications, so matching only the
-// launcher path misses the node process, and git uses a separate HTTPS helper.
-// A host rule must include all of them to take effect.
-func agentEgressBinaries(agent string) ([]string, error) {
-	agentBinary, err := AgentBinary(agent)
+func marshalPolicyDocument(doc *yaml.Node) ([]byte, error) {
+	out, err := yaml.Marshal(doc)
 	if err != nil {
 		return nil, err
 	}
-	return []string{
-		agentBinary,
-		"/usr/local/bin/node",
-		"/usr/bin/git",
-		"/usr/lib/git-core/**",
-		"/usr/bin/curl",
-		"/usr/bin/git-lfs",
-	}, nil
+	if _, err := ParsePolicy(out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // AgentBinary returns the launcher path for a supported agent inside its
@@ -576,47 +675,6 @@ func PolicyForAgent(policy []byte, agent string) ([]byte, error) {
 
 func isAgentBinary(path string) bool {
 	return path == "/usr/local/bin/claude" || path == "/usr/local/bin/codex" || path == "/usr/local/bin/opencode"
-}
-
-func (a *App) ApplyPolicyConfiguration(ctx context.Context, policyName, runID string) error {
-	path, err := a.Store.PolicyConfigurationPath(policyName)
-	if err != nil {
-		return err
-	}
-	config, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	if _, err := ParsePolicy(config); err != nil {
-		return err
-	}
-	run, err := a.Store.LoadRun(runID)
-	if err != nil {
-		return err
-	}
-	next, err := PolicyForAgent(config, run.Agent)
-	if err != nil {
-		return err
-	}
-	if run.PolicyFragment != "" {
-		fragment, err := os.ReadFile(run.PolicyFragment)
-		if err != nil {
-			return fmt.Errorf("run policy fragment %s is unavailable; rebuild it with `agentbox repo setup`: %w", run.PolicyFragment, err)
-		}
-		next, err = composeRepoPolicy(next, path, fragment, run.PolicyFragment)
-		if err != nil {
-			return err
-		}
-	}
-	old, err := os.ReadFile(run.Policy)
-	if err != nil {
-		return err
-	}
-	if _, err := ParsePolicy(old); err != nil {
-		return err
-	}
-	_, err = a.savePolicyEdit(ctx, run, old, next)
-	return err
 }
 
 func policyHasStaticChanges(oldPolicy, newPolicy Policy) bool {
@@ -669,7 +727,7 @@ func (a *App) savePolicyEdit(ctx context.Context, r Run, old, next []byte) (Poli
 
 // RunPolicyFile returns the run-scoped policy YAML and its path. Reusable
 // policy configurations are templates; each run copies one at start and the
-// Allow host action edits that copy.
+// Add host action edits that copy.
 func (a *App) RunPolicyFile(runID string) (string, string, error) {
 	r, err := a.Store.LoadRun(runID)
 	if err != nil {
