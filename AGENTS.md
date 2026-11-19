@@ -161,6 +161,10 @@ make race
 - Keep screenshots current when the Fleet or Setup visual layout changes.
 - Do not move user-facing installation or usage instructions into issue
   comments or private notes.
+- Write pull request and issue bodies from `.github/orchestrator/pr.md` and
+  `.github/orchestrator/issue.md`. Keep their scan layer short enough to read
+  without opening the diff, and keep the provenance marker, gate results, and
+  `Closes #<issue>` line intact.
 
 ## Review checklist
 
@@ -169,6 +173,8 @@ Before declaring work complete, verify that:
 - the change advances one of the three product jobs;
 - no secret value appears in code, logs, tests, fixtures, or documentation;
 - tests cover the changed behavior;
+- the pull request's `Independent checks` table names the verifier and reviewer,
+  their results, and the reviewed commit instead of leaving `pending`;
 - the GUI remains compact and does not add a new top-level surface;
 - backend logic remains in `internal/app`;
 - embedded GUI assets are current;

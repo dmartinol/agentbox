@@ -181,7 +181,10 @@ PRs, gated merge, and close, with a GitHub tracker adapter). The
 orchestrator skill also installs
 `issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`, and
 `verify-task.md` beside its `SKILL.md`, so an installed copy carries the
-templates it tells the orchestrator to use.
+templates it tells the orchestrator to use. This repository overrides the two
+body templates with `.github/orchestrator/pr.md` and
+`.github/orchestrator/issue.md`, which keep a short scan layer for humans and
+defer file-level detail to collapsible sections.
 
 Each skill's `SKILL.md` opens with sample prompts that trigger it; the short
 version:
@@ -191,6 +194,8 @@ version:
 | `agentbox-cli` | "Start a codex run on the demo project" · "what agents are running?" · "the agent can't reach api.example.com — fix it" · "set up AgentBox for this repository" · "the agent's sandbox is missing make and go — fix it" · "stop the run but keep the work" |
 | `agentbox-api` | "List every agent run through the AgentBox API" · "start a run from a script" · "where do I change the gateway setting in the web UI?" |
 | `agentbox-orchestrator` | "Take issue 35 to a merged pull request with the orchestrator flow" · "run the orchestrator on issue 42" · "resume the orchestrator run on issue 42" |
+
+### Agent roles
 
 The same install writes eight harness agent roles in each harness's native
 format: the `agentbox-orchestrator` controller plus `agentbox-triage`,
