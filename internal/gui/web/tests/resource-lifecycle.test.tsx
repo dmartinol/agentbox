@@ -78,12 +78,11 @@ describe('resource lifecycle panels', () => {
     expect(await screen.findByText('Project unused deleted')).toBeInTheDocument();
   });
 
-  it('guards profiles for active runs and the last profile for an agent', async () => {
+  it('guards profiles for active runs', async () => {
     mockRoutes({
       'GET /api/profiles': [
         { version: 1, name: 'active', agent: 'codex', mode: 'standard', used_by: ['active-run'] },
-        { version: 1, name: 'only', agent: 'claude', mode: 'standard', last_for_agent: true },
-        { version: 1, name: 'extra', agent: 'claude', mode: 'standard' }
+        { version: 1, name: 'only', agent: 'claude', mode: 'standard' }
       ],
       'GET /api/images': [],
       'GET /api/providers': []
@@ -93,9 +92,8 @@ describe('resource lifecycle panels', () => {
     const only = screen.getByText('only').closest('tr');
     if (!active || !only) throw new Error('profile rows missing');
     expect(within(active).getByText('Used by active runs: active-run')).toBeInTheDocument();
-    expect(within(only).getByText('Last profile for its agent')).toBeInTheDocument();
     expect(within(active).getByRole('button', { name: 'Delete' })).toHaveAttribute('aria-disabled', 'true');
-    expect(within(only).getByRole('button', { name: 'Delete' })).toHaveAttribute('aria-disabled', 'true');
+    expect(within(only).getByRole('button', { name: 'Delete' })).not.toHaveAttribute('aria-disabled', 'true');
   });
 
   it('shows compact project repository status and textual worker state', async () => {

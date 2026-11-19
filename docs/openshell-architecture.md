@@ -87,7 +87,7 @@ uses the same application-level guard model as images:
 | Resource | Removed by delete | Blocks delete | Kept by delete |
 | --- | --- | --- | --- |
 | Project | `projects/<name>.yaml` | any run, terminal or not | checkout, worktree, run records |
-| Profile | `profiles/<name>.yaml` | a non-terminal run using it; being the only profile for `Profile.Agent` | image, policy, run records |
+| Profile | `profiles/<name>.yaml` | a non-terminal run using it | image, policy, run records |
 | Policy | `policies/<name>.yaml` | a profile reference; an existing generated default named `policies/<profile>.yaml` | profiles |
 | Gateway | local OpenShell registration via `openshell gateway remove <name>` | a non-terminal run using the gateway | remote gateway, sandboxes, run records |
 | MCP or Skills entry | `mcps/<name>.yaml` or `skills/<name>.yaml` | none | global/host configuration |

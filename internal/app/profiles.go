@@ -7,29 +7,16 @@ import (
 )
 
 type ProfileUsage struct {
-	UsedBy       map[string][]string
-	LastForAgent map[string]bool
+	UsedBy map[string][]string
 }
 
 func (a *App) ProfileUsage() (ProfileUsage, error) {
-	profiles, err := a.Store.ListProfiles()
-	if err != nil {
-		return ProfileUsage{}, err
-	}
 	runs, err := a.Store.ListRuns()
 	if err != nil {
 		return ProfileUsage{}, err
 	}
 	usage := ProfileUsage{
-		UsedBy:       make(map[string][]string),
-		LastForAgent: make(map[string]bool),
-	}
-	counts := make(map[string]int)
-	for _, profile := range profiles {
-		counts[profile.Agent]++
-	}
-	for _, profile := range profiles {
-		usage.LastForAgent[profile.Name] = counts[profile.Agent] == 1
+		UsedBy: make(map[string][]string),
 	}
 	for _, run := range runs {
 		if run.ProfileName == "" || terminalRunStatus(run.Status) {
@@ -56,9 +43,6 @@ func (a *App) DeleteProfile(name string) error {
 	}
 	if dependents := usage.UsedBy[name]; len(dependents) > 0 {
 		return &ConflictError{Resource: "profile", Name: name, Reason: "non-terminal runs use it", Dependents: dependents}
-	}
-	if usage.LastForAgent[name] {
-		return &ConflictError{Resource: "profile", Name: name, Reason: "it is the last profile for its agent"}
 	}
 	return a.Store.DeleteProfile(name)
 }
