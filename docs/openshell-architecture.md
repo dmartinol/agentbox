@@ -429,27 +429,38 @@ At run start, AgentBox derives each run policy in this order:
 
 1. starts from `DefaultPolicy`, which owns filesystem access, the sandbox
    process user/group, and `landlock.compatibility: hard_requirement`;
-2. adds a binary-scoped provider rule scoped to the selected agent's launcher;
-3. when `Profile.Policy` is a legacy path, adds only that file's network rules;
-4. when a repository image is active, unions the repository fragment's network
+2. when `Profile.Policy` is a legacy path, adds only that file's network rules;
+3. when a repository image is active, unions the repository fragment's network
    rules.
 
-Provider and repository rules with the same canonical scope collapse to one.
-The same endpoint with different binaries remains separate. Any rule with the
-same name but different content is rejected. A legacy file cannot
-replace the default static sections. AgentBox writes a run-specific policy,
-passes it to OpenShell during sandbox creation, and verifies the effective
-policy before starting the agent.
+AgentBox does not write the provider endpoint into the run policy. It attaches
+the provider with `openshell sandbox create --provider`, and OpenShell composes
+`_provider_<provider>` from the registered provider profile, including the
+endpoint's host, port, path, protocol, and binary scopes. Writing the endpoint
+again as a bare TCP rule makes both rules cover the same host and port with
+different metadata, and OpenShell rejects the sandbox for network endpoint
+ambiguity. `VerifyEffectivePolicy` still requires the composed endpoint to be
+present in `openshell policy get --full` for both standard and gateway mode.
+
+Legacy and repository rules must not re-declare the provider endpoint. AgentBox
+rejects such a rule before sandbox creation and names the rule, source file,
+and duplicate host:port.
+
+Legacy and repository rules with the same canonical scope collapse to one. The
+same endpoint with different binaries remains separate. Any rule with the same
+name but different content is rejected. A legacy file cannot replace the
+default static sections. AgentBox writes a run-specific policy, passes it to
+OpenShell during sandbox creation, and verifies the effective policy before
+starting the agent.
 
 Standard mode derives its host from the built-in `openai` or `anthropic`
 provider. Gateway mode derives host and port from `Profile.BaseURL`, using 443
 for `https` and 80 for `http` unless the absolute URL has an explicit port.
-Provider rule names use `provider-<slug>-<port>`; long names are shortened
-with a SHA-256 suffix.
 
 The run records a `policy_provenance` object with its source
-(`derived` or `derived+legacy`), gateway, provider, mode, host, port, provider
-rule, agent binary, and optional legacy path. Historical runs without the
+(`derived` or `derived+legacy`), gateway, provider, mode, host, port, the
+OpenShell-composed provider rule (`_provider_<provider>`), agent binary, and
+optional legacy path. Historical runs without the
 object display **Not recorded (pre-#79 run)**.
 
 The Projects API reports repository policy status read-only: manifest presence,
@@ -501,7 +512,9 @@ failure still leaves the live fix recorded.
 
 A successful edit returns the path it wrote as `policyPath`. Reusable policy
 configurations are only templates, so run copies are excluded from
-`GET /api/policies`; the Setup sheet no longer has a Policies tab.
+`GET /api/policies`; the Setup sheet no longer has a Policies tab or fetches
+policies. The profile form shows the generated default or an existing legacy
+path read-only and offers **Use AgentBox default** to clear a legacy path.
 `GET /api/runs/{id}/policy/content` returns that run copy as
 `{"path":"...","content":"..."}` for inspection. The local policy API retains
 legacy `Profile.Policy` editing and listing, but only profiles that select a

@@ -1,8 +1,6 @@
 package app
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net/url"
 	"os"
@@ -88,19 +86,26 @@ func invalidBaseURLPort(rawURL string) string {
 	return ""
 }
 
-func providerRuleName(host string, port int) string {
-	slug := strings.Trim(strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			return r
+// providerPolicyRuleName mirrors the rule name OpenShell composes from an
+// attached provider profile. AgentBox does not write this rule itself: doing
+// so duplicates the endpoint with different metadata and OpenShell rejects the
+// sandbox for ambiguous network policy.
+func providerPolicyRuleName(provider string) string {
+	return "_provider_" + provider
+}
+
+// rejectProviderEndpointOverlap blocks legacy and repository rules from
+// re-declaring the endpoint that OpenShell composes from the attached provider.
+// OpenShell refuses the sandbox when two rules cover the same host and port
+// with different endpoint metadata, so the failure is surfaced before sandbox
+// creation with an actionable message.
+func rejectProviderEndpointOverlap(name string, rule NetworkRule, source string, endpoint providerEndpoint) error {
+	for _, candidate := range rule.Endpoints {
+		if strings.EqualFold(candidate.Host, endpoint.host) && candidate.Port == endpoint.port {
+			return fmt.Errorf("network rule %q from %s allows %s:%d, which OpenShell composes from provider %q; remove that endpoint from the rule or use the AgentBox default policy", name, source, endpoint.host, endpoint.port, endpoint.provider)
 		}
-		return '-'
-	}, strings.ToLower(host)), "-")
-	name := fmt.Sprintf("provider-%s-%d", slug, port)
-	if len(name) <= 63 {
-		return name
 	}
-	sum := sha256.Sum256([]byte(name))
-	return name[:56] + "-" + hex.EncodeToString(sum[:3])
+	return nil
 }
 
 func (a *App) legacyPolicyNetwork(profile Profile) (map[string]NetworkRule, string, error) {
@@ -110,13 +115,13 @@ func (a *App) legacyPolicyNetwork(profile Profile) (map[string]NetworkRule, stri
 	legacy, err := os.ReadFile(profile.Policy)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, "", fmt.Errorf("profile %q references missing legacy policy file %s; restore it, select another policy, or use the generated default", profile.Name, profile.Policy)
+			return nil, "", fmt.Errorf("profile %q references missing legacy policy file %s; restore it or use the AgentBox default policy", profile.Name, profile.Policy)
 		}
 		return nil, "", err
 	}
 	network, err := legacyNetworkForAgent(legacy, profile.Agent)
 	if err != nil {
-		return nil, "", fmt.Errorf("profile %q legacy policy %s is invalid: %v; fix it or select the generated default", profile.Name, profile.Policy, err)
+		return nil, "", fmt.Errorf("profile %q legacy policy %s is invalid: %v; fix it or use the AgentBox default policy", profile.Name, profile.Policy, err)
 	}
 	return network, profile.Policy, nil
 }
@@ -150,18 +155,12 @@ func deriveRunPolicy(profile Profile, gateway string, legacy map[string]NetworkR
 		return nil, nil, err
 	}
 	policy.Network = map[string]NetworkRule{}
-	ruleName := providerRuleName(endpoint.host, endpoint.port)
-	providerRule := NetworkRule{
-		Name:      ruleName,
-		Endpoints: []Endpoint{{Host: endpoint.host, Port: endpoint.port, Protocol: "tcp"}},
-		Binaries:  []Binary{{Path: agentBinary}},
-	}
-	if err := mergeNetworkRule(&policy, ruleName, providerRule, "generated provider rule"); err != nil {
-		return nil, nil, fmt.Errorf("profile %q cannot derive its run policy: %w", profile.Name, err)
-	}
 	for _, name := range sortedNetworkRuleNames(legacy) {
 		rule := legacy[name]
 		rule.Name = name
+		if err := rejectProviderEndpointOverlap(name, rule, "legacy policy "+legacyPath, endpoint); err != nil {
+			return nil, nil, fmt.Errorf("profile %q cannot derive its run policy: %w", profile.Name, err)
+		}
 		if err := mergeNetworkRule(&policy, name, rule, "legacy policy "+legacyPath); err != nil {
 			return nil, nil, fmt.Errorf("profile %q cannot derive its run policy: %w", profile.Name, err)
 		}
@@ -177,6 +176,9 @@ func deriveRunPolicy(profile Profile, gateway string, legacy map[string]NetworkR
 		for _, name := range sortedNetworkRuleNames(fragment.Network) {
 			rule := fragment.Network[name]
 			rule.Name = name
+			if err := rejectProviderEndpointOverlap(name, rule, "repository fragment "+runImage.FragmentPath, endpoint); err != nil {
+				return nil, nil, fmt.Errorf("profile %q cannot derive its run policy: %w", profile.Name, err)
+			}
 			if err := mergeNetworkRule(&policy, name, rule, "repository fragment "+runImage.FragmentPath); err != nil {
 				return nil, nil, fmt.Errorf("profile %q cannot derive its run policy: %w", profile.Name, err)
 			}
@@ -192,7 +194,7 @@ func deriveRunPolicy(profile Profile, gateway string, legacy map[string]NetworkR
 	provenance := &RunPolicyProvenance{
 		Source: "derived", Gateway: gateway, Provider: endpoint.provider,
 		Mode: profile.Mode, Host: endpoint.host, Port: endpoint.port,
-		Rule: ruleName, AgentBinary: agentBinary, LegacyPath: legacyPath,
+		Rule: providerPolicyRuleName(endpoint.provider), AgentBinary: agentBinary, LegacyPath: legacyPath,
 	}
 	if legacyPath != "" {
 		provenance.Source = "derived+legacy"

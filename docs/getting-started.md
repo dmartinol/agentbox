@@ -92,7 +92,7 @@ agentbox profile create \
   codex-gateway
 ```
 
-Replace `REPLACE_VERSION` with the version shown by `agentbox image list`. Make sure the named credential variable is available to the OpenShell gateway process. Leave `--policy` out to create and use the profile's default policy.
+Replace `REPLACE_VERSION` with the version shown by `agentbox image list`. Make sure the named credential variable is available to the OpenShell gateway process. Leave `--policy` out to create and use the profile's default policy. In the GUI, the profile form shows that default or an existing legacy path read-only; **Use AgentBox default** clears a legacy reference.
 
 New profiles default to `approval: unattended`, which runs without permission
 prompts. Add `--approval prompted` when creating a profile if you want
@@ -151,4 +151,4 @@ the sandbox stops.
 agentbox gui
 ```
 
-Open the address printed by the command (default `http://127.0.0.1:8080`). Fleet shows agents grouped by project; **Setup** contains providers, profiles, projects, images, gateways, MCP tools, skills, and advanced diagnostics. Legacy policy files are managed with `agentbox policy` or the `/api/policies` endpoints, and each run's derived policy is read-only under **View policy**.
+Open the address printed by the command (default `http://127.0.0.1:8080`). Fleet shows agents grouped by project; **Setup** contains providers, profiles, projects, images, gateways, MCP tools, skills, and advanced diagnostics. Policies are managed with `agentbox policy` or the `/api/policies` endpoints; Setup shows a profile's generated default or legacy path read-only and cannot select policies. Each run's derived policy is read-only under **View policy**.

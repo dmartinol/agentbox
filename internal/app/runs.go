@@ -317,29 +317,27 @@ func (a *App) VerifyEffectivePolicy(ctx context.Context, r Run, p Profile) error
 		return err
 	}
 	s := strings.ToLower(string(b))
-	if r.Mode == "gateway" {
-		endpoint, err := deriveProviderEndpoint(p)
-		if err != nil {
-			return err
-		}
-		var effective Policy
-		if err := yaml.Unmarshal(b, &effective); err != nil {
-			return fmt.Errorf("effective policy could not be parsed: %w", err)
-		}
-		endpointAllowed := false
-		for _, rule := range effective.Network {
-			for _, candidate := range rule.Endpoints {
-				if strings.EqualFold(candidate.Host, endpoint.host) && candidate.Port == endpoint.port {
-					endpointAllowed = true
-				}
+	endpoint, err := deriveProviderEndpoint(p)
+	if err != nil {
+		return err
+	}
+	var effective Policy
+	if err := yaml.Unmarshal(b, &effective); err != nil {
+		return fmt.Errorf("effective policy could not be parsed: %w", err)
+	}
+	endpointAllowed := false
+	for _, rule := range effective.Network {
+		for _, candidate := range rule.Endpoints {
+			if strings.EqualFold(candidate.Host, endpoint.host) && candidate.Port == endpoint.port {
+				endpointAllowed = true
 			}
 		}
-		if !endpointAllowed {
-			return fmt.Errorf("effective policy lacks gateway endpoint %q; provider not ready", fmt.Sprintf("%s:%d", endpoint.host, endpoint.port))
-		}
-		if strings.Contains(s, "api.openai.com") || strings.Contains(s, "api.anthropic.com") {
-			return fmt.Errorf("effective policy allows direct model-provider egress in gateway mode")
-		}
+	}
+	if !endpointAllowed {
+		return fmt.Errorf("effective policy lacks provider endpoint %q; provider %q is not ready", fmt.Sprintf("%s:%d", endpoint.host, endpoint.port), p.Provider)
+	}
+	if p.Mode == "gateway" && (strings.Contains(s, "api.openai.com") || strings.Contains(s, "api.anthropic.com")) {
+		return fmt.Errorf("effective policy allows direct model-provider egress in gateway mode")
 	}
 	if r.Approval == "unattended" {
 		if !strings.Contains(s, "hard_requirement") {
