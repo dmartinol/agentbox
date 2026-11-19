@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,6 +74,15 @@ func writeRepoManifest(t *testing.T, root, manifest string) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(manifest), 0o644)
+}
+
+func (f *runImageFixture) fragmentDigest(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile(f.fragmentPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return contentDigest(b)
 }
 
 func (f *runImageFixture) digest() string {
@@ -359,7 +369,7 @@ func TestComposeRepoPolicyUnionsRules(t *testing.T) {
 		},
 	})
 
-	composed, err := composeRepoPolicy(base, fragment)
+	composed, err := composeRepoPolicy(base, "profile.yaml", fragment, "repo.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +401,7 @@ func TestComposeRepoPolicyDedupesIdenticalRules(t *testing.T) {
 	fragmentRule.Endpoints = []Endpoint{{Host: "registry.npmjs.org", Port: 443}}
 	fragment := testPolicyBytes(t, map[string]NetworkRule{"registry": fragmentRule})
 
-	composed, err := composeRepoPolicy(base, fragment)
+	composed, err := composeRepoPolicy(base, "profile.yaml", fragment, "repo.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +430,7 @@ func TestComposeRepoPolicyRejectsConflictingScope(t *testing.T) {
 		},
 	})
 
-	_, err := composeRepoPolicy(base, fragment)
+	_, err := composeRepoPolicy(base, "profile.yaml", fragment, "repo.yaml")
 	if err == nil || !strings.Contains(err.Error(), `network rule "go-module"`) {
 		t.Fatalf("conflict error = %v", err)
 	}
@@ -447,8 +457,8 @@ func TestStartRecordsRepositoryImage(t *testing.T) {
 	if run.BaseImage != f.baseRef || run.ImageRepo != "github.com/owner/repo" {
 		t.Fatalf("provenance = base %q repo %q", run.BaseImage, run.ImageRepo)
 	}
-	if run.ManifestDigest != f.digest() || run.PolicyFragment != f.fragmentPath() {
-		t.Fatalf("policy provenance = digest %q fragment %q", run.ManifestDigest, run.PolicyFragment)
+	if run.ManifestDigest != f.digest() || run.PolicyFragment != f.fragmentPath() || run.PolicyFragmentDigest != f.fragmentDigest(t) {
+		t.Fatalf("policy provenance = digest %q fragment %q (%q)", run.ManifestDigest, run.PolicyFragment, run.PolicyFragmentDigest)
 	}
 	if len(run.ImageWarnings) != 0 {
 		t.Fatalf("warnings = %v", run.ImageWarnings)
@@ -461,7 +471,7 @@ func TestStartRecordsRepositoryImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Image != run.Image || loaded.BaseImage != run.BaseImage || loaded.ImageSource != run.ImageSource || loaded.ImageRepo != run.ImageRepo || loaded.ManifestDigest != run.ManifestDigest || loaded.PolicyFragment != run.PolicyFragment {
+	if loaded.Image != run.Image || loaded.BaseImage != run.BaseImage || loaded.ImageSource != run.ImageSource || loaded.ImageRepo != run.ImageRepo || loaded.ManifestDigest != run.ManifestDigest || loaded.PolicyFragment != run.PolicyFragment || loaded.PolicyFragmentDigest != run.PolicyFragmentDigest {
 		t.Fatalf("run record lost image provenance: %+v", loaded)
 	}
 }
@@ -516,5 +526,213 @@ func TestStartProfileImageForcesProfileBase(t *testing.T) {
 	}
 	if len(run.ImageWarnings) != 0 || run.PolicyFragment != "" {
 		t.Fatalf("forced profile image reported repository provenance: %+v", run)
+	}
+}
+
+func TestResolveRunImageFallsBackWhenManifestInvalid(t *testing.T) {
+	f := newRunImageFixture(t, "schema: 1\nunknown_field: true\n")
+	app, runner := f.app(t, f.baseRecord("0.169.0"))
+
+	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if image.Source != ImageSourceProfile || image.Image != f.baseRef {
+		t.Fatalf("image = %+v, want the profile image", image)
+	}
+	if image.ManifestDigest != "" {
+		t.Fatalf("digest = %q, want empty for an unusable manifest", image.ManifestDigest)
+	}
+	if len(image.Warnings) != 1 || !strings.Contains(image.Warnings[0], "unusable") {
+		t.Fatalf("warnings = %v, want an unusable-manifest warning", image.Warnings)
+	}
+	for _, call := range runner.outputs {
+		if call.name == "podman" {
+			t.Fatalf("an unusable manifest must not inspect images: %v", call)
+		}
+	}
+}
+
+func TestResolveRunImageFallsBackWhenManifestUnreadable(t *testing.T) {
+	f := newRunImageFixture(t, "")
+	if err := os.MkdirAll(RepoConfigPath(f.root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	app, _ := f.app(t, f.baseRecord("0.169.0"))
+
+	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if image.Source != ImageSourceProfile {
+		t.Fatalf("source = %q, want profile", image.Source)
+	}
+	if len(image.Warnings) != 1 || !strings.Contains(image.Warnings[0], "unreadable") {
+		t.Fatalf("warnings = %v, want an unreadable-manifest warning", image.Warnings)
+	}
+}
+
+func TestResolveRunImageFallsBackWhenInventoryFails(t *testing.T) {
+	f := newRunImageFixture(t, runRepoManifest)
+	f.writeFragment(t)
+	app := &App{Store: f.store, Runner: &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		switch {
+		case call.name == "git" && commandHasArg(call, "remote"):
+			return []byte("git@github.com:owner/repo.git"), nil
+		case call.name == "podman" && commandHasArg(call, "images"):
+			return nil, errTestInventory
+		}
+		return nil, nil
+	}}}
+
+	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if image.Source != ImageSourceProfile || image.Image != f.baseRef {
+		t.Fatalf("image = %+v, want the profile image", image)
+	}
+	if len(image.Warnings) != 1 || !strings.Contains(image.Warnings[0], "local image inventory unavailable") {
+		t.Fatalf("warnings = %v, want an inventory warning", image.Warnings)
+	}
+}
+
+func TestResolveRunImagePrefersNewestMatchingBase(t *testing.T) {
+	f := newRunImageFixture(t, runRepoManifest)
+	f.writeFragment(t)
+	newBase := fmt.Sprintf("localhost/openshell:codex-0.170.0-r%d", f.recipe)
+	app, _ := f.app(t,
+		f.baseRecord("0.169.0"),
+		f.baseRecord("0.170.0"),
+		f.repoRecord(t, f.baseRef, "0.169.0", f.digest()),
+		f.repoRecord(t, newBase, "0.170.0", f.digest()),
+	)
+
+	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if image.Image != f.repoTag(t, newBase) || image.BaseImage != newBase {
+		t.Fatalf("image = %q on base %q, want the newest base %q", image.Image, image.BaseImage, newBase)
+	}
+	if len(image.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", image.Warnings)
+	}
+}
+
+func TestStartWithRepositoryImageComposesRunPolicy(t *testing.T) {
+	f := newRunImageFixture(t, runRepoManifest)
+	f.writeFragment(t)
+	app, _ := f.app(t, f.baseRecord("0.169.0"), f.repoRecord(t, f.baseRef, "0.169.0", f.digest()))
+	if err := os.MkdirAll(f.store.PolicyDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	profile := f.profile()
+	basePolicy := testPolicyBytes(t, map[string]NetworkRule{
+		"profile-only": {
+			Name:      "profile-only",
+			Endpoints: []Endpoint{{Host: "api.example.com", Port: 443}},
+			Binaries:  []Binary{{Path: "/usr/local/bin/codex"}},
+		},
+	})
+	if err := os.WriteFile(profile.Policy, basePolicy, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Store.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	useWorktree := false
+	if err := app.Store.SaveProject(Project{Version: 1, Name: "checkout", Root: f.root, Worktree: &useWorktree}); err != nil {
+		t.Fatal(err)
+	}
+	runner := app.Runner.(*fakeRunner)
+	base := runner.output
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "git" {
+			switch {
+			case commandHasArg(call, "bundle"):
+				return nil, errTestStopStart
+			case commandHasArg(call, "--show-toplevel"):
+				return []byte(f.root), nil
+			case commandHasArg(call, "symbolic-ref"):
+				return []byte("main"), nil
+			case commandHasArg(call, "rev-parse"):
+				return []byte("abc123"), nil
+			case commandHasArg(call, "status"), commandHasArg(call, "ls-files"), commandHasArg(call, "diff"):
+				return nil, nil
+			}
+		}
+		return base(call)
+	}
+
+	run, err := app.Start(context.Background(), StartOptions{Profile: profile.Name, Project: "checkout", Gateway: "openshell"})
+	if !errors.Is(err, errTestStopStart) {
+		t.Fatalf("start error = %v, want the deliberate bundle failure", err)
+	}
+	if run.Image != f.repoTag(t, f.baseRef) || run.ImageSource != string(ImageSourceRepo) {
+		t.Fatalf("image = %q (%s), want the repository image", run.Image, run.ImageSource)
+	}
+	if run.PolicyFragmentDigest != f.fragmentDigest(t) || run.PolicyFragment != f.fragmentPath() {
+		t.Fatalf("fragment provenance = %q %q", run.PolicyFragment, run.PolicyFragmentDigest)
+	}
+	composed, err := os.ReadFile(run.Policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := ParsePolicy(composed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(policy.Network) != 2 {
+		t.Fatalf("rules = %v, want the profile rule and the repository rule", policy.Network)
+	}
+	for _, name := range []string{"profile-only", "host-proxy-golang-org-443"} {
+		if _, ok := policy.Network[name]; !ok {
+			t.Fatalf("run policy lost rule %q: %v", name, policy.Network)
+		}
+	}
+	if policy.Landlock.Compatibility != "hard_requirement" {
+		t.Fatalf("hard requirement = %q", policy.Landlock.Compatibility)
+	}
+}
+
+var (
+	errTestInventory = errors.New("podman socket unavailable")
+	errTestStopStart = errors.New("stop before sandbox")
+)
+
+func TestResolveRunImageIgnoresPreviousRecipeImages(t *testing.T) {
+	f := newRunImageFixture(t, runRepoManifest)
+	f.writeFragment(t)
+	oldRecipe := f.recipe - 1
+	oldBaseRef := fmt.Sprintf("localhost/openshell:codex-0.169.0-r%d", oldRecipe)
+	labels := map[string]string{
+		"agentbox":         "true",
+		"agentbox.recipe":  strconv.Itoa(oldRecipe),
+		"agentbox.agent":   "codex",
+		"agentbox.version": "0.169.0",
+	}
+	oldRepoLabels := map[string]string{
+		"agentbox.worker": "true",
+		"agentbox.repo":   "github.com/owner/repo",
+	}
+	for key, value := range labels {
+		oldRepoLabels[key] = value
+	}
+	app, _ := f.app(t,
+		f.baseRecord("0.169.0"),
+		map[string]any{"Id": "old-base", "Names": []string{oldBaseRef}, "Labels": labels},
+		map[string]any{"Id": "old-repo", "Names": []string{f.repoTag(t, oldBaseRef)}, "Labels": oldRepoLabels},
+	)
+
+	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if image.Source != ImageSourceProfile || image.Image != f.baseRef {
+		t.Fatalf("image = %+v, want the profile image", image)
+	}
+	if len(image.Warnings) != 1 || !strings.Contains(image.Warnings[0], "no current repository image") {
+		t.Fatalf("warnings = %v, want a missing-image hint", image.Warnings)
 	}
 }

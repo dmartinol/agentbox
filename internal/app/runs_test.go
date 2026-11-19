@@ -291,7 +291,7 @@ func TestWaitForSandboxDeletedPollsUntilGone(t *testing.T) {
 }
 
 func TestSandboxCreateArgsUsesExactlyOneProvider(t *testing.T) {
-	run := Run{ID: "run-unit", Sandbox: "sandbox-unit", Policy: "/tmp/policy.yaml"}
+	run := Run{ID: "run-unit", Sandbox: "sandbox-unit", Policy: "/tmp/policy.yaml", Image: "localhost/openshell:repo-example-codex-abcdef12"}
 	profile := testProfile("codex", "standard", "prompted")
 	args := sandboxCreateArgs(run, profile, "gateway-one")
 	if countArg(args, "--provider") != 1 {
@@ -308,6 +308,14 @@ func TestSandboxCreateArgsUsesExactlyOneProvider(t *testing.T) {
 	for _, arg := range args {
 		if strings.Contains(arg, "git-github") {
 			t.Fatalf("sandbox args carry a source-control provider: %v", args)
+		}
+	}
+	for i, arg := range args {
+		if arg != "--from" {
+			continue
+		}
+		if i+1 >= len(args) || args[i+1] != run.Image {
+			t.Fatalf("--from value = %v; want the resolved run image %q", args, run.Image)
 		}
 	}
 }

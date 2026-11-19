@@ -126,6 +126,7 @@ type Run struct {
 	ManifestDigest           string    `json:"manifest_digest,omitempty"`
 	ImageWarnings            []string  `json:"image_warnings,omitempty"`
 	PolicyFragment           string    `json:"policy_fragment,omitempty"`
+	PolicyFragmentDigest     string    `json:"policy_fragment_digest,omitempty"`
 	Mode                     string    `json:"mode"`
 	Model                    string    `json:"model"`
 	Approval                 string    `json:"approval"`

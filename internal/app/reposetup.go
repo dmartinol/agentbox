@@ -245,6 +245,9 @@ func (a *App) repoSetupImages(ctx context.Context, cfg RepoConfig, agents []stri
 					"--label", "agentbox.worker=true",
 					"--label", "agentbox.repo=" + repo,
 					"--label", "agentbox.manifest-digest=" + manifestDigest,
+					"--label", "agentbox.agent=" + agent,
+					"--label", "agentbox.version=" + base.Version,
+					"--label", "agentbox.recipe=" + CurrentImageRecipe(),
 					dir}
 				writeErr = a.Runner.Stream(ctx, nil, stdout, stderr, "podman", args...)
 			}
@@ -370,6 +373,12 @@ func repoImageHash(base string, cfg RepoConfig) (string, error) {
 }
 
 func repoManifestDigest(b []byte) string {
+	return contentDigest(b)
+}
+
+// contentDigest is the sha256 reference used for manifest and fragment
+// provenance.
+func contentDigest(b []byte) string {
 	sum := sha256.Sum256(b)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }

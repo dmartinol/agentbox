@@ -35,6 +35,7 @@ type RunImage struct {
 	Repo           string
 	ManifestDigest string
 	FragmentPath   string
+	FragmentDigest string
 	Warnings       []string
 
 	fragment []byte
@@ -42,31 +43,36 @@ type RunImage struct {
 
 // ComposePolicy returns the policy bytes a run materializes. A repository
 // image unions the repository fragment into the base policy; every other
-// source keeps the base policy unchanged.
-func (i RunImage) ComposePolicy(base []byte) ([]byte, error) {
+// source keeps the base policy unchanged. baseSource names the base policy
+// file so a composition conflict points at both inputs.
+func (i RunImage) ComposePolicy(base []byte, baseSource string) ([]byte, error) {
 	if i.Source != ImageSourceRepo {
 		return base, nil
 	}
-	return composeRepoPolicy(base, i.fragment)
+	return composeRepoPolicy(base, baseSource, i.fragment, i.FragmentPath)
 }
 
 // ResolveRunImage picks the image a run starts from and explains the choice.
 // A project without a manifest keeps the profile image. A project with a
 // manifest uses the repository image whose content matches the manifest on a
 // current-recipe base, preferring the newest base, and reports drift instead
-// of failing. Nothing here builds an image.
+// of failing. Unusable repository artifacts never block a run: they warn and
+// leave it on the profile image. Nothing here builds an image.
 func (a *App) ResolveRunImage(ctx context.Context, p Profile, root string) (RunImage, error) {
 	image := RunImage{Image: p.Image, BaseImage: p.Image, Source: ImageSourceProfile}
-	cfg, err := LoadRepoConfig(root)
+	manifestPath := RepoConfigPath(root)
+	manifestBytes, err := os.ReadFile(manifestPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return image, nil
 		}
-		return RunImage{}, err
+		image.Warnings = append(image.Warnings, fmt.Sprintf("repository manifest %s is unreadable (%v); run `agentbox repo setup` — this run uses the profile image", manifestPath, err))
+		return image, nil
 	}
-	manifestBytes, err := os.ReadFile(RepoConfigPath(root))
+	cfg, err := ParseRepoConfig(manifestBytes)
 	if err != nil {
-		return RunImage{}, err
+		image.Warnings = append(image.Warnings, fmt.Sprintf("repository manifest %s is unusable (%v); run `agentbox repo setup` — this run uses the profile image", manifestPath, err))
+		return image, nil
 	}
 	digest := repoManifestDigest(manifestBytes)
 	image.ManifestDigest = digest
@@ -86,7 +92,8 @@ func (a *App) ResolveRunImage(ctx context.Context, p Profile, root string) (RunI
 
 	images, err := a.LocalImages(ctx)
 	if err != nil {
-		return RunImage{}, err
+		image.Warnings = append(image.Warnings, fmt.Sprintf("local image inventory unavailable (%v); this run uses the profile image", err))
+		return image, nil
 	}
 	found, base, newestBase, ok := repoImageForAgent(images, repo, p.Agent, cfg)
 	fragment, fragmentErr := os.ReadFile(image.FragmentPath)
@@ -106,6 +113,7 @@ func (a *App) ResolveRunImage(ctx context.Context, p Profile, root string) (RunI
 	image.BaseImage = base.Reference
 	image.Source = ImageSourceRepo
 	image.fragment = fragment
+	image.FragmentDigest = contentDigest(fragment)
 	if found.ManifestDigest != "" && found.ManifestDigest != digest {
 		image.Warnings = append(image.Warnings, fmt.Sprintf("repository manifest changed since image %s was built; run `agentbox repo setup` to refresh the policy fragment", found.Reference))
 	}
@@ -172,7 +180,7 @@ func imageHasReference(image ImageArtifact, reference string) bool {
 // that claim the same named scope with different content are a conflict: the
 // fragment and the profile must agree instead of one silently winning.
 // #79 replaces the base policy input without touching this composition.
-func composeRepoPolicy(base, fragment []byte) ([]byte, error) {
+func composeRepoPolicy(base []byte, baseSource string, fragment []byte, fragmentSource string) ([]byte, error) {
 	basePolicy, err := ParsePolicy(base)
 	if err != nil {
 		return nil, err
@@ -189,7 +197,7 @@ func composeRepoPolicy(base, fragment []byte) ([]byte, error) {
 		if existing, ok := basePolicy.Network[name]; ok {
 			existing.Name = name
 			if !reflect.DeepEqual(canonicalRule(existing), canonicalRule(rule)) {
-				return nil, fmt.Errorf("network rule %q is defined differently by the profile policy and the repository fragment; align them before running", name)
+				return nil, fmt.Errorf("network rule %q is defined differently by %s and %s; align them before running", name, baseSource, fragmentSource)
 			}
 			continue
 		}

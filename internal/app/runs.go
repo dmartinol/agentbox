@@ -171,7 +171,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 			return Run{}, err
 		}
 	}
-	policy, err = runImage.ComposePolicy(policy)
+	policy, err = runImage.ComposePolicy(policy, p.Policy)
 	if err != nil {
 		return Run{}, err
 	}
@@ -189,6 +189,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	preview := Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, ProfileName: p.Name, Gateway: opt.Gateway, Agent: p.Agent, Image: runImage.Image, BaseImage: runImage.BaseImage, ImageSource: string(runImage.Source), ImageRepo: runImage.Repo, ManifestDigest: runImage.ManifestDigest, ImageWarnings: runImage.Warnings, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: StatusCreating, StatusDetail: "dry run preview", WorktreeIsolated: useWorktree, SyncState: SyncStateUnknown}
 	if runImage.Source == ImageSourceRepo {
 		preview.PolicyFragment = runImage.FragmentPath
+		preview.PolicyFragmentDigest = runImage.FragmentDigest
 	}
 	if selection != nil {
 		preview.MCP = selection.Entry.Name
@@ -232,6 +233,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	r.ImageWarnings = runImage.Warnings
 	if runImage.Source == ImageSourceRepo {
 		r.PolicyFragment = runImage.FragmentPath
+		r.PolicyFragmentDigest = runImage.FragmentDigest
 	}
 	r.Mode = p.Mode
 	r.Model = p.Model

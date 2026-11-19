@@ -312,9 +312,10 @@ Validation rules (every violation names the offending field):
   repositories), and a repository without a manifest keeps using profile
   images and profile policies unchanged.
 
-AgentBox parses and validates the manifest, and builds the repository
-environment from it with `agentbox repo setup`. The remaining epic work —
-run-time image resolution and full policy derivation — is tracked in
+AgentBox parses and validates the manifest, builds the repository environment
+from it with `agentbox repo setup`, and resolves that environment at run start
+(see [run image resolution](#run-image-resolution)). The remaining epic work —
+full policy derivation from the gateway — is tracked in
 [#42](https://github.com/dmartinol/agentbox/issues/42).
 
 ### Repository setup
@@ -329,9 +330,11 @@ manifest into the two reusable artifacts runs consume:
    under `/usr/local`, single files are installed at the declared `bin`
    path, and each `bin` directory is added to `PATH`), then runs every
    `verify` command as the sandbox user — a broken toolchain fails the
-   build, not the run. Base labels are inherited and three are added:
-   `agentbox.worker=true`, `agentbox.repo=<normalized origin remote>`, and
-   `agentbox.manifest-digest`.
+   build, not the run. Base labels are inherited, and the build also sets
+   `agentbox.worker=true`, `agentbox.repo=<normalized origin remote>`,
+   `agentbox.manifest-digest`, and explicit `agentbox.agent`,
+   `agentbox.version`, and `agentbox.recipe` labels so repository images
+   never depend on label inheritance.
 2. **A policy fragment** at `$AGENTBOX_HOME/policies/repo-<repo>.yaml`,
    shared by every checkout of the repository: the `DefaultPolicy` baseline
    (filesystem, process, hard Landlock requirement) with each `hosts` entry
@@ -378,7 +381,8 @@ path when one was composed, and any warnings. Missing or unusable artifacts
 never fail the run: it falls back to the profile image with a warning naming
 `agentbox repo setup --agent <agent>`. Manifest drift and a newer local base
 warn and still use the image, so a hosts-only manifest change does not
-invalidate a correct image.
+invalidate a correct image — but the fragment is read from disk, so new or
+removed hosts take effect only after `agentbox repo setup` refreshes it.
 
 ## Policy layer
 
