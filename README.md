@@ -485,6 +485,10 @@ change regenerates only the fragment, and reruns with an unchanged manifest
 skip the build. Setup prints the image tag, base image, manifest digest, and
 fragment path — profiles need no change.
 
+The same flow is available in the GUI: **Setup → Images → Repository images**
+validates the manifest, shows the plan, and builds the repository image with
+streamed output in the log drawer.
+
 EnMaaS uses one key but more than one API authentication dialect. Create two
 provider configurations with the same `ENMAAS_KEY` credential reference when
 supporting multiple agents:

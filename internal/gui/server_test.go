@@ -27,6 +27,7 @@ import (
 
 type guiRunner struct {
 	gitRoot         string
+	gitRemote       string
 	images          string
 	gateways        string
 	phases          map[string]string
@@ -42,8 +43,12 @@ func (r guiRunner) Output(_ context.Context, name string, args ...string) ([]byt
 	switch {
 	case name == "git" && containsCommand(args, "rev-parse", "--show-toplevel"):
 		return []byte(r.gitRoot), nil
+	case name == "git" && containsCommand(args, "remote", "get-url"):
+		return []byte(r.gitRemote), nil
 	case name == "podman" && len(args) > 0 && args[0] == "images":
 		return []byte(r.images), nil
+	case name == "podman" && len(args) > 1 && args[0] == "image" && args[1] == "inspect":
+		return []byte("sha256:repo-image-id sha256:repo-digest\n"), nil
 	case name == "podman" && len(args) > 0 && args[0] == "search":
 		return []byte(r.search), nil
 	case name == "podman" && len(args) > 0 && args[0] == "info":
@@ -469,6 +474,136 @@ func TestProjectsEndpoint(t *testing.T) {
 	requestJSON(t, http.MethodGet, server.URL+"/api/projects", nil, &projects)
 	if len(projects) != 1 || projects[0].Name != "demo" {
 		t.Fatalf("projects = %#v", projects)
+	}
+}
+
+const guiRepoManifest = `schema: 1
+image:
+  packages: [make]
+verify: [make --version]
+hosts:
+  - host: proxy.golang.org
+    port: 443
+    binaries: [/usr/local/go/bin/go]
+`
+
+// newRepoSetupServer registers a project backed by a real checkout with a
+// manifest, plus scripted git and podman answers.
+func newRepoSetupServer(t *testing.T, manifest string) (*httptest.Server, app.Store, string) {
+	t.Helper()
+	repoRoot := t.TempDir()
+	if manifest != "" {
+		if err := os.MkdirAll(filepath.Join(repoRoot, ".agentbox"), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repoRoot, ".agentbox", "config.yaml"), []byte(manifest), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := testRunner()
+	runner.gitRoot = repoRoot
+	runner.gitRemote = "git@github.com:owner/repo.git"
+	runner.images = `[{"Names":["localhost/openshell:codex-0.167.0-r4"],"Digest":"sha256:image","Arch":"arm64","Os":"linux","Labels":{"agentbox":"true","agentbox.agent":"codex","agentbox.version":"0.167.0","agentbox.recipe":"4"}}]`
+	server, store := newTestServerAndStore(t, runner)
+	if err := store.SaveProject(app.Project{Version: 1, Name: "owned", Root: repoRoot}); err != nil {
+		t.Fatal(err)
+	}
+	return server, store, repoRoot
+}
+
+func TestProjectsEndpointReportsManifestPresence(t *testing.T) {
+	server, _, _ := newRepoSetupServer(t, guiRepoManifest)
+	var projects []struct {
+		Name     string `json:"name"`
+		Manifest bool   `json:"manifest"`
+	}
+	requestJSON(t, http.MethodGet, server.URL+"/api/projects", nil, &projects)
+	byName := map[string]bool{}
+	for _, project := range projects {
+		byName[project.Name] = project.Manifest
+	}
+	if !byName["owned"] {
+		t.Fatalf("project with manifest not reported: %#v", projects)
+	}
+	if byName["demo"] {
+		t.Fatalf("project without manifest reported: %#v", projects)
+	}
+}
+
+func TestRepoSetupEndpointDryReturnsPlanWithoutSideEffects(t *testing.T) {
+	server, _, _ := newRepoSetupServer(t, guiRepoManifest)
+	var plan app.RepoSetupResult
+	response := requestJSON(t, http.MethodPost, server.URL+"/api/repos/setup", map[string]any{"project": "owned", "agents": []string{"codex"}, "dry": true}, &plan)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", response.StatusCode)
+	}
+	if plan.Repo != "github.com/owner/repo" || !plan.Dry || len(plan.Images) != 0 {
+		t.Fatalf("plan = %#v", plan)
+	}
+	if plan.FragmentStatus != app.RepoFragmentPreview {
+		t.Fatalf("fragment status = %q", plan.FragmentStatus)
+	}
+	if _, err := os.Stat(plan.FragmentPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("dry run wrote the fragment: %v", err)
+	}
+}
+
+func TestRepoSetupEndpointBuildsImagesAndFragment(t *testing.T) {
+	server, store, _ := newRepoSetupServer(t, guiRepoManifest)
+	var plan app.RepoSetupResult
+	requestJSON(t, http.MethodPost, server.URL+"/api/repos/setup", map[string]any{"project": "owned", "agents": []string{"codex"}, "dry": true}, &plan)
+
+	var started struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+		Output string `json:"output"`
+	}
+	requestJSON(t, http.MethodPost, server.URL+"/api/repos/setup", map[string]any{"project": "owned", "agents": []string{"codex"}}, &started)
+	if started.ID == "" {
+		t.Fatalf("task = %#v", started)
+	}
+	task := started
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		requestJSON(t, http.MethodGet, server.URL+"/api/tasks/"+task.ID, nil, &task)
+		if task.Status != "running" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if task.Status != "succeeded" {
+		t.Fatalf("task %s status = %q output = %q", task.ID, task.Status, task.Output)
+	}
+	if !strings.Contains(task.Output, "codex image: localhost/openshell:repo-github-com-owner-repo-codex-") || !strings.Contains(task.Output, "profiles need no change") {
+		t.Fatalf("task output missing the reference summary:\n%s", task.Output)
+	}
+	if _, err := os.Stat(plan.FragmentPath); err != nil {
+		t.Fatalf("fragment not written: %v", err)
+	}
+	if store.Base == "" {
+		t.Fatal("store base missing")
+	}
+}
+
+func TestRepoSetupEndpointErrorsAreActionable(t *testing.T) {
+	server, _, _ := newRepoSetupServer(t, guiRepoManifest)
+	// Unknown project.
+	var payload map[string]string
+	response := requestJSON(t, http.MethodPost, server.URL+"/api/repos/setup", map[string]any{"project": "missing", "dry": true}, &payload)
+	if response.StatusCode != http.StatusNotFound || !strings.Contains(payload["error"], "not registered") {
+		t.Fatalf("unknown project: status = %d payload = %#v", response.StatusCode, payload)
+	}
+	// Project without a manifest.
+	noManifest, _, _ := newRepoSetupServer(t, "")
+	payload = nil
+	response = requestJSON(t, http.MethodPost, noManifest.URL+"/api/repos/setup", map[string]any{"project": "owned", "dry": true}, &payload)
+	if response.StatusCode != http.StatusNotFound || !strings.Contains(payload["error"], "no repository manifest") {
+		t.Fatalf("missing manifest: status = %d payload = %#v", response.StatusCode, payload)
+	}
+	// Missing project name.
+	payload = nil
+	response = requestJSON(t, http.MethodPost, server.URL+"/api/repos/setup", map[string]any{"dry": true}, &payload)
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing project: status = %d payload = %#v", response.StatusCode, payload)
 	}
 }
 

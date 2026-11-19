@@ -56,6 +56,13 @@ func RepoConfigPath(root string) string {
 	return filepath.Join(root, ".agentbox", "config.yaml")
 }
 
+// RepoConfigPresent reports whether root declares a repository manifest
+// file. Presence says nothing about validity; setup reports that.
+func RepoConfigPresent(root string) bool {
+	_, err := os.Stat(RepoConfigPath(root))
+	return err == nil
+}
+
 // LoadRepoConfig reads and validates the repository manifest under root. A
 // repository without a manifest returns an error wrapping os.ErrNotExist,
 // which callers must distinguish from an invalid manifest.

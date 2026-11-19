@@ -67,12 +67,39 @@ type RepoSetupResult struct {
 	Dry            bool              `json:"dry,omitempty"`
 }
 
+// Summary renders the human-readable reference report: the repository
+// identity, what was built (or would be) on which base, and where the
+// fragment lives. Setup never touches profiles, so the report says so.
+func (r RepoSetupResult) Summary() string {
+	var b strings.Builder
+	if r.Dry {
+		b.WriteString("dry run: manifest validated; nothing was built or written\n")
+	}
+	fmt.Fprintf(&b, "repo:      %s\n", r.Repo)
+	fmt.Fprintf(&b, "manifest:  %s (%s)\n", r.ManifestPath, r.ManifestDigest)
+	for _, image := range r.Images {
+		state := "built"
+		if !image.Built {
+			state = "already present"
+		}
+		fmt.Fprintf(&b, "%s image: %s (%s)\n  base:   %s\n", image.Agent, image.Tag, state, image.Base)
+	}
+	if len(r.Images) == 0 {
+		for _, agent := range r.Agents {
+			fmt.Fprintf(&b, "%s image: tag resolves at build time from the newest local %s image (recipe r%s)\n", agent, agent, CurrentImageRecipe())
+		}
+	}
+	fmt.Fprintf(&b, "fragment:  %s (%s)\n", r.FragmentPath, r.FragmentStatus)
+	b.WriteString("profiles need no change: repository runs resolve the repository image and fragment automatically\n")
+	return b.String()
+}
+
 func (a *App) RepoSetup(ctx context.Context, opt RepoSetupOptions) (RepoSetupResult, error) {
 	return a.RepoSetupWithOutput(ctx, opt, os.Stdout, os.Stderr)
 }
 
 func (a *App) RepoSetupWithOutput(ctx context.Context, opt RepoSetupOptions, stdout, stderr io.Writer) (RepoSetupResult, error) {
-	result := RepoSetupResult{}
+	result := RepoSetupResult{Images: []RepoImageRecord{}}
 	root := strings.TrimSpace(opt.Root)
 	if root == "" {
 		root = "."

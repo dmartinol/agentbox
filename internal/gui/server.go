@@ -77,6 +77,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/images/refresh", s.refreshImages)
 	mux.HandleFunc("POST /api/images/delete", s.deleteImage)
 	mux.HandleFunc("POST /api/images/prune", s.pruneImages)
+	mux.HandleFunc("POST /api/repos/setup", s.repoSetup)
 	mux.HandleFunc("GET /api/tasks/{id}", s.getTask)
 	mux.HandleFunc("POST /api/tasks/{id}/stop", s.stopTask)
 	mux.HandleFunc("POST /api/images/pull", s.pullImage)
@@ -703,7 +704,8 @@ type projectRequest struct {
 
 type projectRecord struct {
 	app.Project
-	UsedBy []string `json:"used_by,omitempty"`
+	UsedBy   []string `json:"used_by,omitempty"`
+	Manifest bool     `json:"manifest"`
 }
 
 type profileRecord struct {
@@ -723,7 +725,7 @@ func (s *Server) projectsWithUsage() ([]projectRecord, error) {
 	}
 	records := make([]projectRecord, 0, len(projects))
 	for _, project := range projects {
-		records = append(records, projectRecord{Project: project, UsedBy: usage[project.Name]})
+		records = append(records, projectRecord{Project: project, UsedBy: usage[project.Name], Manifest: app.RepoConfigPresent(project.Root)})
 	}
 	return records, nil
 }
@@ -1310,6 +1312,64 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, task)
+}
+
+type repoSetupRequest struct {
+	Project string   `json:"project"`
+	Agents  []string `json:"agents"`
+	Dry     bool     `json:"dry"`
+}
+
+// repoSetup runs the repository setup flow for a registered project. A dry
+// run validates and returns the plan synchronously; otherwise the build
+// runs as a cancellable task whose output streams to the log drawer. Setup
+// never creates or edits profiles; the summary reports references only.
+func (s *Server) repoSetup(w http.ResponseWriter, r *http.Request) {
+	var request repoSetupRequest
+	if !decode(w, r, &request) {
+		return
+	}
+	name := strings.TrimSpace(request.Project)
+	if name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Project is required."})
+		return
+	}
+	project, err := s.app.Store.LoadProject(name)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": fmt.Sprintf("Project %q is not registered.", name)})
+			return
+		}
+		writeError(w, err)
+		return
+	}
+	if request.Dry {
+		result, err := s.app.RepoSetup(r.Context(), app.RepoSetupOptions{Root: project.Root, Agents: request.Agents, Dry: true})
+		if err != nil {
+			// A missing manifest is an expected, discoverable state, not a
+			// server fault: the projects list reports it as manifest: false.
+			if errors.Is(err, os.ErrNotExist) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+				return
+			}
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+	task, err := s.tasks.start("repo-setup", func(ctx context.Context, output io.Writer) error {
+		result, err := s.app.RepoSetupWithOutput(ctx, app.RepoSetupOptions{Root: project.Root, Agents: request.Agents}, output, output)
+		if err == nil {
+			_, _ = fmt.Fprint(output, result.Summary())
+		}
+		return err
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, task)
 }
 
 func (s *Server) stopTask(w http.ResponseWriter, r *http.Request) {

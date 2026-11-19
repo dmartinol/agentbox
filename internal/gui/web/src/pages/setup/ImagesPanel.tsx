@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
-import type { GuiTask, ImageArtifact, Registry } from '../../types';
+import type { GuiTask, ImageArtifact, Profile, Project, Registry, RepoSetupResult } from '../../types';
 import { Alert } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
 import { ActionButton } from '../../components/ui/action';
@@ -14,6 +14,8 @@ import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { LogDrawerState } from '../../components/LogDrawer';
 
+const SUPPORTED_AGENTS = ['codex', 'claude', 'opencode'];
+
 export function ImagesPanel({
   openLog,
   updateLog
@@ -24,6 +26,11 @@ export function ImagesPanel({
   const [images, setImages] = useState<ImageArtifact[]>([]);
   const [registryImages, setRegistryImages] = useState<ImageArtifact[]>([]);
   const [registry, setRegistry] = useState<Registry>({ reference: '' });
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [repoProject, setRepoProject] = useState('');
+  const [repoAgents, setRepoAgents] = useState<Record<string, boolean>>({});
+  const [validation, setValidation] = useState<RepoSetupResult>();
+  const [repoError, setRepoError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [actionError, setActionError] = useState<Error | null>(null);
@@ -42,9 +49,22 @@ export function ImagesPanel({
 
   const load = async () => {
     try {
-      const [nextImages, nextRegistry] = await Promise.all([api.images(), api.registry()]);
+      const [nextImages, nextRegistry, nextProjects, nextProfiles] = await Promise.all([api.images(), api.registry(), api.projects(), api.profiles()]);
       setImages(nextImages ?? []);
       setRegistry(nextRegistry);
+      setProjects(nextProjects ?? []);
+      setRepoProject((current) => (current || nextProjects?.[0]?.name) || '');
+      // Default the checkboxes to the agents present in local profiles,
+      // matching the CLI default for `agentbox repo setup`. Once the user
+      // has made a selection (any key present, true or false), keep it.
+      setRepoAgents((current) => {
+        if (Object.keys(current).length) return current;
+        const next: Record<string, boolean> = {};
+        for (const agent of SUPPORTED_AGENTS) {
+          next[agent] = (nextProfiles ?? []).some((profile) => profile.agent === agent);
+        }
+        return next;
+      });
       setError(null);
     } catch (err) {
       setError(err as Error);
@@ -63,7 +83,12 @@ export function ImagesPanel({
         const next = await api.task(task.id);
         if (!active) return;
         setTask(next);
-        updateLog({ content: next.output, taskStatus: next.status, loading: false });
+        updateLog({
+          content: next.output,
+          taskStatus: next.status,
+          loading: false,
+          error: next.status === 'failed' ? next.error : undefined
+        });
         if (next.status === 'succeeded') await load();
       } catch {
         // Keep last output on transient polling failure.
@@ -100,6 +125,44 @@ export function ImagesPanel({
       openLog({ title: 'Refresh all agents', content: next.output, loading: true, taskId: next.id, taskStatus: next.status });
     } catch (err) {
       setError(err as Error);
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
+  const selectedRepoAgents = () => SUPPORTED_AGENTS.filter((agent) => repoAgents[agent]);
+
+  const selectedProject = projects.find((project) => project.name === repoProject);
+
+  const clearRepoPlan = () => {
+    setValidation(undefined);
+    setRepoError(null);
+  };
+
+  const validateRepo = async () => {
+    setBusy('repo-validate');
+    setRepoError(null);
+    try {
+      const result = await api.validateRepoSetup({ project: repoProject, agents: selectedRepoAgents() });
+      setValidation(result);
+    } catch (err) {
+      setRepoError(err as Error);
+      setValidation(undefined);
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
+  const setupRepo = async () => {
+    setBusy('repo-setup');
+    setRepoError(null);
+    try {
+      const next = await api.setupRepo({ project: repoProject, agents: selectedRepoAgents() });
+      setTask(next);
+      setValidation(undefined);
+      openLog({ title: `Set up repository · ${repoProject}`, content: next.output, loading: true, taskId: next.id, taskStatus: next.status });
+    } catch (err) {
+      setRepoError(err as Error);
     } finally {
       setBusy(undefined);
     }
@@ -198,6 +261,73 @@ export function ImagesPanel({
       )}
 
       <div className="rounded-lg border border-border p-3">
+        <p className="text-sm font-medium">Repository images</p>
+        <p className="mt-1 text-sm text-muted">Build the repository image and policy fragment from the project's committed .agentbox/config.yaml. Profiles need no change.</p>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <Field label="Project" htmlFor="repo-setup-project" className="min-w-0 flex-1 basis-full sm:basis-48">
+            <select
+              id="repo-setup-project"
+              className="h-8 w-full rounded-md border border-border bg-surface px-2"
+              value={repoProject}
+              onChange={(event) => { setRepoProject(event.target.value); setValidation(undefined); setRepoError(null); }}
+            >
+              {projects.length === 0 ? <option value="">No registered projects</option> : null}
+              {projects.map((project) => (
+                <option key={project.name} value={project.name}>{project.manifest ? project.name : `${project.name} — no manifest`}</option>
+              ))}
+            </select>
+          </Field>
+          <div className="flex flex-wrap items-end gap-3">
+            <span className="text-sm text-muted" id="repo-setup-agents-label">Agents</span>
+            <div className="flex flex-wrap gap-3" role="group" aria-labelledby="repo-setup-agents-label">
+              {SUPPORTED_AGENTS.map((agent) => (
+                <label key={agent} className="flex items-center gap-1 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(repoAgents[agent])}
+                    onChange={(event) => { clearRepoPlan(); setRepoAgents({ ...repoAgents, [agent]: event.target.checked }); }}
+                  />
+                  {agent}
+                </label>
+              ))}
+            </div>
+          </div>
+          <ActionButton
+            size="sm"
+            variant="outline"
+            loading={busy === 'repo-validate'}
+            disabledReason={!repoProject ? 'Register a project first' : selectedRepoAgents().length === 0 ? 'Select at least one agent' : undefined}
+            onClick={() => void validateRepo()}
+          >
+            {busy === 'repo-validate' ? 'Validating' : 'Validate'}
+          </ActionButton>
+          <ActionButton
+            size="sm"
+            loading={busy === 'repo-setup'}
+            disabledReason={!repoProject ? 'Register a project first' : selectedRepoAgents().length === 0 ? 'Select at least one agent' : undefined}
+            onClick={() => void setupRepo()}
+          >
+            {busy === 'repo-setup' ? 'Setting up' : 'Set up repository'}
+          </ActionButton>
+        </div>
+        {selectedProject && !selectedProject.manifest ? (
+          <p className="mt-2 text-sm text-muted">
+            No .agentbox/config.yaml committed at {selectedProject.root}. Runs for this project keep using the profile image until a manifest is committed.
+          </p>
+        ) : null}
+        {repoError ? <Alert variant="danger" title="Repository setup failed">{repoError.message}</Alert> : null}
+        {validation ? (
+          <div className="mt-3 space-y-1 text-sm">
+            <div><span className="text-muted">Repository:</span> {validation.repo}</div>
+            <div className="flex min-w-0 items-baseline gap-1"><span className="text-muted">Manifest digest:</span> <ExpandableValue value={validation.manifest_digest} label="manifest digest" max={40} /></div>
+            <div><span className="text-muted">Agents:</span> {validation.agents.join(', ')}</div>
+            <div className="flex min-w-0 items-baseline gap-1"><span className="text-muted">Fragment:</span> <ExpandableValue value={validation.fragment_path} label="fragment path" max={44} /> ({validation.fragment_status})</div>
+            <p className="text-muted">Dry run: nothing was built or written. Image tags resolve at build time from the newest local base images.</p>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="rounded-lg border border-border p-3">
         <div className="flex flex-wrap items-end gap-2">
           <Field label="Registry repository" htmlFor="registry-reference" className="min-w-0 flex-1 basis-full sm:basis-48">
             <Input id="registry-reference" value={registry.reference} onChange={(event) => setRegistry({ reference: event.target.value })} />
@@ -247,7 +377,7 @@ export function ImagesPanel({
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Agent" htmlFor="image-agent" required>
             <select id="image-agent" className="h-8 rounded-md border border-border bg-surface px-2" value={buildForm.agent} onChange={(event) => setBuildForm({ ...buildForm, agent: event.target.value })}>
-              {['codex', 'claude', 'opencode'].map((agent) => <option key={agent} value={agent}>{agent}</option>)}
+              {SUPPORTED_AGENTS.map((agent) => <option key={agent} value={agent}>{agent}</option>)}
             </select>
           </Field>
           <Field label="Exact version" htmlFor="image-version" helper="Blank resolves latest."><Input id="image-version" value={buildForm.version} onChange={(event) => setBuildForm({ ...buildForm, version: event.target.value })} /></Field>
