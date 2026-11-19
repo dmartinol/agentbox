@@ -136,10 +136,14 @@ until it reports completion instead of blocking on the build or pull request.
 Fleet is the default surface: it groups every run by project and shows status,
 the selected agent, and actions for logs, diff, policy, and attach. Setup opens
 as a right-side sheet with tabs for providers, profiles, projects, images,
-gateways, policies, MCP servers, skills selections, and diagnostics.
+gateways, MCP servers, skills selections, and advanced diagnostics.
 
 When a user asks "where do I change this?", answer with the Setup tab name and
 the endpoint that backs it: profiles and projects are their own tabs, provider
 registration is the providers tab, image build/pull/push and registry settings
-are the images tab, gateway connection is the gateways tab, policy editing is
-the policies tab, and the platform/gateway/skill checks are diagnostics.
+are the images tab, gateway connection is the gateways tab, and the
+platform/gateway/skill checks are diagnostics. Setup has no Policies tab:
+legacy policy files are still listed and edited through `agentbox policy` and
+the `/api/policies` endpoints, and run policies are read-only in the GUI from
+Fleet → View policy. `Profile.Policy` is a deprecated phase-1 source of extra
+network rules.

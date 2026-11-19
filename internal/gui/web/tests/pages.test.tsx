@@ -8,7 +8,6 @@ import { ProjectsPanel } from '../src/pages/setup/ProjectsPanel';
 import { ImagesPanel } from '../src/pages/setup/ImagesPanel';
 import { GatewaysPanel } from '../src/pages/setup/GatewaysPanel';
 import { McpPanel } from '../src/pages/setup/McpPanel';
-import { PoliciesPanel } from '../src/pages/setup/PoliciesPanel';
 import { SkillsPanel } from '../src/pages/setup/SkillsPanel';
 import { mcps, overview, providers, runs, skillEntries, skillStatus } from './fixtures';
 import { formatSyncTimestamp } from '../src/lib/text';
@@ -390,9 +389,10 @@ describe('setup sheet', () => {
     render(<App />);
     await user.click((await screen.findAllByRole('button', { name: /setup/i }))[0]);
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    for (const label of ['Providers', 'Profiles', 'Projects', 'Images', 'Gateways', 'Policies', 'MCP Tools', 'Skills', 'Advanced']) {
+    for (const label of ['Providers', 'Profiles', 'Projects', 'Images', 'Gateways', 'MCP Tools', 'Skills', 'Advanced']) {
       expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
     }
+    expect(screen.queryByRole('tab', { name: 'Policies' })).toBeNull();
     expect(screen.getByRole('tab', { name: 'Providers', selected: true })).toHaveClass(
       'data-[state=active]:bg-accent',
       'data-[state=active]:text-accent-foreground'
@@ -429,7 +429,6 @@ describe('destructive row actions', () => {
     ['projects', <ProjectsPanel />, 'demo'],
     ['images', <ImagesPanel openLog={() => undefined} updateLog={() => undefined} />, 'localhost/openshell:codex-1.0.0-r3'],
     ['gateways', <GatewaysPanel />, 'openshell'],
-    ['policies', <PoliciesPanel />, '/policies/codex-default.yaml'],
     ['MCP tools', <McpPanel />, 'codex-work'],
     ['skills', <SkillsPanel />, 'codex-skills']
   ])('styles the %s destructive action consistently', async (_, panel, rowText) => {
@@ -558,39 +557,55 @@ describe('repository image provenance', () => {
   });
 });
 
-describe('policies panel', () => {
-  it('lists run policy copies and shows their YAML', async () => {
+describe('run policy provenance', () => {
+  it('shows derived policy provenance in details and policy output', async () => {
+    const provenanceRun: Run = {
+      ...runs[0],
+      policy_provenance: {
+        source: 'derived',
+        gateway: 'openshell',
+        provider: 'openai',
+        mode: 'standard',
+        host: 'api.openai.com',
+        port: 443,
+        rule: 'provider-openai-443',
+        agent_binary: '/usr/local/bin/codex'
+      }
+    };
     mockRoutes({
-      'GET /api/policies': [{ name: 'codex-default', path: '/policies/codex-default.yaml', used_by: ['codex-default'] }],
-      'GET /api/runs': runs,
+      ...defaultRoutes(),
+      'GET /api/overview': { ...overview, runs: [provenanceRun] },
+      'GET /api/runs': [provenanceRun],
       'GET /api/runs/run-active/policy/content': {
         path: '/policies/run-active.yaml',
-        content: 'version: 1\nnetwork_policies:\n  host-api-example-com: {}\n'
+        content: 'version: 1\nnetwork_policies: {}\n'
       }
     });
     const user = userEvent.setup();
-    render(<PoliciesPanel />);
-    expect((await screen.findAllByText('codex-default')).length).toBeGreaterThan(0);
-    expect(screen.getByText('Agent run policies')).toBeInTheDocument();
-    const row = screen.getByText('/policies/run-active.yaml').closest('tr');
-    if (!row) throw new Error('run policy row missing');
-    await user.click(within(row).getByRole('button', { name: 'View' }));
-    expect(await screen.findByText(/Run policy · active-run/)).toBeInTheDocument();
-    expect(screen.getByText(/host-api-example-com/)).toBeInTheDocument();
+    render(<App />);
+    await user.click(await screen.findByText('active-run'));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByText('Policy provenance'));
+    expect(within(panel).getByText('provider-openai-443')).toBeInTheDocument();
+    expect(within(panel).getByText('api.openai.com:443')).toBeInTheDocument();
+    await user.click(within(panel).getByRole('button', { name: 'View policy' }));
+    expect(await screen.findByText(/Policy provenance: derived/)).toBeInTheDocument();
+    expect(screen.getByText(/Provider rule: provider-openai-443/)).toBeInTheDocument();
   });
-});
 
-describe('policies panel affordances', () => {
-  it('no longer offers unscoped add-host or apply actions', async () => {
+  it('shows the historical fallback for runs without provenance', async () => {
     mockRoutes({
-      'GET /api/policies': [{ name: 'codex-default', path: '/policies/codex-default.yaml', used_by: ['codex-default'] }],
-      'GET /api/runs': runs
+      ...defaultRoutes(),
+      'GET /api/runs/run-active/policy/content': { path: '/policies/run-active.yaml', content: 'version: 1\n' }
     });
-    render(<PoliciesPanel />);
-    expect((await screen.findAllByText('codex-default')).length).toBeGreaterThan(0);
-    expect(screen.queryByRole('button', { name: 'Add host' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull();
-    expect(screen.getByText('Agent run policies')).toBeInTheDocument();
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText('active-run'));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByText('Policy provenance'));
+    expect(within(panel).getByText('Not recorded (pre-#79 run)')).toBeInTheDocument();
+    await user.click(within(panel).getByRole('button', { name: 'View policy' }));
+    expect(await screen.findByText(/Policy provenance: Not recorded \(pre-#79 run\)/)).toBeInTheDocument();
   });
 });
 
@@ -650,6 +665,8 @@ describe('profiles', () => {
 
     const image = within(dialog).getByLabelText(/^Image/);
     expect(image).toHaveValue('localhost/openshell:codex-1.0.0-r3');
+    expect(within(dialog).getByLabelText(/^Legacy policy/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Deprecated\. New runs derive their baseline/)).toBeInTheDocument();
     const imageOptions = within(image).getAllByRole('option');
     expect(imageOptions.map((option) => (option as HTMLOptionElement).value)).toEqual([
       'localhost/openshell:codex-1.0.0-r3',

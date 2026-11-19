@@ -12,8 +12,8 @@ subcommands:
 ---
 
 Profiles are reusable run configurations: the agent, its image, provider mode,
-default model, sandbox policy, and approval behavior. Profiles are referenced
-by name from `agent start` and from the GUI.
+default model, legacy policy reference, and approval behavior. Profiles are
+referenced by name from `agent start` and from the GUI.
 
 ## create
 {: #profile-create }
@@ -35,16 +35,22 @@ agentbox profile create \
 | `--mode` | `standard` | `standard` or `gateway`. |
 | `--model` | — | Exact default model ID. |
 | `--provider` | — | OpenShell provider name. |
-| `--policy` | profile default | Sandbox policy path. |
+| `--policy` | profile default | Deprecated legacy policy path. Only network rules are added to the derived run policy. |
 | `--approval` | `unattended` | `prompted` or `unattended`; unattended runs without permission prompts. |
 | `--base-url` | — | Gateway model API base URL. |
 | `--api-key-env` | — | Environment-variable **name** holding the API key. |
 
 Gateway-mode profiles require an exact model ID and an OpenShell provider.
 If `--policy` is omitted, AgentBox creates and references the profile's
-default policy under the policies directory. `--api-key-env` takes an
+generated-default marker under the policies directory; that file need not exist
+when the run starts. `--api-key-env` takes an
 environment-variable name, never a key value. On success the command prints
 the saved profile path.
+
+Every run policy starts from the AgentBox default, adds a binary-scoped
+provider rule, then adds network rules from a non-generated legacy policy and
+the active repository fragment. Legacy files cannot replace the default
+filesystem, process, or hard Landlock sections.
 
 New profiles default to `approval: unattended`. This default applies only when
 creating a profile; existing profiles keep the approval stored in their YAML,

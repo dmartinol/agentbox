@@ -9,8 +9,9 @@ subcommands:
   - edit
 ---
 
-Policies define sandbox access. These commands inspect or edit the policy
-associated with an existing agent run.
+Policies define sandbox access. These commands inspect or edit the derived
+policy associated with an existing agent run. The run record includes policy
+provenance; run copies are not reusable templates.
 
 ## show
 {: #policy-show }

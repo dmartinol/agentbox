@@ -39,7 +39,7 @@ flag-based subcommands also accept `--help`.
 | [`orchestrator`]({{ '/cli-reference/orchestrator/' | relative_url }}) | Print, resolve, and validate the user-owned orchestration and worker registry. |
 | [`settings`]({{ '/cli-reference/settings/' | relative_url }}) | Worktree root and branch prefix defaults. |
 | [`project`]({{ '/cli-reference/project/' | relative_url }}) | Register and inspect Git projects. |
-| [`profile`]({{ '/cli-reference/profile/' | relative_url }}) | Reusable agent, image, provider, and policy configuration. |
+| [`profile`]({{ '/cli-reference/profile/' | relative_url }}) | Reusable agent, image, provider, and legacy policy configuration. |
 | [`image`]({{ '/cli-reference/image/' | relative_url }}) | Build, inspect, refresh, remove, push, and pull AgentBox images, and configure a registry. |
 | [`gateway`]({{ '/cli-reference/gateway/' | relative_url }}) | List, inspect, connect, and start OpenShell gateways. |
 | [`provider`]({{ '/cli-reference/provider/' | relative_url }}) | Register inference providers with OpenShell. |

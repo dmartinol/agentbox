@@ -405,7 +405,7 @@ func TestStartResolvesMCPSelection(t *testing.T) {
 	policy := policyConfig.Path
 	if err := store.SaveProfile(Profile{
 		Version: 1, Name: "mycodex", Agent: "codex", Image: "localhost/openshell-codex:1.2.3-r3",
-		Mode: "standard", Provider: "unit-provider", Policy: policy, Approval: "prompted",
+		Mode: "standard", Provider: "openai", Policy: policy, Approval: "prompted",
 	}); err != nil {
 		t.Fatal(err)
 	}

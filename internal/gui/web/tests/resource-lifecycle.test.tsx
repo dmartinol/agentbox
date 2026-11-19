@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event';
 import { ActionButton } from '../src/components/ui/action';
 import { ProjectsPanel } from '../src/pages/setup/ProjectsPanel';
 import { ProfilesPanel } from '../src/pages/setup/ProfilesPanel';
-import { PoliciesPanel } from '../src/pages/setup/PoliciesPanel';
 import { GatewaysPanel } from '../src/pages/setup/GatewaysPanel';
 import { ImagesPanel } from '../src/pages/setup/ImagesPanel';
 import { McpPanel } from '../src/pages/setup/McpPanel';
@@ -99,32 +98,46 @@ describe('resource lifecycle panels', () => {
     expect(within(only).getByRole('button', { name: 'Delete' })).toHaveAttribute('aria-disabled', 'true');
   });
 
-  it('guards policies by profile references and generated defaults', async () => {
+  it('shows compact project repository status and textual worker state', async () => {
     const user = userEvent.setup();
     mockRoutes({
-      'GET /api/policies': [
-        { name: 'referenced', path: '/policies/referenced.yaml', used_by: ['profile'] },
-        { name: 'generated', path: '/policies/generated.yaml', default_for: 'generated' },
-        { name: 'available', path: '/policies/available.yaml' }
-      ],
-      'GET /api/runs': [],
-      'GET /api/policies/orphan': { name: 'orphan', path: '/policies/orphan.yaml' },
-      'POST /api/policies/available/delete': { mockStatus: 409, body: { error: 'policy in use', dependents: ['profile'] } },
-      'POST /api/policies/referenced/delete': { mockStatus: 409, body: { error: 'policy in use', dependents: ['profile'] } }
+      'GET /api/projects': [{
+        version: 1,
+        name: 'demo',
+        root: '/repo',
+        worktree: true,
+        manifest: true,
+        repo: 'github.com/example/demo',
+        repo_status: {
+          manifest_present: true,
+          manifest_path: '/repo/.agentbox/config.yaml',
+          manifest_digest: 'sha256:manifest',
+          fragment_path: '/state/policies/repo-github-com-example-demo.yaml',
+          fragment_digest: 'sha256:fragment',
+          fragment_status: 'current',
+          host_rules: [{ host: 'proxy.golang.org', port: 443, binaries: ['/usr/local/go/bin/go'] }],
+          worker_images: [
+            { agent: 'claude', status: 'missing' },
+            { agent: 'codex', status: 'current', reference: 'repo-image' },
+            { agent: 'opencode', status: 'stale', reference: 'old-image' }
+          ],
+          warnings: ['local image inventory unavailable']
+        }
+      }]
     });
-    render(<PoliciesPanel />);
-    const referenced = (await screen.findByText('referenced')).closest('tr');
-    const generated = screen.getByText('generated').closest('tr');
-    if (!referenced || !generated) throw new Error('policy rows missing');
-    expect(within(referenced).getByText('Used by profiles: profile')).toBeInTheDocument();
-    expect(within(generated).getByText('Generated default for profile generated')).toBeInTheDocument();
-    const available = screen.getByText('available').closest('tr');
-    if (!available) throw new Error('available row missing');
-    await user.click(within(available).getByRole('button', { name: 'Delete' }));
-    expect(await screen.findByText(/Profiles that reference another policy are kept/i)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Delete policy' }));
-    expect(await screen.findByText('policy in use')).toBeInTheDocument();
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    render(<ProjectsPanel />);
+    await user.click(await screen.findByText('Repository details'));
+    const details = screen.getByText('Repository details').closest('details');
+    if (!details) throw new Error('repository details missing');
+    expect(await within(details).findByText((_, node) => node?.tagName === 'DD'
+      && node.textContent === 'present · /repo/.agentbox/config.yaml · sha256:manifest')).toBeInTheDocument();
+    expect(within(details).getByText((_, node) => node?.tagName === 'DD'
+      && node.textContent === 'current · /state/policies/repo-github-com-example-demo.yaml · sha256:fragment')).toBeInTheDocument();
+    expect(within(details).getByText(/proxy\.golang\.org:443 — \/usr\/local\/go\/bin\/go/)).toBeInTheDocument();
+    expect(screen.getByText(/codex: current · repo-image/)).toBeInTheDocument();
+    expect(screen.getByText(/opencode: stale · old-image/)).toBeInTheDocument();
+    expect(screen.getByText(/claude: missing/)).toBeInTheDocument();
+    expect(screen.getByText(/local image inventory unavailable/)).toBeInTheDocument();
   });
 
   it('guards gateways with active runs and removes only local registration', async () => {

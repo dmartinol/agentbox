@@ -414,8 +414,8 @@ Then create a profile that uses the provider:
 ```
 
 If `--policy` is omitted, AgentBox creates and references a default policy at
-`$AGENTBOX_HOME/policies/<profile-name>.yaml`. In the GUI, leave the profile's
-Policy field blank to get the same behavior; existing profiles that still use
+`$AGENTBOX_HOME/policies/<profile-name>.yaml`. In the GUI, leave the deprecated
+Legacy policy field blank to get the same behavior; existing profiles that still use
 the old `~/.agentbox/policies/...` reference are migrated automatically when
 the profile list is loaded.
 
@@ -490,10 +490,12 @@ The same flow is available in the GUI: **Setup → Images → Repository images*
 validates the manifest, shows the plan, and builds the repository image with
 streamed output in the log drawer.
 
-Run start then selects that repository image and composes its policy fragment
-automatically for the project, warning when the policy fragment is out of date
-with the manifest or a newer local base image exists. `--image profile` forces
-the profile image for one run, and `--image <tag>` overrides the image entirely.
+Run start derives the policy from the AgentBox default, adds the selected
+provider's host rule, adds any legacy profile network rules, and — when the
+repository image is active — unions the repository fragment. It warns when the
+fragment is out of date with the manifest or a newer local base image exists.
+`--image profile` forces the profile image for one run, and `--image <tag>`
+overrides the image entirely.
 
 In the GUI, **Setup → Images** labels each image `FOUNDATIONAL` or
 `PROJECT <name>` and reveals a repository image's manifest digest and base
@@ -503,8 +505,9 @@ the profile's agent, lists older repository images for that pair, and offers
 **Use profile image** as the opt-out. The control is disabled with an
 explanatory hint when the project has no manifest or no matching image. Run
 details show the effective image, source, base image, repository, manifest
-digest, and any drift warning; **View policy** opens the composed run policy
-with its file and repository-fragment provenance.
+digest, any drift warning, and a textual **Policy provenance** disclosure;
+**View policy** opens the derived run policy with its provenance and
+repository-fragment details.
 
 EnMaaS uses one key but more than one API authentication dialect. Create two
 provider configurations with the same `ENMAAS_KEY` credential reference when
@@ -696,8 +699,8 @@ The GUI is a compact, Orca-inspired React single-page application built with Vit
 
 The two primary surfaces are:
 
-- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, a derived status glyph plus label per run, a separate sync-state glyph plus label, a **Needs You** count for agents waiting on input, inline lifecycle actions, and selected-agent metadata. The Sync cell distinguishes **No changes**, **Up to date**, **Sync needed**, **Sync blocked**, and **Unable to check**; agent details show the last successful sync time or **Never** and explain a blocked or unverifiable sync. Agent details also report the effective image, image source, base image, repository, manifest digest, and image drift warnings, and match a copied run to its profile by the recorded profile name. The **Workspace** button on a project (or **Attach** on an agent) opens a workspace with one tab per agent plus optional shell tabs; only the visible tab holds a terminal. Logs, diffs, and effective policies open in a shared bottom drawer. **View policy** shows the composed run policy with its file and repository-fragment provenance. The logs drawer separates structured **Network denials** (host, port, binary, and reason) from raw output. A denial offers **Add host** while the run is Ready, Working, or Waiting: the dialog shows the exact manifest entry, the run-policy diff, and an optional **Persist in .agentbox/config.yaml** choice. Persisting appends the same rule to the repository manifest and regenerates the policy fragment without an image build or commit. Applied rules appear under the agent's **Runtime host rules** disclosure. Run policies are per-agent copies, so they are listed in Setup → Policies under **Agent run policies** rather than with reusable templates; that panel no longer offers unscoped add-host or apply actions.
-- **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, policies, MCP tools, skills, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. A blank profile policy automatically creates and references the default policy. Setup → Images labels foundational and project images and exposes repository provenance, while New agent defaults to the project's latest repository image with a profile-image opt-out. Image build output and stop controls are also routed to the bottom drawer.
+- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, a derived status glyph plus label per run, a separate sync-state glyph plus label, a **Needs You** count for agents waiting on input, inline lifecycle actions, and selected-agent metadata. The Sync cell distinguishes **No changes**, **Up to date**, **Sync needed**, **Sync blocked**, and **Unable to check**; agent details show the last successful sync time or **Never** and explain a blocked or unverifiable sync. Agent details also report the effective image, image source, base image, repository, manifest digest, image drift warnings, and a textual **Policy provenance** disclosure, and match a copied run to its profile by the recorded profile name. The **Workspace** button on a project (or **Attach** on an agent) opens a workspace with one tab per agent plus optional shell tabs; only the visible tab holds a terminal. Logs, diffs, and effective policies open in a shared bottom drawer. **View policy** shows the derived run policy with its provenance and repository-fragment details. The logs drawer separates structured **Network denials** (host, port, binary, and reason) from raw output. A denial offers **Add host** while the run is Ready, Working, or Waiting: the dialog shows the exact manifest entry, the run-policy diff, and an optional **Persist in .agentbox/config.yaml** choice. Persisting appends the same rule to the repository manifest and regenerates the policy fragment without an image build or commit. Applied rules appear under the agent's **Runtime host rules** disclosure.
+- **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, MCP tools, skills, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. A blank profile policy automatically creates and references the generated default; the legacy policy selector is marked deprecated. Projects expose a read-only repository-details disclosure with manifest, fragment, host, and worker-image status. Setup → Images labels foundational and project images and exposes repository provenance, while New agent defaults to the project's latest repository image with a profile-image opt-out. Image build output and stop controls are also routed to the bottom drawer.
 
 The interface defaults to light mode and includes a header theme switcher; the selected theme is remembered locally.
 
@@ -749,8 +752,8 @@ Read the run copy directly with:
 GET /api/runs/{id}/policy/content
 ```
 
-It returns `{"path":"...","content":"..."}`. Setup → Policies lists these run
-copies under **Agent run policies**, separately from reusable templates.
+It returns `{"path":"...","content":"..."}`. Fleet's policy drawer shows the
+run's recorded provenance above the YAML.
 
 The response diff is the computed policy change. OpenShell rejection leaves the
 dialog open so the user can read the error and retry after fixing the cause.

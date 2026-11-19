@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,13 +24,15 @@ var secretName = regexp.MustCompile(`(?i)(key|token|secret|password|credential)`
 var envName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
 type Profile struct {
-	Version   int      `yaml:"version" json:"version"`
-	Name      string   `yaml:"name" json:"name"`
-	Agent     string   `yaml:"agent" json:"agent"`
-	Image     string   `yaml:"image" json:"image"`
-	Mode      string   `yaml:"mode" json:"mode"`
-	Model     string   `yaml:"model" json:"model"`
-	Provider  string   `yaml:"provider" json:"provider"`
+	Version  int    `yaml:"version" json:"version"`
+	Name     string `yaml:"name" json:"name"`
+	Agent    string `yaml:"agent" json:"agent"`
+	Image    string `yaml:"image" json:"image"`
+	Mode     string `yaml:"mode" json:"mode"`
+	Model    string `yaml:"model" json:"model"`
+	Provider string `yaml:"provider" json:"provider"`
+	// Policy is deprecated for phase 1. New runs use the generated default
+	// and add only this policy's network rules when it is not that default.
 	Policy    string   `yaml:"policy" json:"policy"`
 	Approval  string   `yaml:"approval" json:"approval"`
 	BaseURL   string   `yaml:"base_url,omitempty" json:"base_url,omitempty"`
@@ -66,7 +69,13 @@ func (p Profile) Validate() error {
 		}
 		endpoint, err := url.Parse(p.BaseURL)
 		if p.BaseURL == "" || err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
-			return fmt.Errorf("gateway mode requires an absolute model API base URL")
+			return invalidGatewayBaseURLError(p.Name, p.BaseURL)
+		}
+		if endpoint.Port() != "" {
+			port, err := strconv.Atoi(endpoint.Port())
+			if err != nil || port < 1 || port > 65535 {
+				return fmt.Errorf("profile %q cannot derive its provider host: base_url %q has invalid port %q; use a port from 1 to 65535", p.Name, p.BaseURL, endpoint.Port())
+			}
 		}
 		if !envName.MatchString(p.APIKeyEnv) {
 			return fmt.Errorf("gateway mode requires an API key environment variable name")
@@ -102,38 +111,39 @@ func (p Project) Validate() error {
 }
 
 type Run struct {
-	ID                       string        `json:"id"`
-	Name                     string        `json:"name,omitempty"`
-	Created                  time.Time     `json:"created"`
-	Source                   string        `json:"source"`
-	Project                  string        `json:"project,omitempty"`
-	ProfileName              string        `json:"profile,omitempty"`
-	Worktree                 string        `json:"worktree"`
-	WorktreeIsolated         bool          `json:"worktree_isolated,omitempty"`
-	Branch                   string        `json:"branch"`
-	Baseline                 string        `json:"baseline"`
-	LastSynced               string        `json:"last_synced"`
-	Fingerprint              string        `json:"fingerprint,omitempty"`
-	LastSuccessfulSyncAt     time.Time     `json:"last_successful_sync_at"`
-	SyncedSandboxFingerprint string        `json:"synced_sandbox_fingerprint"`
-	Sandbox                  string        `json:"sandbox"`
-	Gateway                  string        `json:"gateway"`
-	Agent                    string        `json:"agent"`
-	Image                    string        `json:"image"`
-	BaseImage                string        `json:"base_image,omitempty"`
-	ImageSource              string        `json:"image_source,omitempty"`
-	ImageRepo                string        `json:"image_repo,omitempty"`
-	ManifestDigest           string        `json:"manifest_digest,omitempty"`
-	ImageWarnings            []string      `json:"image_warnings,omitempty"`
-	PolicyFragment           string        `json:"policy_fragment,omitempty"`
-	PolicyFragmentDigest     string        `json:"policy_fragment_digest,omitempty"`
-	RuntimeHosts             []RuntimeHost `json:"runtime_hosts,omitempty"`
-	Mode                     string        `json:"mode"`
-	Model                    string        `json:"model"`
-	Approval                 string        `json:"approval"`
-	Status                   RunStatus     `json:"status"`
-	StatusDetail             string        `json:"status_detail"`
-	Synced                   bool          `json:"synced"`
+	ID                       string               `json:"id"`
+	Name                     string               `json:"name,omitempty"`
+	Created                  time.Time            `json:"created"`
+	Source                   string               `json:"source"`
+	Project                  string               `json:"project,omitempty"`
+	ProfileName              string               `json:"profile,omitempty"`
+	Worktree                 string               `json:"worktree"`
+	WorktreeIsolated         bool                 `json:"worktree_isolated,omitempty"`
+	Branch                   string               `json:"branch"`
+	Baseline                 string               `json:"baseline"`
+	LastSynced               string               `json:"last_synced"`
+	Fingerprint              string               `json:"fingerprint,omitempty"`
+	LastSuccessfulSyncAt     time.Time            `json:"last_successful_sync_at"`
+	SyncedSandboxFingerprint string               `json:"synced_sandbox_fingerprint"`
+	Sandbox                  string               `json:"sandbox"`
+	Gateway                  string               `json:"gateway"`
+	Agent                    string               `json:"agent"`
+	Image                    string               `json:"image"`
+	BaseImage                string               `json:"base_image,omitempty"`
+	ImageSource              string               `json:"image_source,omitempty"`
+	ImageRepo                string               `json:"image_repo,omitempty"`
+	ManifestDigest           string               `json:"manifest_digest,omitempty"`
+	ImageWarnings            []string             `json:"image_warnings,omitempty"`
+	PolicyFragment           string               `json:"policy_fragment,omitempty"`
+	PolicyFragmentDigest     string               `json:"policy_fragment_digest,omitempty"`
+	PolicyProvenance         *RunPolicyProvenance `json:"policy_provenance,omitempty"`
+	RuntimeHosts             []RuntimeHost        `json:"runtime_hosts,omitempty"`
+	Mode                     string               `json:"mode"`
+	Model                    string               `json:"model"`
+	Approval                 string               `json:"approval"`
+	Status                   RunStatus            `json:"status"`
+	StatusDetail             string               `json:"status_detail"`
+	Synced                   bool                 `json:"synced"`
 	// SyncState is derived for each read. SaveRun never persists it.
 	SyncState      SyncState `json:"sync_state,omitempty"`
 	Policy         string    `json:"policy"`

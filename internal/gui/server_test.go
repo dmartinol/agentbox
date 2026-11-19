@@ -521,9 +521,10 @@ func newRepoSetupServer(t *testing.T, manifest string) (*httptest.Server, app.St
 func TestProjectsEndpointReportsManifestPresence(t *testing.T) {
 	server, _, _ := newRepoSetupServer(t, guiRepoManifest)
 	var projects []struct {
-		Name     string `json:"name"`
-		Manifest bool   `json:"manifest"`
-		Repo     string `json:"repo"`
+		Name       string                 `json:"name"`
+		Manifest   bool                   `json:"manifest"`
+		Repo       string                 `json:"repo"`
+		RepoStatus *app.ProjectRepoStatus `json:"repo_status"`
 	}
 	requestJSON(t, http.MethodGet, server.URL+"/api/projects", nil, &projects)
 	byName := map[string]bool{}
@@ -540,6 +541,18 @@ func TestProjectsEndpointReportsManifestPresence(t *testing.T) {
 	}
 	if repos["owned"] != "github.com/owner/repo" {
 		t.Fatalf("project repository identity = %q; want normalized origin", repos["owned"])
+	}
+	var owned *app.ProjectRepoStatus
+	for _, project := range projects {
+		if project.Name == "owned" {
+			owned = project.RepoStatus
+		}
+	}
+	if owned == nil || !owned.ManifestPresent || len(owned.HostRules) != 1 || owned.FragmentStatus != app.ProjectRepoFragmentAbsent {
+		t.Fatalf("owned repository status = %+v", owned)
+	}
+	if owned.WorkerImages[1].Agent != "codex" || owned.WorkerImages[1].Status != "missing" {
+		t.Fatalf("worker image status = %+v", owned.WorkerImages)
 	}
 }
 

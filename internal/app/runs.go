@@ -6,11 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 const bootstrapScript = `#!/bin/sh
@@ -71,18 +72,11 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if err := p.Validate(); err != nil {
 		return Run{}, err
 	}
-	policy, err := os.ReadFile(p.Policy)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return Run{}, fmt.Errorf("profile %q references missing policy file %s; edit the profile or restore the policy", p.Name, p.Policy)
-		}
+	if _, err := deriveProviderEndpoint(p); err != nil {
 		return Run{}, err
 	}
-	policy, err = PolicyForAgent(policy, p.Agent)
+	legacyNetwork, legacyPath, err := a.legacyPolicyNetwork(p)
 	if err != nil {
-		return Run{}, err
-	}
-	if _, err := ParsePolicy(policy); err != nil {
 		return Run{}, err
 	}
 	var selection *MCPSelection
@@ -168,7 +162,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	case !forceProfileImage:
 		runImage = a.ResolveRunImage(ctx, p, sourceRoot)
 	}
-	policy, err = runImage.ComposePolicy(policy, p.Policy)
+	policy, provenance, err := deriveRunPolicy(p, opt.Gateway, legacyNetwork, legacyPath, runImage)
 	if err != nil {
 		return Run{}, err
 	}
@@ -183,7 +177,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if runName == "" {
 		runName = id
 	}
-	preview := Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, ProfileName: p.Name, Gateway: opt.Gateway, Agent: p.Agent, Image: runImage.Image, BaseImage: runImage.BaseImage, ImageSource: string(runImage.Source), ImageRepo: runImage.Repo, ManifestDigest: runImage.ManifestDigest, ImageWarnings: runImage.Warnings, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: StatusCreating, StatusDetail: "dry run preview", WorktreeIsolated: useWorktree, SyncState: SyncStateUnknown}
+	preview := Run{ID: id, Name: runName, Source: sourceRoot, Project: projectName, ProfileName: p.Name, Gateway: opt.Gateway, Agent: p.Agent, Image: runImage.Image, BaseImage: runImage.BaseImage, ImageSource: string(runImage.Source), ImageRepo: runImage.Repo, ManifestDigest: runImage.ManifestDigest, ImageWarnings: runImage.Warnings, PolicyProvenance: provenance, Mode: p.Mode, Model: p.Model, Approval: p.Approval, Policy: p.Policy, Status: StatusCreating, StatusDetail: "dry run preview", WorktreeIsolated: useWorktree, SyncState: SyncStateUnknown}
 	if runImage.Source == ImageSourceRepo {
 		preview.PolicyFragment = runImage.FragmentPath
 		preview.PolicyFragmentDigest = runImage.FragmentDigest
@@ -228,6 +222,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	r.ImageRepo = runImage.Repo
 	r.ManifestDigest = runImage.ManifestDigest
 	r.ImageWarnings = runImage.Warnings
+	r.PolicyProvenance = provenance
 	if runImage.Source == ImageSourceRepo {
 		r.PolicyFragment = runImage.FragmentPath
 		r.PolicyFragmentDigest = runImage.FragmentDigest
@@ -323,12 +318,24 @@ func (a *App) VerifyEffectivePolicy(ctx context.Context, r Run, p Profile) error
 	}
 	s := strings.ToLower(string(b))
 	if r.Mode == "gateway" {
-		endpoint, err := url.Parse(p.BaseURL)
-		if err != nil || endpoint.Host == "" {
-			return fmt.Errorf("gateway profile lacks a valid model API base URL")
+		endpoint, err := deriveProviderEndpoint(p)
+		if err != nil {
+			return err
 		}
-		if !strings.Contains(s, strings.ToLower(endpoint.Host)) {
-			return fmt.Errorf("effective policy lacks gateway endpoint %q; provider not ready", endpoint.Host)
+		var effective Policy
+		if err := yaml.Unmarshal(b, &effective); err != nil {
+			return fmt.Errorf("effective policy could not be parsed: %w", err)
+		}
+		endpointAllowed := false
+		for _, rule := range effective.Network {
+			for _, candidate := range rule.Endpoints {
+				if strings.EqualFold(candidate.Host, endpoint.host) && candidate.Port == endpoint.port {
+					endpointAllowed = true
+				}
+			}
+		}
+		if !endpointAllowed {
+			return fmt.Errorf("effective policy lacks gateway endpoint %q; provider not ready", fmt.Sprintf("%s:%d", endpoint.host, endpoint.port))
 		}
 		if strings.Contains(s, "api.openai.com") || strings.Contains(s, "api.anthropic.com") {
 			return fmt.Errorf("effective policy allows direct model-provider egress in gateway mode")
