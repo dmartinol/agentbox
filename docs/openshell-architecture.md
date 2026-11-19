@@ -225,6 +225,98 @@ Gateway mode routes model traffic through an OpenShell-registered provider.
   shell network calls follow the run policy instead of Codex's default
   network-disabled sandbox.
 
+## Repository manifest
+
+A repository can declare its development and CI needs in a committed
+`.agentbox/config.yaml` at the repository root. The manifest names four things:
+
+1. **Image packages** — apt packages installed on top of the profile base
+   image at image build time.
+2. **Toolchains** — pinned HTTPS downloads with SHA-256 checksums, installed at
+   image build time.
+3. **Verify commands** — one-line commands that must succeed for the image
+   build to pass.
+4. **Hosts** — the exact runtime egress (host, port, binaries) the
+   repository's tools need inside a sandbox.
+
+The manifest is deliberately credential-free and wildcard-free. It contains no
+tokens, keys, or passwords — validation rejects secret-like field names or
+values anywhere in the file, including values hidden behind YAML anchors — and
+hosts are exact hostnames, never `*` wildcards, CIDR blocks, schemes, or paths.
+Nothing is inferred at policy-build time: what runs in the sandbox is what the
+manifest declares, copied verbatim.
+
+The file is normally authored once per repository — by an agent skill reading
+the repository's build configuration, or by hand — and extended mechanically
+when a new external host is needed. Everything else under `.agentbox/` stays
+ignored; only `config.yaml` is committed.
+
+Parsing and validation live in `internal/app` (`ParseRepoConfig`,
+`LoadRepoConfig`). The loader reports a repository without a manifest with
+`os.ErrNotExist`, distinct from validation failures, so a missing manifest and
+a broken manifest are never confused.
+
+### Schema (v1)
+
+```yaml
+schema: 1
+
+image:
+  packages:                        # apt package names, installed at build time
+    - make
+  toolchains:                      # pinned downloads, installed at build time
+    - name: go
+      url: https://go.dev/dl/go1.27.4.linux-amd64.tar.gz
+      sha256: 7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
+      bin: /usr/local/go/bin/go
+
+verify:                            # image build gates; each must succeed
+  - go version
+  - make --version
+
+hosts:                             # the only runtime egress; exact + binary-scoped
+  - host: proxy.golang.org
+    port: 443
+    binaries: [/usr/local/go/bin/go]
+  - host: sum.golang.org
+    port: 443
+    binaries: [/usr/local/go/bin/go]
+  - host: registry.npmjs.org
+    port: 443
+    binaries: [/usr/local/bin/npm, /usr/local/bin/node]
+  - host: github.com
+    port: 22
+    binaries: [/usr/bin/git]
+```
+
+Validation rules (every violation names the offending field):
+
+- `schema` must be `1`.
+- `image.packages` entries are plain apt package names: lowercase letters,
+  digits, `+`, `-`, and `.`; URLs, version pins (`name=version`), and shell
+  characters are rejected.
+- `image.toolchains` entries require `name` (a lowercase identifier), `url`
+  (HTTPS), `sha256` (exactly 64 hex characters, normalized to lowercase), and
+  `bin` (an absolute path). Duplicate names or binary paths are rejected.
+- `verify` entries are single-line, non-empty commands without leading or
+  trailing whitespace or line continuations.
+- `hosts` entries require an exact hostname (253 characters or fewer), a port
+  from 1 to 65535, and at least one absolute binary path. OpenShell-style
+  trailing `**` globs are allowed in binary paths. Duplicate host+port pairs
+  are rejected; the same host on different ports is fine.
+- Secret-like field names or values anywhere in the file are rejected, as are
+  binary-encoded values.
+- Unknown fields are rejected, so typos fail loudly instead of silently
+  changing behavior.
+- Every section is optional; an empty `hosts` list is valid (offline
+  repositories), and a repository without a manifest keeps using profile
+  images and profile policies unchanged.
+
+AgentBox currently parses and validates the manifest. Building a
+repository-specific image from the `image` and `verify` sections and composing
+run policies from the `hosts` section are tracked in
+[#42](https://github.com/dmartinol/agentbox/issues/42).
+
 ## Policy layer
 
 When a profile is created without an explicit policy, AgentBox creates:

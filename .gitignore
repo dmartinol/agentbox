@@ -13,8 +13,10 @@ coverage.*
 .env.*
 !.env.example
 
-# Local AgentBox state (runtime data belongs outside the repository)
-/.agentbox/
+# Local AgentBox state (runtime data belongs outside the repository);
+# the committed repository manifest is the one exception
+/.agentbox/*
+!/.agentbox/config.yaml
 /agentbox.db
 /agentbox.db-*
 
