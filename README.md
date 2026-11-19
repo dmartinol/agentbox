@@ -494,6 +494,17 @@ automatically for the project, warning when the policy fragment is out of date
 with the manifest or a newer local base image exists. `--image profile` forces
 the profile image for one run, and `--image <tag>` overrides the image entirely.
 
+In the GUI, **Setup → Images** labels each image `FOUNDATIONAL` or
+`PROJECT <name>` and reveals a repository image's manifest digest and base
+image in its provenance disclosure. **New agent** replaces free-text image
+entry with a select that defaults to the project's latest repository image for
+the profile's agent, lists older repository images for that pair, and offers
+**Use profile image** as the opt-out. The control is disabled with an
+explanatory hint when the project has no manifest or no matching image. Run
+details show the effective image, source, base image, repository, manifest
+digest, and any drift warning; **View policy** opens the composed run policy
+with its file and repository-fragment provenance.
+
 EnMaaS uses one key but more than one API authentication dialect. Create two
 provider configurations with the same `ENMAAS_KEY` credential reference when
 supporting multiple agents:
@@ -684,8 +695,8 @@ The GUI is a compact, Orca-inspired React single-page application built with Vit
 
 The two primary surfaces are:
 
-- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, a derived status glyph plus label per run, a separate sync-state glyph plus label, a **Needs You** count for agents waiting on input, inline lifecycle actions, and selected-agent metadata. The Sync cell distinguishes **No changes**, **Up to date**, **Sync needed**, **Sync blocked**, and **Unable to check**; agent details show the last successful sync time or **Never** and explain a blocked or unverifiable sync. The **Workspace** button on a project (or **Attach** on an agent) opens a workspace with one tab per agent plus optional shell tabs; only the visible tab holds a terminal. Logs, diffs, and effective policies open in a shared bottom drawer. The selected agent also has an **Allow host** action for Ready, Working, and Waiting agents: it previews the policy diff, applies a network-only rule live, and reports OpenShell rejection and rollback without leaving the dialog. After a successful apply the dialog names the run policy file it changed and offers **Close** or **Allow another host**; the effective policy opens in the bottom drawer only from **View policy**. Run policies are per-agent copies, so they are listed in Setup → Policies under **Agent run policies** rather than with reusable templates.
-- **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, policies, MCP tools, skills, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. A blank profile policy automatically creates and references the default policy. Image build output and stop controls are also routed to the bottom drawer.
+- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, a derived status glyph plus label per run, a separate sync-state glyph plus label, a **Needs You** count for agents waiting on input, inline lifecycle actions, and selected-agent metadata. The Sync cell distinguishes **No changes**, **Up to date**, **Sync needed**, **Sync blocked**, and **Unable to check**; agent details show the last successful sync time or **Never** and explain a blocked or unverifiable sync. Agent details also report the effective image, image source, base image, repository, manifest digest, and image drift warnings, and match a copied run to its profile by the recorded profile name. The **Workspace** button on a project (or **Attach** on an agent) opens a workspace with one tab per agent plus optional shell tabs; only the visible tab holds a terminal. Logs, diffs, and effective policies open in a shared bottom drawer. **View policy** shows the composed run policy with its file and repository-fragment provenance. The selected agent also has an **Allow host** action for Ready, Working, and Waiting agents: it previews the policy diff, applies a network-only rule live, and reports OpenShell rejection and rollback without leaving the dialog. After a successful apply the dialog names the run policy file it changed and offers **Close** or **Allow another host**; the effective policy opens in the bottom drawer only from **View policy**. Run policies are per-agent copies, so they are listed in Setup → Policies under **Agent run policies** rather than with reusable templates.
+- **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, policies, MCP tools, skills, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. A blank profile policy automatically creates and references the default policy. Setup → Images labels foundational and project images and exposes repository provenance, while New agent defaults to the project's latest repository image with a profile-image opt-out. Image build output and stop controls are also routed to the bottom drawer.
 
 The interface defaults to light mode and includes a header theme switcher; the selected theme is remembered locally.
 

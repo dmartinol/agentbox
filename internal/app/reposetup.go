@@ -245,6 +245,7 @@ func (a *App) repoSetupImages(ctx context.Context, cfg RepoConfig, agents []stri
 					"--label", "agentbox.worker=true",
 					"--label", "agentbox.repo=" + repo,
 					"--label", "agentbox.manifest-digest=" + manifestDigest,
+					"--label", "agentbox.base=" + base.Reference,
 					"--label", "agentbox.agent=" + agent,
 					"--label", "agentbox.version=" + base.Version,
 					"--label", "agentbox.recipe=" + CurrentImageRecipe(),

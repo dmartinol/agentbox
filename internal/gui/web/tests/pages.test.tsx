@@ -12,6 +12,7 @@ import { PoliciesPanel } from '../src/pages/setup/PoliciesPanel';
 import { SkillsPanel } from '../src/pages/setup/SkillsPanel';
 import { mcps, overview, providers, runs, skillEntries, skillStatus } from './fixtures';
 import { formatSyncTimestamp } from '../src/lib/text';
+import type { Run } from '../src/types';
 
 const xtermHooks = vi.hoisted(() => ({
   resize: undefined as undefined | ((size: { cols: number; rows: number }) => void)
@@ -438,9 +439,121 @@ describe('destructive row actions', () => {
       'GET /api/mcps/local': []
     });
     render(panel);
-    const row = (await screen.findByText(rowText)).closest('tr');
+    const row = (await screen.findAllByText(rowText))[0].closest('tr');
     if (!row) throw new Error(`${rowText} row missing`);
     expect(within(row).getByRole('button', { name: /^(Delete|Remove)$/ })).toHaveClass('text-danger');
+  });
+});
+
+describe('repository image provenance', () => {
+  it('badges foundational and project images and reveals provenance', async () => {
+    const user = userEvent.setup();
+    render(<ImagesPanel openLog={() => undefined} updateLog={() => undefined} />);
+    expect((await screen.findAllByText('FOUNDATIONAL')).length).toBeGreaterThan(0);
+    const projectRows = screen.getAllByText('PROJECT demo').map((badge) => badge.closest('tr')).filter((row): row is HTMLTableRowElement => Boolean(row));
+    expect(projectRows).toHaveLength(2);
+    const row = projectRows[0];
+    await user.click(within(row).getByText('Manifest and base'));
+    expect(within(row).getByText('sha256:manifest-a')).toBeInTheDocument();
+    expect(within(row).getByText('localhost/openshell:codex-1.0.0-r3')).toBeInTheDocument();
+    expect(within(row).getByText('github.com/example/demo')).toBeInTheDocument();
+  });
+
+  it('defaults the new-agent image select to the latest project image', async () => {
+    const fetchMock = mockRoutes({ ...defaultRoutes(), 'POST /api/runs': runs[0] });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'New agent' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByLabelText('Override image, model, and approval'));
+
+    const image = within(dialog).getByLabelText(/^Image/);
+    expect(image).toHaveValue('auto');
+    expect(within(image).getByRole('option', { name: /Latest project image.*1\.0\.0/ })).toHaveValue('auto');
+    expect(within(image).getByRole('option', { name: /^Project image.*0\.9\.0/ })).toBeInTheDocument();
+    expect(within(image).getByRole('option', { name: /Use profile image/ })).toHaveValue('profile');
+    expect(within(dialog).getByText(/Defaults to the latest repository image/)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Start' }));
+    const request = fetchMock.mock.calls.find(([input, init]) => input.toString() === '/api/runs' && init?.method === 'POST');
+    expect(request).toBeDefined();
+    expect(JSON.parse(String(request?.[1]?.body))).not.toHaveProperty('image');
+  });
+
+  it('sends the profile image when the opt-out is selected', async () => {
+    const fetchMock = mockRoutes({ ...defaultRoutes(), 'POST /api/runs': runs[0] });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'New agent' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByLabelText('Override image, model, and approval'));
+    await user.selectOptions(within(dialog).getByLabelText(/^Image/), 'profile');
+    await user.click(within(dialog).getByRole('button', { name: 'Start' }));
+
+    const request = fetchMock.mock.calls.find(([input, init]) => input.toString() === '/api/runs' && init?.method === 'POST');
+    expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({ image: 'profile' });
+  });
+
+  it('explains why the image select is unavailable without a manifest', async () => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/overview': { ...overview, projects: [{ ...overview.projects[0], manifest: false }] }
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'New agent' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByLabelText('Override image, model, and approval'));
+
+    expect(within(dialog).getByLabelText(/^Image/)).toBeDisabled();
+    expect(within(dialog).getByText(/no \.agentbox\/config\.yaml/)).toBeInTheDocument();
+  });
+
+  it('shows image provenance and drift warnings in run details', async () => {
+    const repoRun: Run = {
+      ...runs[0],
+      image: 'localhost/openshell:repo-github-com-example-demo-codex-22222222',
+      base_image: 'localhost/openshell:codex-1.0.0-r3',
+      image_source: 'repo',
+      image_repo: 'github.com/example/demo',
+      manifest_digest: 'sha256:manifest-a',
+      policy_fragment: '/state/policies/repo-github-com-example-demo.yaml',
+      policy_fragment_digest: 'sha256:fragment',
+      image_warnings: ['repository policy fragment is out of date with the manifest']
+    };
+    mockRoutes({ ...defaultRoutes(), 'GET /api/overview': { ...overview, runs: [repoRun] }, 'GET /api/runs': [repoRun] });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText('active-run'));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    expect(within(panel).getByText('Repository image')).toBeInTheDocument();
+    expect(within(panel).getByText('localhost/openshell:codex-1.0.0-r3')).toBeInTheDocument();
+    expect(within(panel).getByText('sha256:manifest-a')).toBeInTheDocument();
+    expect(within(panel).getByText('github.com/example/demo')).toBeInTheDocument();
+    expect(within(panel).getByText(/out of date with the manifest/)).toBeInTheDocument();
+
+    await user.click(within(panel).getByRole('button', { name: 'View policy' }));
+    expect(await screen.findByText(/Repository fragment: \/state\/policies\/repo-github-com-example-demo\.yaml/)).toBeInTheDocument();
+  });
+
+  it('matches a copied run by its recorded profile name before the image', async () => {
+    const altProfile = { ...overview.profiles[0], name: 'codex-alt', image: 'localhost/openshell:codex-0.9.0-r3' };
+    const repoRun: Run = {
+      ...runs[0],
+      profile: 'codex-alt',
+      image: 'localhost/openshell:repo-github-com-example-demo-codex-22222222'
+    };
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/overview': { ...overview, profiles: [overview.profiles[0], altProfile], runs: [repoRun] },
+      'GET /api/runs': [repoRun]
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText('active-run'));
+    await user.click(screen.getByRole('button', { name: 'Copy agent' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText(/^Profile/)).toHaveValue('codex-alt');
   });
 });
 
@@ -950,7 +1063,7 @@ describe('image lifecycle', () => {
 
   it('disables delete for an image held by a profile and names the holder', async () => {
     await openImages();
-    const row = (await screen.findByText('localhost/openshell:codex-1.0.0-r3')).closest('tr');
+    const row = (await screen.findAllByText('localhost/openshell:codex-1.0.0-r3'))[0].closest('tr');
     if (!row) throw new Error('image row missing');
     const button = within(row).getByRole('button', { name: 'Delete' });
     expect(button).toHaveAttribute('aria-disabled', 'true');
@@ -976,7 +1089,7 @@ describe('image lifecycle', () => {
       'POST /api/images/delete': { mockStatus: 409, body: { error: 'image "localhost/openshell:codex-0.9.0-r3" is in use by run late-holder (running)' } }
     });
     const user = await openImages();
-    const row = (await screen.findByText('localhost/openshell:codex-0.9.0-r3')).closest('tr');
+    const row = (await screen.findAllByText('localhost/openshell:codex-0.9.0-r3'))[0].closest('tr');
     if (!row) throw new Error('image row missing');
     await user.click(within(row).getByRole('button', { name: 'Delete' }));
     const dialog = await screen.findByRole('dialog');
@@ -1361,7 +1474,7 @@ describe('allow host', () => {
     mockRoutes({
       ...defaultRoutes(),
       'GET /api/overview': () => { overviewCalls += 1; return overview; },
-      'GET /api/runs/run-active/policy': () => { policyCalls += 1; return { effective: { version: 1 } }; },
+      'GET /api/runs/run-active/policy/content': () => { policyCalls += 1; return { path: '/policies/run-active.yaml', content: 'version: 1\n' }; },
       'POST /api/runs/run-active/policy/host': { outcome: 'live-applied', diff: '--- diff' }
     });
     const user = userEvent.setup();
@@ -1379,7 +1492,7 @@ describe('allow host', () => {
     let policyCalls = 0;
     mockRoutes({
       ...defaultRoutes(),
-      'GET /api/runs/run-active/policy': () => { policyCalls += 1; return { effective: { version: 1 } }; },
+      'GET /api/runs/run-active/policy/content': () => { policyCalls += 1; return { path: '/policies/run-active.yaml', content: 'version: 1\n' }; },
       'POST /api/runs/run-active/policy/host': { outcome: 'live-applied', diff: '--- diff' }
     });
     const user = userEvent.setup();
@@ -1389,6 +1502,8 @@ describe('allow host', () => {
     await within(dialog).findByText('Network rule applied live');
     await user.click(within(dialog).getByRole('button', { name: 'View policy' }));
     expect(await screen.findByText(/Policy · active-run/)).toBeInTheDocument();
+    expect(await screen.findByText(/Policy file: \/policies\/run-active\.yaml/)).toBeInTheDocument();
+    expect(screen.getByText(/Repository fragment: none \(profile policy\)/)).toBeInTheDocument();
     await waitFor(() => expect(policyCalls).toBe(1));
     expect(screen.queryByText('Network rule applied live')).toBeNull();
   });

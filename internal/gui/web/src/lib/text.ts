@@ -50,3 +50,27 @@ export function formatSyncTimestamp(value?: string): string {
   if (Number.isNaN(date.getTime()) || date.getUTCFullYear() <= 1) return 'Never';
   return date.toLocaleString();
 }
+
+/** The repository's short name, used in text badges and option labels. */
+export function repoName(repo?: string): string {
+  const parts = (repo ?? '').split('/').filter(Boolean);
+  return parts[parts.length - 1] ?? 'repository';
+}
+
+function versionSegment(segment?: string): number {
+  const match = segment ? /^\d+/.exec(segment) : null;
+  return match ? Number(match[0]) : -1;
+}
+
+/** Numeric ordering for dot-separated release versions. */
+export function compareVersions(left: string, right: string): number {
+  const leftParts = left.split('.');
+  const rightParts = right.split('.');
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftNumber = versionSegment(leftParts[index]);
+    const rightNumber = versionSegment(rightParts[index]);
+    if (leftNumber !== rightNumber) return leftNumber - rightNumber;
+  }
+  return left.localeCompare(right);
+}

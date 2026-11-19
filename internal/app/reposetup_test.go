@@ -270,6 +270,7 @@ func TestRepoSetupBuildsContentAddressedImagePerAgent(t *testing.T) {
 		"--label", "agentbox.worker=true",
 		"--label", "agentbox.repo=github.com/owner/repo",
 		"--label", "agentbox.manifest-digest=" + result.ManifestDigest,
+		"--label", "agentbox.base=" + image.Base,
 	} {
 		if !commandHasArg(build, want) {
 			t.Fatalf("build args missing %q: %#v", want, build.args)

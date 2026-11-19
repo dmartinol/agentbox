@@ -25,6 +25,7 @@ export const runs: Run[] = [
     created: '2026-01-01T10:00:00Z',
     source: '/repo',
     project: 'demo',
+    profile: 'codex-default',
     worktree: '/trees/demo/active-run',
     worktree_isolated: true,
     branch: 'agentbox/demo/active-run',
@@ -157,12 +158,36 @@ export const overview: Overview = {
     }
   ],
   runs,
-  projects: [{ version: 1, name: 'demo', root: '/repo', worktree: true, manifest: true }],
+  projects: [{ version: 1, name: 'demo', root: '/repo', worktree: true, manifest: true, repo: 'github.com/example/demo' }],
   profiles: [{ version: 1, name: 'codex-default', agent: 'codex', image: 'localhost/openshell:codex-1.0.0-r3', mode: 'gateway', model: 'model-x', provider: 'model-gateway', base_url: 'https://models.example.test/v1', api_key_env: 'UNIT_MODEL_KEY', policy: '/policies/default.yaml', approval: 'unattended' }],
   images: [
     { reference: 'localhost/openshell:opencode-2.0.0-r3', agent: 'opencode', version: '2.0.0', recipe: 3, os: 'linux', arch: 'arm64' },
     { reference: 'localhost/openshell:codex-1.0.0-r3', agent: 'codex', version: '1.0.0', recipe: 3, os: 'linux', arch: 'arm64', used_by: ['profile codex-default'] },
-    { reference: 'localhost/openshell:codex-0.9.0-r3', agent: 'codex', version: '0.9.0', recipe: 3, os: 'linux', arch: 'arm64' }
+    { reference: 'localhost/openshell:codex-0.9.0-r3', agent: 'codex', version: '0.9.0', recipe: 3, os: 'linux', arch: 'arm64' },
+    {
+      reference: 'localhost/openshell:repo-github-com-example-demo-codex-22222222',
+      agent: 'codex',
+      version: '1.0.0',
+      recipe: 3,
+      os: 'linux',
+      arch: 'arm64',
+      worker: true,
+      repo: 'github.com/example/demo',
+      manifest_digest: 'sha256:manifest-a',
+      base_reference: 'localhost/openshell:codex-1.0.0-r3'
+    },
+    {
+      reference: 'localhost/openshell:repo-github-com-example-demo-codex-11111111',
+      agent: 'codex',
+      version: '0.9.0',
+      recipe: 3,
+      os: 'linux',
+      arch: 'arm64',
+      worker: true,
+      repo: 'github.com/example/demo',
+      manifest_digest: 'sha256:manifest-b',
+      base_reference: 'localhost/openshell:codex-0.9.0-r3'
+    }
   ],
   gateways: [{ name: 'openshell', active: true, endpoint: 'https://localhost:17670', type: 'podman', auth: 'bearer', source: 'local' }],
   doctor: [{ name: 'git', ok: true, detail: '/usr/bin/git' }]

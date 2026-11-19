@@ -232,7 +232,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	projectRecords, err := s.projectsWithUsage()
+	projectRecords, err := s.projectsWithUsage(ctx)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -706,6 +706,7 @@ type projectRecord struct {
 	app.Project
 	UsedBy   []string `json:"used_by,omitempty"`
 	Manifest bool     `json:"manifest"`
+	Repo     string   `json:"repo,omitempty"`
 }
 
 type profileRecord struct {
@@ -714,7 +715,7 @@ type profileRecord struct {
 	LastForAgent bool     `json:"last_for_agent,omitempty"`
 }
 
-func (s *Server) projectsWithUsage() ([]projectRecord, error) {
+func (s *Server) projectsWithUsage(ctx context.Context) ([]projectRecord, error) {
 	projects, err := s.app.Store.ListProjects()
 	if err != nil {
 		return nil, err
@@ -725,13 +726,17 @@ func (s *Server) projectsWithUsage() ([]projectRecord, error) {
 	}
 	records := make([]projectRecord, 0, len(projects))
 	for _, project := range projects {
-		records = append(records, projectRecord{Project: project, UsedBy: usage[project.Name], Manifest: app.RepoConfigPresent(project.Root)})
+		repo, err := s.app.RepoIdentity(ctx, project.Root)
+		if err != nil {
+			repo = ""
+		}
+		records = append(records, projectRecord{Project: project, UsedBy: usage[project.Name], Manifest: app.RepoConfigPresent(project.Root), Repo: repo})
 	}
 	return records, nil
 }
 
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
-	projects, err := s.projectsWithUsage()
+	projects, err := s.projectsWithUsage(r.Context())
 	if err != nil {
 		writeError(w, err)
 		return

@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import type { GuiTask, ImageArtifact, Profile, Project, Registry, RepoSetupResult } from '../../types';
 import { Alert } from '../../components/ui/alert';
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { ActionButton } from '../../components/ui/action';
+import { Disclosure } from '../../components/ui/disclosure';
 import { EmptyState } from '../../components/ui/empty';
 import { Field } from '../../components/ui/field';
 import { Input } from '../../components/ui/input';
@@ -13,8 +15,13 @@ import { ExpandableValue } from '../../components/ui/copy-value';
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { LogDrawerState } from '../../components/LogDrawer';
+import { middleEllipsis, repoName } from '../../lib/text';
 
 const SUPPORTED_AGENTS = ['codex', 'claude', 'opencode'];
+
+function imageKind(image: ImageArtifact): string {
+  return image.worker ? `PROJECT ${middleEllipsis(repoName(image.repo), 18)}` : 'FOUNDATIONAL';
+}
 
 export function ImagesPanel({
   openLog,
@@ -229,17 +236,38 @@ export function ImagesPanel({
         <EmptyState title="No local images" description="Build or pull an AgentBox agent image." />
       ) : (
         <Table>
-          <THead><TR><TH className="w-[34%]">Reference</TH><TH className="w-[10%]">Agent</TH><TH className="w-[10%]">Version</TH><TH className="w-[8%]">Recipe</TH><TH>Platform</TH><TH>Actions</TH></TR></THead>
+          <THead><TR><TH className="w-[13%]">Kind</TH><TH className="w-[26%]">Reference</TH><TH className="w-[8%]">Agent</TH><TH className="w-[8%]">Version</TH><TH className="w-[6%]">Recipe</TH><TH className="w-[10%]">Platform</TH><TH className="w-[17%]">Provenance</TH><TH>Actions</TH></TR></THead>
           <TBody>
             {images.map((image) => {
               const holders = image.used_by ?? [];
               return (
                 <TR key={image.reference}>
+                  <TD label="Kind"><Badge tone={image.worker ? 'info' : 'neutral'} title={image.worker ? image.repo : undefined}>{imageKind(image)}</Badge></TD>
                   <TD className="truncate"><ExpandableValue value={image.reference} label="image reference" max={44} /></TD>
                   <TD label="Agent">{image.agent}</TD>
                   <TD label="Version">{image.version}</TD>
                   <TD label="Recipe">r{image.recipe}</TD>
                   <TD label="Platform">{image.os || 'linux'}/{image.arch || 'arm64'}</TD>
+                  <TD label="Provenance">
+                    {image.worker ? (
+                      <Disclosure summary="Manifest and base">
+                        <dl className="space-y-1.5 text-sm">
+                          <div className="grid gap-0.5">
+                            <dt className="text-muted">Repository</dt>
+                            <dd className="min-w-0"><ExpandableValue value={image.repo} label="repository" max={36} /></dd>
+                          </div>
+                          <div className="grid gap-0.5">
+                            <dt className="text-muted">Manifest digest</dt>
+                            <dd className="min-w-0">{image.manifest_digest ? <ExpandableValue value={image.manifest_digest} label="manifest digest" max={36} /> : <span className="text-muted">Not recorded</span>}</dd>
+                          </div>
+                          <div className="grid gap-0.5">
+                            <dt className="text-muted">Base image</dt>
+                            <dd className="min-w-0">{image.base_reference ? <ExpandableValue value={image.base_reference} label="base image" max={36} /> : <span className="text-muted">Not recorded</span>}</dd>
+                          </div>
+                        </dl>
+                      </Disclosure>
+                    ) : <span className="text-muted">Base image</span>}
+                  </TD>
                   <TD label="Actions">
                     <div className="flex items-center gap-2">
                       <ActionButton

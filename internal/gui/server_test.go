@@ -516,17 +516,23 @@ func TestProjectsEndpointReportsManifestPresence(t *testing.T) {
 	var projects []struct {
 		Name     string `json:"name"`
 		Manifest bool   `json:"manifest"`
+		Repo     string `json:"repo"`
 	}
 	requestJSON(t, http.MethodGet, server.URL+"/api/projects", nil, &projects)
 	byName := map[string]bool{}
+	repos := map[string]string{}
 	for _, project := range projects {
 		byName[project.Name] = project.Manifest
+		repos[project.Name] = project.Repo
 	}
 	if !byName["owned"] {
 		t.Fatalf("project with manifest not reported: %#v", projects)
 	}
 	if byName["demo"] {
 		t.Fatalf("project without manifest reported: %#v", projects)
+	}
+	if repos["owned"] != "github.com/owner/repo" {
+		t.Fatalf("project repository identity = %q; want normalized origin", repos["owned"])
 	}
 }
 

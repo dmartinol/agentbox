@@ -25,7 +25,7 @@ function defaultImageFor(images: ImageArtifact[], agent: string, current = '') {
   const currentImage = images.find((image) => image.reference === current);
   if (currentImage?.agent === agent) return currentImage.reference;
   return images
-    .filter((image) => image.agent === agent)
+    .filter((image) => !image.worker && image.agent === agent)
     .sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true }))[0]?.reference ?? '';
 }
 
@@ -143,7 +143,7 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
   }, [models, form.model]);
 
   const agentImages = useMemo(() => images
-    .filter((image) => image.agent === form.agent)
+    .filter((image) => !image.worker && image.agent === form.agent)
     .sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true })), [images, form.agent]);
   const currentImageMissing = Boolean(form.image) && !agentImages.some((image) => image.reference === form.image);
 

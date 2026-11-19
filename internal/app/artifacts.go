@@ -26,9 +26,13 @@ type ImageArtifact struct {
 	Repo   string `json:"repo,omitempty"`
 	// ManifestDigest is the `.agentbox/config.yaml` digest the repository
 	// image was built from, so run details can report drift.
-	ManifestDigest string   `json:"manifest_digest,omitempty"`
-	ID             string   `json:"-"`
-	References     []string `json:"-"`
+	ManifestDigest string `json:"manifest_digest,omitempty"`
+	// BaseReference is the base agent image a repository image was layered
+	// on. New builds record it directly; older images derive it from the
+	// agent, version, and recipe labels they inherited.
+	BaseReference string   `json:"base_reference,omitempty"`
+	ID            string   `json:"-"`
+	References    []string `json:"-"`
 }
 
 var remoteImageTag = regexp.MustCompile(`^(claude|codex|opencode)-(.+)-r([0-9]+)(?:-([a-z0-9]+)-([a-z0-9]+))?$`)
@@ -115,6 +119,7 @@ func parseLocalImages(data []byte) ([]ImageArtifact, error) {
 			Worker:         label("worker") == "true",
 			Repo:           label("repo"),
 			ManifestDigest: label("manifest-digest"),
+			BaseReference:  label("base"),
 			ID:             record.ID,
 		}
 		if artifact.Agent == "" || artifact.Version == "" || artifact.Reference == "" {
@@ -132,8 +137,37 @@ func parseLocalImages(data []byte) ([]ImageArtifact, error) {
 		}
 		artifacts = append(artifacts, artifact)
 	}
+	fillRepoBaseReferences(artifacts)
 	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Reference < artifacts[j].Reference })
 	return artifacts, nil
+}
+
+// fillRepoBaseReferences backfills the base image for repository images built
+// before the agentbox.base label existed. Their labels still carry the base
+// agent, version, and recipe, which uniquely identify a local base unless the
+// same release was rebuilt into more than one image.
+func fillRepoBaseReferences(images []ImageArtifact) {
+	bases := map[string][]string{}
+	for _, image := range images {
+		if image.Worker || image.Reference == "" {
+			continue
+		}
+		key := imageKey(image.Agent, image.Version, image.Recipe)
+		bases[key] = append(bases[key], image.Reference)
+	}
+	for index := range images {
+		image := &images[index]
+		if !image.Worker || image.BaseReference != "" {
+			continue
+		}
+		if candidates := bases[imageKey(image.Agent, image.Version, image.Recipe)]; len(candidates) == 1 {
+			image.BaseReference = candidates[0]
+		}
+	}
+}
+
+func imageKey(agent, version string, recipe int) string {
+	return agent + "\x00" + version + "\x00" + strconv.Itoa(recipe)
 }
 
 func preferredImageReference(names []string, agent, version string, recipe int) string {
