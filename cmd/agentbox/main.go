@@ -756,8 +756,9 @@ func policyCmd(ctx context.Context, a *app.App, args []string) error {
 		return nil
 	case "edit":
 		f := flags("policy edit")
-		host := f.String("allow-host", "", "add HTTPS host rule")
-		binary := f.String("binary", "", "agent binary path")
+		host := f.String("allow-host", "", "add an exact host rule for one binary")
+		port := f.Int("port", 443, "port for --allow-host")
+		binary := f.String("binary", "", "exact binary path that made the denied request")
 		dry := f.Bool("dry-run", false, "preview")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
@@ -765,7 +766,7 @@ func policyCmd(ctx context.Context, a *app.App, args []string) error {
 		if err := need(f.Args(), 1); err != nil {
 			return err
 		}
-		result, err := a.PolicyEdit(ctx, f.Args()[0], *host, *binary, *dry)
+		result, err := a.PolicyEdit(ctx, f.Args()[0], *host, *port, *binary, *dry)
 		if result.Diff != "" {
 			fmt.Print(result.Diff)
 		}

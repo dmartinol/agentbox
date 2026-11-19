@@ -187,31 +187,34 @@ blocks deletion.
 Symptom: the agent log shows a connection, DNS, TLS, or HTTP 403 failure for a
 host, or the agent reports that a domain is blocked.
 
-1. Read the failure:
+1. Read the denial tuple:
    ```sh
-   agentbox agent logs RUN_ID
+   openshell logs SANDBOX_NAME --source sandbox -n 500
    ```
+   In the GUI, the same entry appears under **Network denials** in the output
+   drawer with its host, port, and binary.
 2. Inspect the effective policy:
    ```sh
    agentbox policy show RUN_ID
    ```
-3. Add the missing HTTPS host rule for the run's agent binaries:
+3. Add the exact host rule using the denied host, port, and binary:
    ```sh
-   agentbox policy edit --allow-host api.example.com RUN_ID
+   agentbox policy edit --allow-host api.example.com --port 443 \
+     --binary /usr/bin/curl RUN_ID
    ```
-   Preview with `--dry-run` first when unsure. Rules are binary-scoped and
-   AgentBox adds them for the known egress binaries, including node and git.
-   The rule is written to the run's own policy copy under
-   `$AGENTBOX_HOME/policies`, not to a reusable policy configuration.
-   Use `--binary /absolute/path/to/binary` only when the block comes from a
-   binary outside that set.
+   Preview with `--dry-run` first when unsure. `--binary` is required with
+   `--allow-host` and must be the exact absolute path from the denial; use the
+   same host and port. Wildcards, directory paths, invalid ports, and
+   secret-like values are refused. The rule is written to the run's own policy
+   copy under `$AGENTBOX_HOME/policies`, not to a reusable policy configuration.
 4. Network-only changes apply live with `openshell policy set --wait`, so retry
    the operation. Static changes are written to a pending policy for the next
    sandbox; the command prints which case applies.
-5. When the repository has a `.agentbox/config.yaml`, persist the fix: append
-   the host to its `hosts` section scoped to the binary that needed it, and
-   commit the change so future runs start with the host allowed. Never
-   hand-edit policy files to persist a host.
+5. To keep the rule for future runs, use the GUI's **Persist in
+   .agentbox/config.yaml** option, or add the same `host`/`port`/`binaries`
+   entry to the manifest's `hosts` section and run `agentbox repo setup` to
+   regenerate the fragment. Commit the manifest and fragment so future runs
+   start with the host allowed. Never hand-edit policy files to persist a host.
 6. Never weaken hard isolation, disable Landlock, or bypass the sandbox to make
    a command run.
 

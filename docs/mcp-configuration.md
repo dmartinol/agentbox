@@ -205,10 +205,11 @@ so local files ride along as specified.
 ### FR7 — Policy
 
 MCP endpoints are governed by the run policy like any other network access.
-AgentBox never edits policies automatically.
+AgentBox edits a run policy only in response to an explicit Add host action.
 
-- The existing policy rule UX (`AddPolicyNetworkRule`, live `policy set`)
-  is the documented path for allowing MCP endpoint hosts.
+- Denial-driven host remediation (**Add host** on the run's surfaced denial,
+  or `agentbox policy edit --allow-host ... --binary ...`) is the documented
+  path for allowing MCP endpoint hosts.
 - Network rules are **binary-scoped**: the rule must name the process that
   makes the network call. For stdio MCP servers that is the server process
   binary (for example the `node`/`npx` path inside the image), not the

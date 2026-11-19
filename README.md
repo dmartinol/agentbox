@@ -695,32 +695,52 @@ The GUI is a compact, Orca-inspired React single-page application built with Vit
 
 The two primary surfaces are:
 
-- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, a derived status glyph plus label per run, a separate sync-state glyph plus label, a **Needs You** count for agents waiting on input, inline lifecycle actions, and selected-agent metadata. The Sync cell distinguishes **No changes**, **Up to date**, **Sync needed**, **Sync blocked**, and **Unable to check**; agent details show the last successful sync time or **Never** and explain a blocked or unverifiable sync. Agent details also report the effective image, image source, base image, repository, manifest digest, and image drift warnings, and match a copied run to its profile by the recorded profile name. The **Workspace** button on a project (or **Attach** on an agent) opens a workspace with one tab per agent plus optional shell tabs; only the visible tab holds a terminal. Logs, diffs, and effective policies open in a shared bottom drawer. **View policy** shows the composed run policy with its file and repository-fragment provenance. The selected agent also has an **Allow host** action for Ready, Working, and Waiting agents: it previews the policy diff, applies a network-only rule live, and reports OpenShell rejection and rollback without leaving the dialog. After a successful apply the dialog names the run policy file it changed and offers **Close** or **Allow another host**; the effective policy opens in the bottom drawer only from **View policy**. Run policies are per-agent copies, so they are listed in Setup → Policies under **Agent run policies** rather than with reusable templates.
+- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, a derived status glyph plus label per run, a separate sync-state glyph plus label, a **Needs You** count for agents waiting on input, inline lifecycle actions, and selected-agent metadata. The Sync cell distinguishes **No changes**, **Up to date**, **Sync needed**, **Sync blocked**, and **Unable to check**; agent details show the last successful sync time or **Never** and explain a blocked or unverifiable sync. Agent details also report the effective image, image source, base image, repository, manifest digest, and image drift warnings, and match a copied run to its profile by the recorded profile name. The **Workspace** button on a project (or **Attach** on an agent) opens a workspace with one tab per agent plus optional shell tabs; only the visible tab holds a terminal. Logs, diffs, and effective policies open in a shared bottom drawer. **View policy** shows the composed run policy with its file and repository-fragment provenance. The logs drawer separates structured **Network denials** (host, port, binary, and reason) from raw output. A denial offers **Add host** while the run is Ready, Working, or Waiting: the dialog shows the exact manifest entry, the run-policy diff, and an optional **Persist in .agentbox/config.yaml** choice. Persisting appends the same rule to the repository manifest and regenerates the policy fragment without an image build or commit. Applied rules appear under the agent's **Runtime host rules** disclosure. Run policies are per-agent copies, so they are listed in Setup → Policies under **Agent run policies** rather than with reusable templates; that panel no longer offers unscoped add-host or apply actions.
 - **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, policies, MCP tools, skills, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. A blank profile policy automatically creates and references the default policy. Setup → Images labels foundational and project images and exposes repository provenance, while New agent defaults to the project's latest repository image with a profile-image opt-out. Image build output and stop controls are also routed to the bottom drawer.
 
 The interface defaults to light mode and includes a header theme switcher; the selected theme is remembered locally.
 
 The GUI calls a local JSON API served by the same process. It does not expose the server on the network by default; bind explicitly if remote access is intended and protected.
 
-Fleet's **Allow host** action uses a single run-scoped endpoint. The request
-contains only the host; the run supplies the agent and policy:
+Denial remediation uses two run-scoped endpoints. The client sends the exact
+host, port, and binary from a surfaced sandbox denial; it never accepts a
+free-form host.
 
 ```http
-POST /api/runs/{id}/policy/host
+POST /api/runs/{id}/policy/denial/preview
 Content-Type: application/json
 
-{"host":"api.example.com"}
+{"host":"api.example.com","port":443,"binary":"/usr/bin/curl","persist":false}
 ```
 
-- `200` with `{"outcome":"live-applied","diff":"...","policyPath":"..."}` when the network rule was applied to the live sandbox.
-- `202` with `{"outcome":"static-pending","diff":"...","policyPath":"..."}` when the change is saved for the next sandbox.
-- `409` with `{"outcome":"no-live-sandbox","error":"Allow host is available only for Ready, Working, and Waiting agents."}` for any other status.
-- `500` with `{"outcome":"openshell-rejected","error":"...","diff":"...","rolledBack":true}` when OpenShell rejects the update; `rolledBack` is `false` when restoring the local policy also failed.
+The preview returns the manifest entry, the run-policy diff, whether persisting
+is available and why, and, when `persist` is `true`, the manifest and fragment
+diffs. It writes nothing.
 
-`policyPath` is the run-scoped policy file that received the rule: the live run
-policy for `live-applied`, or the `*-pending.yaml` copy for `static-pending`.
-Reusable policies under `$AGENTBOX_HOME/policies/<profile-name>.yaml` are
-templates; they never receive run edits.
+```http
+POST /api/runs/{id}/policy/denial
+Content-Type: application/json
+
+{"host":"api.example.com","port":443,"binary":"/usr/bin/curl","persist":true}
+```
+
+- `200` with the applied result: `outcome`, `policyPath`, `runtimeHost`,
+  `persisted`, `fragmentStatus`, and the preview fields. The run policy is
+  updated before the manifest, so a persist failure still leaves the live fix
+  recorded as `source: "run"`.
+- `400` with an actionable error when the tuple is not a current denial, the
+  denial cannot become an exact rule (wildcard, invalid port, or directory
+  binary), or the request names a host that was not denied.
+- `409` when the run is not Ready, Working, or Waiting.
+- `500` with `{"outcome":"openshell-rejected","error":"...","policyDiff":"...","rolledBack":true}`
+  when OpenShell rejects the update; `rolledBack` is `false` when restoring the
+  local policy also failed.
+
+`policyPath` is the run-scoped policy file that received the rule. Reusable
+policies under `$AGENTBOX_HOME/policies/<profile-name>.yaml` are templates;
+they never receive run edits. Persisting writes only `hosts` in
+`.agentbox/config.yaml` and regenerates the fragment; it does not stage or
+commit the change.
 
 Read the run copy directly with:
 

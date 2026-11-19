@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, ChevronRight, CircleHelp, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal, X } from 'lucide-react';
 import { api } from '../api';
 import { approvalForProfile, approvalLabel, approvalOptions, defaultApproval } from '../approvals';
-import type { MCPTools, Overview, PolicyHostError, PolicyHostResponse, Profile, Run, SkillsEntry, StartRunRequest } from '../types';
+import type { MCPTools, Overview, Profile, Run, SkillsEntry, StartRunRequest } from '../types';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardBody, CardHeader, CardTitle } from '../components/ui/card';
@@ -87,12 +87,6 @@ export function FleetView({
   const [pending, setPending] = useState<Record<string, AgentAction>>({});
   const [deleteTarget, setDeleteTarget] = useState<Run>();
   const [copySource, setCopySource] = useState<Run>();
-  const [hostTarget, setHostTarget] = useState<Run>();
-  const [hostValue, setHostValue] = useState('');
-  const [hostError, setHostError] = useState('');
-  const [hostResult, setHostResult] = useState<PolicyHostResponse>();
-  const [hostRolledBack, setHostRolledBack] = useState<boolean>();
-  const [hostSubmitting, setHostSubmitting] = useState(false);
 
   const load = async () => {
     try {
@@ -397,11 +391,18 @@ export function FleetView({
     const narrow = typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 767.98px)').matches;
     setSelected(narrow ? undefined : agent);
     if (kind === 'logs') {
-      openLog({ title: `Logs · ${agent.name || agent.id}`, content: '', loading: true });
+      openLog({ title: `Logs · ${agent.name || agent.id}`, content: '', loading: true, runId: agent.id, runStatus: agent.status });
       try {
-        updateLog({ content: (await api.logs(agent.id)).logs, loading: false, error: undefined });
+        const response = await api.logs(agent.id);
+        updateLog({
+          content: response.logs,
+          denials: response.denials ?? [],
+          denialsError: response.denialsError,
+          loading: false,
+          error: undefined
+        });
       } catch (err) {
-        updateLog({ content: '', loading: false, error: (err as Error).message });
+        updateLog({ content: '', denials: [], denialsError: undefined, loading: false, error: (err as Error).message });
       }
       return;
     }
@@ -426,49 +427,6 @@ export function FleetView({
       updateLog({ content: `${provenance}\n\n${policy.content}`, loading: false, error: undefined });
     } catch (err) {
       updateLog({ content: '', loading: false, error: (err as Error).message });
-    }
-  };
-
-  const resetHostDialog = () => {
-    setHostValue('');
-    setHostError('');
-    setHostResult(undefined);
-    setHostRolledBack(undefined);
-  };
-
-  const closeHostDialog = () => {
-    setHostTarget(undefined);
-    resetHostDialog();
-  };
-
-  const openHostDialog = async (agent: Run) => {
-    setSelected(agent);
-    setHostTarget(agent);
-    resetHostDialog();
-    try {
-      setHostTarget(await api.run(agent.id));
-    } catch (err) {
-      setHostError((err as Error).message);
-    }
-  };
-
-  const submitHost = async () => {
-    const target = hostTarget;
-    const host = hostValue.trim();
-    if (!target || !host) return;
-    setHostSubmitting(true);
-    setHostError('');
-    setHostResult(undefined);
-    setHostRolledBack(undefined);
-    try {
-      setHostResult(await api.allowHost(target.id, host));
-      void load();
-    } catch (err) {
-      const failure = err as PolicyHostError;
-      setHostError(failure.message);
-      if (failure.outcome === 'openshell-rejected') setHostRolledBack(Boolean(failure.rolledBack));
-    } finally {
-      setHostSubmitting(false);
     }
   };
 
@@ -597,7 +555,6 @@ export function FleetView({
                               <Button
                                 size="xs"
                                 variant="secondary"
-                                disabled={!attachable}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   if (attachable) openWorkspace(agent);
@@ -682,6 +639,22 @@ export function FleetView({
                 ))}
               </dl>
 
+              {selected.runtime_hosts?.length ? (
+                <Disclosure summary={`Runtime host rules (${selected.runtime_hosts.length})`}>
+                  <ul className="space-y-2 text-sm">
+                    {selected.runtime_hosts.map((host) => (
+                      <li key={`${host.host}:${host.port}:${host.binary}:${host.rule}`} className="space-y-0.5">
+                        <div className="break-all font-mono text-xs">{host.host}:{host.port}</div>
+                        <div className="break-all font-mono text-xs text-muted">{host.binary}</div>
+                        <div className="text-xs text-muted">
+                          Rule {host.rule} · {host.source === 'run+manifest' ? 'persisted in the manifest' : 'this run only'}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </Disclosure>
+              ) : null}
+
               {selected.image_warnings?.length ? (
                 <Alert variant="warning" title="Image warnings">
                   <ul className="list-disc space-y-1 pl-4">
@@ -740,15 +713,6 @@ export function FleetView({
                       {pending[selected.id] === 'stop' ? 'Stopping' : 'Stop'}
                     </Button>
                   </div>
-                  <Button
-                    variant="outline"
-                    loading={hostSubmitting && hostTarget?.id === selected.id}
-                    disabled={!canAttachRun(selected.status) || Boolean(pending[selected.id])}
-                    title={!canAttachRun(selected.status) ? 'Allow host is available only for Ready, Working, and Waiting agents.' : undefined}
-                    onClick={() => void openHostDialog(selected)}
-                  >
-                    {hostSubmitting && hostTarget?.id === selected.id ? 'Allowing' : 'Allow host'}
-                  </Button>
                   <Button variant="outline" onClick={() => copyAgent(selected)}>Copy agent</Button>
                 </div>
               </section>
@@ -934,74 +898,6 @@ export function FleetView({
                 </Select>
               </Field>
             </>
-          ) : null}
-        </div>
-      </Modal>
-
-      <Modal
-        open={Boolean(hostTarget)}
-        onOpenChange={(open) => { if (!open) closeHostDialog(); }}
-        title={hostResult ? 'Host allowed' : 'Allow host'}
-        footer={hostResult ? (
-          <>
-            <Button variant="outline" onClick={resetHostDialog}>Allow another host</Button>
-            <Button onClick={closeHostDialog}>Close</Button>
-          </>
-        ) : (
-          <>
-            <Button variant="outline" onClick={closeHostDialog} disabled={hostSubmitting}>Cancel</Button>
-            <Button loading={hostSubmitting} disabled={!hostValue.trim()} onClick={() => void submitHost()}>
-              {hostSubmitting ? 'Allowing' : 'Allow host'}
-            </Button>
-          </>
-        )}
-      >
-        <div className="space-y-3">
-          <Field label="Run" htmlFor="allow-host-run">
-            <Input id="allow-host-run" readOnly value={hostTarget ? hostTarget.name || hostTarget.id : ''} />
-          </Field>
-          <Field label="Agent binary" htmlFor="allow-host-binary">
-            <Input id="allow-host-binary" readOnly value={hostTarget?.agent_binary || 'Loading…'} />
-          </Field>
-          <Field label="Host" htmlFor="allow-host-host" required>
-            <Input
-              id="allow-host-host"
-              value={hostValue}
-              disabled={Boolean(hostResult)}
-              onChange={(event) => setHostValue(event.target.value)}
-              placeholder="api.example.com"
-            />
-          </Field>
-          {hostResult ? (
-            <Alert variant="success" title={hostResult.outcome === 'live-applied' ? 'Network rule applied live' : 'Static change saved for a future sandbox'}>
-              <div className="space-y-2">
-                <div>
-                  Saved in this agent's run policy.
-                  {hostResult.policyPath ? <div className="break-all font-mono text-xs">{hostResult.policyPath}</div> : null}
-                  <div className="text-xs text-muted">
-                    Setup → Policies lists reusable templates that runs copy at start; run policies are separate.
-                  </div>
-                </div>
-                {hostResult.diff ? <pre className="max-h-56 overflow-auto whitespace-pre-wrap font-mono text-xs leading-4">{hostResult.diff}</pre> : null}
-                <Button
-                  size="xs"
-                  variant="outline"
-                  onClick={() => {
-                    const target = hostTarget;
-                    closeHostDialog();
-                    if (target) void openDetail(target, 'policy');
-                  }}
-                >
-                  View policy
-                </Button>
-              </div>
-            </Alert>
-          ) : null}
-          {hostError ? (
-            <Alert variant="danger" title="Unable to allow host">
-              <div>{hostError}</div>
-              {hostRolledBack !== undefined ? <div>Rolled back: {hostRolledBack ? 'yes' : 'no'}</div> : null}
-            </Alert>
           ) : null}
         </div>
       </Modal>

@@ -33,24 +33,35 @@ Prints the run's `base`, `effective`, and `global` policy layers.
 Edit a run's policy.
 
 ```text
-agentbox policy edit [--allow-host HOST] [--binary PATH] [--dry-run] RUN_ID
+agentbox policy edit [--allow-host HOST --port PORT --binary PATH] [--dry-run] RUN_ID
 ```
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--allow-host` | — | Add an HTTPS host rule. |
-| `--binary` | — | Override the default binary set with one binary path. |
+| `--allow-host` | — | Add one exact host rule. Requires `--binary`. |
+| `--port` | `443` | Port for `--allow-host`. |
+| `--binary` | — | Exact absolute path of the binary that made the denied request. |
 | `--dry-run` | `false` | Print the planned edit without running it. |
 
-Review the effective policy before changing network or binary rules. Network
-rules are binary-scoped: a rule for a stdio MCP server must name the server
-process binary, not the agent binary.
+Without flags, `policy edit` opens the run policy in `$EDITOR`. Review the
+effective policy before changing network or binary rules. Network rules are
+binary-scoped: a rule for a stdio MCP server must name the server process
+binary, not the agent binary.
 
-Without `--binary`, a host rule allows the agent launcher plus the binaries
-that actually open the socket: `/usr/local/bin/node`, `/usr/bin/git`, and
-`/usr/lib/git-core/**`. The supported agents are Node applications, so a rule
-that lists only the launcher path does not cover the connecting process.
+Host rules are denial-scoped. Copy the host, port, and binary from the run's
+**Network denials** entry (or `openshell logs <sandbox> --source sandbox`), for
+example:
+
+```sh
+agentbox policy edit --allow-host api.example.com --port 443 \
+  --binary /usr/bin/curl RUN_ID
+```
+
+Wildcards, directory paths, invalid ports, and secret-like values are refused.
+If the same host and port already has a rule, only the missing binary is added.
 
 The edit writes to the run's own policy copy under
 `$AGENTBOX_HOME/policies`, never to the reusable profile configuration. A
-static change is saved as `*-pending.yaml` for the next sandbox.
+static change is saved as `*-pending.yaml` for the next sandbox. The CLI does
+not persist the rule in `.agentbox/config.yaml`; use the GUI's **Persist in
+.agentbox/config.yaml** option when the rule should apply to future runs.

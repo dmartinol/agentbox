@@ -85,6 +85,7 @@ function defaultRoutes(): Record<string, unknown> {
     'GET /api/registry': { reference: 'quay.io/team/openshell' },
     'GET /api/runs/run-active/logs': { logs: 'agent log output' },
     'GET /api/runs/run-active/logs?tail=200': { logs: 'agent log output' },
+    'GET /api/runs/run-finished/logs': { logs: 'finished output' },
     'GET /api/runs/run-finished/logs?tail=400': { logs: 'finished output' },
     'GET /api/runs/run-active/shells': [],
     'POST /api/runs/run-active/shells': { name: 'shell-1' },
@@ -576,6 +577,20 @@ describe('policies panel', () => {
     await user.click(within(row).getByRole('button', { name: 'View' }));
     expect(await screen.findByText(/Run policy · active-run/)).toBeInTheDocument();
     expect(screen.getByText(/host-api-example-com/)).toBeInTheDocument();
+  });
+});
+
+describe('policies panel affordances', () => {
+  it('no longer offers unscoped add-host or apply actions', async () => {
+    mockRoutes({
+      'GET /api/policies': [{ name: 'codex-default', path: '/policies/codex-default.yaml', used_by: ['codex-default'] }],
+      'GET /api/runs': runs
+    });
+    render(<PoliciesPanel />);
+    expect((await screen.findAllByText('codex-default')).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: 'Add host' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull();
+    expect(screen.getByText('Agent run policies')).toBeInTheDocument();
   });
 });
 
@@ -1365,165 +1380,202 @@ describe('skills start selection', () => {
   });
 });
 
-describe('allow host', () => {
-  async function openDialog(user: ReturnType<typeof userEvent.setup>) {
+const liveDenial = {
+  host: 'api.example.com',
+  port: 443,
+  binary: '/usr/bin/curl',
+  reason: 'transparent_tcp_policy_denied',
+  logLine: 'OCSF NET:OPEN [MED] DENIED /usr/bin/curl(64) -> api.example.com:443 [reason:transparent_tcp_policy_denied]',
+  valid: true
+};
+
+const denialPreview = {
+  entry: { host: 'api.example.com', port: 443, binaries: ['/usr/bin/curl'] },
+  policyPath: '/policies/run-active.yaml',
+  policyDiff: '--- current\n+++ proposed\n+api.example.com:443',
+  persistAvailable: true,
+  manifestPath: '/repo/.agentbox/config.yaml',
+  manifestDiff: '--- current\n+++ proposed\n+- host: api.example.com',
+  fragmentPath: '/repo/.agentbox/policy.yaml',
+  fragmentDiff: '--- current\n+++ proposed\n+api.example.com'
+};
+
+const appliedDenial = {
+  ...denialPreview,
+  outcome: 'live-applied',
+  rolledBack: false,
+  runtimeHost: {
+    host: 'api.example.com',
+    port: 443,
+    binary: '/usr/bin/curl',
+    rule: 'host-api-example-com-443',
+    source: 'run',
+    added_at: '2026-01-01T13:00:00Z'
+  },
+  persisted: false
+};
+
+describe('denial remediation', () => {
+  async function openLogs(user: ReturnType<typeof userEvent.setup>, name = 'active-run') {
     render(<App />);
-    const labels = await screen.findAllByText('active-run');
-    await user.click(labels[0]);
-    await user.click(await screen.findByRole('button', { name: 'Allow host' }));
-    return await screen.findByRole('dialog');
+    const row = (await screen.findAllByText(name))[0].closest('tr');
+    if (!row) throw new Error('run row missing');
+    await user.click(within(row).getByRole('button', { name: /logs/i }));
+    return screen.findByText(new RegExp(`Logs · ${name}`));
   }
 
-  it('shows the selected run and its derived agent binary', async () => {
+  async function openAddHost(user: ReturnType<typeof userEvent.setup>) {
+    await openLogs(user);
+    const add = await screen.findByRole('button', { name: 'Add host api.example.com:443' });
+    await user.click(add);
+    return screen.findByRole('dialog', { name: 'Add host api.example.com:443' });
+  }
+
+  it('renders denials as structured entries separate from raw output', async () => {
+    mockRoutes({ ...defaultRoutes(), 'GET /api/runs/run-active/logs': { logs: 'agent log output', denials: [liveDenial] } });
     const user = userEvent.setup();
-    const dialog = await openDialog(user);
-    expect(within(dialog).getByLabelText('Run')).toHaveValue('active-run');
-    await waitFor(() => expect(within(dialog).getByLabelText('Agent binary')).toHaveValue('/usr/local/bin/codex'));
-    expect(within(dialog).queryByLabelText('Agent')).toBeNull();
+    await openLogs(user);
+    expect(await screen.findByText('Network request denied')).toBeInTheDocument();
+    expect(screen.getByText('api.example.com:443')).toBeInTheDocument();
+    expect(screen.getByText('/usr/bin/curl')).toBeInTheDocument();
+    expect(screen.getByText(/transparent_tcp_policy_denied/)).toBeInTheDocument();
+    expect(screen.getByText('Raw output')).toBeInTheDocument();
+    expect(screen.getByText('agent log output')).toBeInTheDocument();
   });
 
-  it('posts only the trimmed host and reports a live apply', async () => {
-    mockRoutes({
+  it('previews the exact denial tuple without writing', async () => {
+    const fetchMock = mockRoutes({
       ...defaultRoutes(),
-      'POST /api/runs/run-active/policy/host': {
-        outcome: 'live-applied',
-        diff: '--- current\n+++ proposed\n+host-api-example-com',
-        policyPath: '/policies/run-active.yaml'
-      }
+      'GET /api/runs/run-active/logs': { logs: 'agent log output', denials: [liveDenial] },
+      'POST /api/runs/run-active/policy/denial/preview': denialPreview
     });
     const user = userEvent.setup();
-    const dialog = await openDialog(user);
-    await user.type(within(dialog).getByLabelText(/^Host/), '  api.example.com  ');
-    await user.click(within(dialog).getByRole('button', { name: 'Allow host' }));
-    expect(await within(dialog).findByText('Network rule applied live')).toBeInTheDocument();
-    expect(within(dialog).getByText(/host-api-example-com/)).toBeInTheDocument();
-    expect(within(dialog).getByText('/policies/run-active.yaml')).toBeInTheDocument();
-    expect(within(dialog).getByText('Close')).toBeEnabled();
-    expect(within(dialog).getByRole('button', { name: 'Allow another host' })).toBeEnabled();
-    expect(within(dialog).queryByRole('button', { name: 'Allow host' })).toBeNull();
-    expect(within(dialog).getByLabelText(/^Host/)).toBeDisabled();
-    const call = vi.mocked(fetch).mock.calls.find(([input, init]) =>
-      input.toString() === '/api/runs/run-active/policy/host' && init?.method === 'POST'
+    const dialog = await openAddHost(user);
+    expect(await within(dialog).findByText('Run policy diff')).toBeInTheDocument();
+    expect(within(dialog).getAllByText(/api\.example\.com:443/).length).toBeGreaterThan(0);
+    expect(within(dialog).getByText(/host: api\.example\.com/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('checkbox')).toBeEnabled();
+    const call = fetchMock.mock.calls.find(([input, init]) =>
+      input.toString() === '/api/runs/run-active/policy/denial/preview' && init?.method === 'POST'
     );
     expect(call).toBeTruthy();
-    expect(String(call?.[1]?.body)).toBe('{"host":"api.example.com"}');
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+      host: 'api.example.com', port: 443, binary: '/usr/bin/curl', persist: false
+    });
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      input.toString() === '/api/runs/run-active/policy/denial' && init?.method === 'POST'
+    )).toBe(false);
   });
 
-  it('reports a static pending change', async () => {
-    mockRoutes({
+  it('shows manifest and fragment diffs when persisting is selected', async () => {
+    const fetchMock = mockRoutes({
       ...defaultRoutes(),
-      'POST /api/runs/run-active/policy/host': { mockStatus: 202, body: { outcome: 'static-pending', diff: 'static diff' } }
+      'GET /api/runs/run-active/logs': { logs: 'agent log output', denials: [liveDenial] },
+      'POST /api/runs/run-active/policy/denial/preview': denialPreview
     });
     const user = userEvent.setup();
-    const dialog = await openDialog(user);
-    await user.type(within(dialog).getByLabelText(/^Host/), 'api.example.com');
-    await user.click(within(dialog).getByRole('button', { name: 'Allow host' }));
-    expect(await within(dialog).findByText('Static change saved for a future sandbox')).toBeInTheDocument();
-    expect(within(dialog).getByText('static diff')).toBeInTheDocument();
+    const dialog = await openAddHost(user);
+    await within(dialog).findByText('Run policy diff');
+    await user.click(within(dialog).getByRole('checkbox'));
+    expect(await within(dialog).findByText(/Manifest diff · \/repo\/\.agentbox\/config\.yaml/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Policy fragment diff · \/repo\/\.agentbox\/policy\.yaml/)).toBeInTheDocument();
+    const bodies = fetchMock.mock.calls
+      .filter(([input]) => input.toString() === '/api/runs/run-active/policy/denial/preview')
+      .map(([, init]) => JSON.parse(String(init?.body)));
+    expect(bodies.at(-1)).toEqual({ host: 'api.example.com', port: 443, binary: '/usr/bin/curl', persist: true });
   });
 
-  it('keeps the dialog open and shows the rollback error on OpenShell rejection', async () => {
+  it('applies and persists the scoped rule through the denial endpoint', async () => {
+    const fetchMock = mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/runs/run-active/logs': { logs: 'agent log output', denials: [liveDenial] },
+      'POST /api/runs/run-active/policy/denial/preview': denialPreview,
+      'POST /api/runs/run-active/policy/denial': { ...appliedDenial, persisted: true }
+    });
+    const user = userEvent.setup();
+    const dialog = await openAddHost(user);
+    await within(dialog).findByText('Run policy diff');
+    await user.click(within(dialog).getByRole('checkbox'));
+    await within(dialog).findByText(/Manifest diff/);
+    const submit = within(dialog).getByRole('button', { name: 'Add host and persist' });
+    await waitFor(() => expect(submit).toBeEnabled());
+    await user.click(submit);
+    expect(await within(dialog).findByText('Network rule applied')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Persisted to/)).toBeInTheDocument();
+    expect(within(dialog).getAllByText(/\.agentbox\/config\.yaml/).length).toBeGreaterThan(0);
+    const call = fetchMock.mock.calls.find(([input, init]) =>
+      input.toString() === '/api/runs/run-active/policy/denial' && init?.method === 'POST'
+    );
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+      host: 'api.example.com', port: 443, binary: '/usr/bin/curl', persist: true
+    });
+    expect(screen.queryByRole('button', { name: 'Add host api.example.com:443' })).toBeNull();
+  });
+
+  it('reports an OpenShell rejection with the rolled-back policy diff', async () => {
     const message = 'OpenShell rejected the policy update; the local policy was restored: policy rejected';
     mockRoutes({
       ...defaultRoutes(),
-      'POST /api/runs/run-active/policy/host': {
+      'GET /api/runs/run-active/logs': { logs: 'agent log output', denials: [liveDenial] },
+      'POST /api/runs/run-active/policy/denial/preview': denialPreview,
+      'POST /api/runs/run-active/policy/denial': {
         mockStatus: 500,
-        body: { outcome: 'openshell-rejected', error: message, diff: '--- diff', rolledBack: true }
+        body: { outcome: 'openshell-rejected', error: message, policyDiff: '--- rejected diff', rolledBack: true }
       }
     });
     const user = userEvent.setup();
-    const dialog = await openDialog(user);
-    await user.type(within(dialog).getByLabelText(/^Host/), 'api.example.com');
-    await user.click(within(dialog).getByRole('button', { name: 'Allow host' }));
-    expect(await within(dialog).findByText('Unable to allow host')).toBeInTheDocument();
+    const dialog = await openAddHost(user);
+    await within(dialog).findByText('Run policy diff');
+    const submit = within(dialog).getByRole('button', { name: 'Add host' });
+    await waitFor(() => expect(submit).toBeEnabled());
+    await user.click(submit);
+    expect(await within(dialog).findByText('Unable to add host')).toBeInTheDocument();
     expect(within(dialog).getByText(message)).toBeInTheDocument();
     expect(within(dialog).getByText('Rolled back: yes')).toBeInTheDocument();
-    expect(within(dialog).getByLabelText(/^Host/)).toHaveValue('api.example.com');
-    expect(screen.queryByText('Unable to load fleet')).toBeNull();
+    expect(within(dialog).getByText('--- rejected diff')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add host api.example.com:443', hidden: true })).toBeInTheDocument();
   });
 
-  it('disables the action for terminal runs', async () => {
-    const user = userEvent.setup();
-    render(<App />);
-    const labels = await screen.findAllByText('finished-run');
-    await user.click(labels[0]);
-    const button = await screen.findByRole('button', { name: 'Allow host' });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAttribute('title', 'Allow host is available only for Ready, Working, and Waiting agents.');
-  });
-
-  it('shows Allowing while the request is pending', async () => {
-    let release: ((value: unknown) => void) | undefined;
-    const pending = new Promise((resolve) => { release = resolve; });
+  it('disables Add host for a terminal run', async () => {
     mockRoutes({
       ...defaultRoutes(),
-      'POST /api/runs/run-active/policy/host': () => pending
+      'GET /api/runs/run-finished/logs': { logs: 'finished output', denials: [liveDenial] }
     });
     const user = userEvent.setup();
-    const dialog = await openDialog(user);
-    await user.type(within(dialog).getByLabelText(/^Host/), 'api.example.com');
-    await user.click(within(dialog).getByRole('button', { name: 'Allow host' }));
-    expect(await within(dialog).findByRole('button', { name: 'Allowing' })).toBeInTheDocument();
-    release?.({ outcome: 'live-applied', diff: '--- diff' });
-    expect(await within(dialog).findByText('Network rule applied live')).toBeInTheDocument();
+    await openLogs(user, 'finished-run');
+    const add = await screen.findByRole('button', { name: 'Add host api.example.com:443' });
+    expect(add).toBeDisabled();
+    expect(add).toHaveAttribute('title', 'Add host is available only for Ready, Working, and Waiting agents.');
   });
 
-  it('refreshes the fleet after success without opening the policy drawer', async () => {
-    let overviewCalls = 0;
-    let policyCalls = 0;
+  it('explains why an invalid denial cannot become a rule', async () => {
     mockRoutes({
       ...defaultRoutes(),
-      'GET /api/overview': () => { overviewCalls += 1; return overview; },
-      'GET /api/runs/run-active/policy/content': () => { policyCalls += 1; return { path: '/policies/run-active.yaml', content: 'version: 1\n' }; },
-      'POST /api/runs/run-active/policy/host': { outcome: 'live-applied', diff: '--- diff' }
+      'GET /api/runs/run-active/logs': {
+        logs: 'agent log output',
+        denials: [{ ...liveDenial, valid: false, invalidReason: 'hosts[0].host: wildcards are not allowed' }]
+      }
     });
     const user = userEvent.setup();
-    const dialog = await openDialog(user);
-    const baselineOverview = overviewCalls;
-    await user.type(within(dialog).getByLabelText(/^Host/), 'api.example.com');
-    await user.click(within(dialog).getByRole('button', { name: 'Allow host' }));
-    expect(await within(dialog).findByText('Network rule applied live')).toBeInTheDocument();
-    await waitFor(() => expect(overviewCalls).toBeGreaterThan(baselineOverview));
-    expect(policyCalls).toBe(0);
-    expect(screen.queryByText(/Policy · active-run/)).toBeNull();
+    await openLogs(user);
+    expect(await screen.findByText(/Cannot add this rule: hosts\[0\]\.host/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add host api.example.com:443' })).toBeDisabled();
   });
 
-  it('opens the policy drawer only when View policy is clicked', async () => {
-    let policyCalls = 0;
+  it('keeps raw output available when the sandbox denial log cannot be read', async () => {
     mockRoutes({
       ...defaultRoutes(),
-      'GET /api/runs/run-active/policy/content': () => { policyCalls += 1; return { path: '/policies/run-active.yaml', content: 'version: 1\n' }; },
-      'POST /api/runs/run-active/policy/host': { outcome: 'live-applied', diff: '--- diff' }
+      'GET /api/runs/run-active/logs': {
+        logs: 'agent log output',
+        denials: [],
+        denialsError: 'sandbox policy log unavailable: boom'
+      }
     });
     const user = userEvent.setup();
-    const dialog = await openDialog(user);
-    await user.type(within(dialog).getByLabelText(/^Host/), 'api.example.com');
-    await user.click(within(dialog).getByRole('button', { name: 'Allow host' }));
-    await within(dialog).findByText('Network rule applied live');
-    await user.click(within(dialog).getByRole('button', { name: 'View policy' }));
-    expect(await screen.findByText(/Policy · active-run/)).toBeInTheDocument();
-    expect(await screen.findByText(/Policy file: \/policies\/run-active\.yaml/)).toBeInTheDocument();
-    expect(screen.getByText(/Repository fragment: none \(profile policy\)/)).toBeInTheDocument();
-    await waitFor(() => expect(policyCalls).toBe(1));
-    expect(screen.queryByText('Network rule applied live')).toBeNull();
-  });
-
-  it('resets to a fresh form with Allow another host', async () => {
-    mockRoutes({
-      ...defaultRoutes(),
-      'POST /api/runs/run-active/policy/host': { outcome: 'live-applied', diff: '--- diff' }
-    });
-    const user = userEvent.setup();
-    const dialog = await openDialog(user);
-    const input = within(dialog).getByLabelText(/^Host/);
-    await user.type(input, 'api.example.com');
-    await user.click(within(dialog).getByRole('button', { name: 'Allow host' }));
-    await within(dialog).findByText('Network rule applied live');
-    await user.click(within(dialog).getByRole('button', { name: 'Allow another host' }));
-    expect(within(dialog).queryByText('Network rule applied live')).toBeNull();
-    expect(within(dialog).getByLabelText(/^Host/)).toHaveValue('');
-    expect(within(dialog).getByLabelText(/^Host/)).toBeEnabled();
-    expect(within(dialog).getByRole('button', { name: 'Allow host' })).toBeDisabled();
+    await openLogs(user);
+    expect(await screen.findByText('Denials unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/sandbox policy log unavailable: boom/)).toBeInTheDocument();
+    expect(screen.getByText('agent log output')).toBeInTheDocument();
   });
 });
 
