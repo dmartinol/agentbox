@@ -556,6 +556,27 @@ skills and plugin names, Edit keeps the name read-only and preserves unavailable
 selections with a warning, and Delete confirms before removing only the AgentBox
 entry. Host skill folders and plugin bundles remain untouched.
 
+### Shipped usage skills
+
+`agentbox skills install` also writes AgentBox's own usage skills, version
+matched to the installing binary, into the shared root for every detected
+harness: `agentbox-cli` (run lifecycle and recovery through the CLI),
+`agentbox-api` (the loopback HTTP API and where each GUI setting lives), and
+`agentbox-orchestrator` (the issue-to-PR orchestrator flow, plus the harness
+agent roles it dispatches). Each `SKILL.md` opens with the sample prompts that
+trigger it, so an installed copy answers "how do I invoke this?":
+
+| Skill | Trigger with a request like |
+| --- | --- |
+| `agentbox-cli` | "Start a codex run on the demo project" |
+| `agentbox-api` | "List every agent run through the AgentBox API" |
+| `agentbox-orchestrator` | "Take issue 35 to a merged pull request with the orchestrator flow" |
+
+Because skills are version matched, a skill installed by a newer build can
+instruct an agent to run a command an older `agentbox` on `PATH` does not
+have. Install with the same binary that serves the commands, or upgrade with
+`go install github.com/dmartinol/agentbox/cmd/agentbox@latest`.
+
 ## Credential resolution
 
 A sandbox may show an environment value such as:

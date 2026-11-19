@@ -10,6 +10,18 @@ AgentBox starts one coding agent per OpenShell sandbox, normally in its own Git
 worktree. Use the CLI for every operation; the GUI started by `agentbox gui` is
 a second view of the same state, not a separate control plane.
 
+## Sample prompts
+
+Requests like these select this skill:
+
+- "Start a codex run on the demo project with the enmaas profile."
+- "What agents are running, and does anything need me?"
+- "Attach me to the auth-refactor run."
+- "Show what that run changed, then sync it."
+- "The agent hit a DNS error reaching api.example.com — fix it."
+- "Prepare the worker environment for this repository."
+- "Stop the run but keep the work."
+
 ## Ground rules
 
 - Run `agentbox --help` or `agentbox <command> --help` before guessing a flag.

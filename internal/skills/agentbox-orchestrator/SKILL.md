@@ -12,6 +12,16 @@ first adapter. It is instructions only: the orchestrator follows this
 document, calls the tracker adapter, and dispatches workers. It never adds
 code or tooling on its own.
 
+## Sample prompts
+
+Requests like these select this skill:
+
+- "Take issue 35 to a merged pull request with the orchestrator flow."
+- "Run the orchestrator on issue 42."
+- "Resume the orchestrator run on issue 42."
+- "Let's create the orchestration config for this project." — this is the
+  configuration-authoring mode (see below), not a workflow.
+
 ## Role boundary (MUST)
 
 The orchestrator owns exactly two things:

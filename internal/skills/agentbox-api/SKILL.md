@@ -11,6 +11,15 @@ The React client and the API share the same Go application layer as the CLI, so
 anything the GUI can do is scriptable here. There is no authentication: keep the
 default loopback binding and never expose it on a public interface.
 
+## Sample prompts
+
+Requests like these select this skill:
+
+- "List every agent run through the AgentBox API."
+- "Start a run from a script, not the GUI."
+- "What does the AgentBox API return for the overview?"
+- "Where do I change the gateway setting in the web UI?"
+
 ## Conventions
 
 - Send and receive JSON. Successful responses use `2xx`; failures return
