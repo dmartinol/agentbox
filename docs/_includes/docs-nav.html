@@ -28,6 +28,21 @@
           </ul>
           {% endif %}
         </li>
+
+        {% assign guide_paths = '/repository-setup/|/adlc/|/orchestration/|/prompts/' | split: '|' %}
+        {% assign guide_labels = 'Repository setup|Agentic development lifecycle|Optional orchestration|Example prompts' | split: '|' %}
+        {% for guide_path in guide_paths %}
+        <li class="docs-nav-group{% if page.url == guide_path %} is-current{% endif %}">
+          <a href="{{ guide_path | relative_url }}"{% if page.url == guide_path %} aria-current="page"{% endif %}>{{ guide_labels[forloop.index0] }}</a>
+          {% if page.url == guide_path and page.nav_sections %}
+          <ul class="docs-nav-sub">
+            {% for section in page.nav_sections %}
+            <li><a href="{{ guide_path | relative_url }}#{{ section.id }}">{{ section.title }}</a></li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </li>
+        {% endfor %}
         <li class="docs-nav-group{% if is_cli %} is-current{% endif %}">
           <a href="{{ '/cli-reference/' | relative_url }}"{% if page.url == '/cli-reference/' %} aria-current="page"{% endif %}>CLI reference</a>
           {% if is_cli %}
@@ -68,6 +83,16 @@
               </ul>
               {% endif %}
             </li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </li>
+        <li class="docs-nav-group{% if page.url == '/contributing/' %} is-current{% endif %}">
+          <a href="{{ '/contributing/' | relative_url }}"{% if page.url == '/contributing/' %} aria-current="page"{% endif %}>Contributor guide</a>
+          {% if page.url == '/contributing/' and page.nav_sections %}
+          <ul class="docs-nav-sub">
+            {% for section in page.nav_sections %}
+            <li><a href="{{ '/contributing/' | relative_url }}#{{ section.id }}">{{ section.title }}</a></li>
             {% endfor %}
           </ul>
           {% endif %}

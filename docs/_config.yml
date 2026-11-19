@@ -1,5 +1,5 @@
 title: AgentBox
-description: A local CLI and web GUI for running coding agents in isolated OpenShell sandboxes.
+description: Sandboxed agentic development for your Git repositories. Local OpenShell sandboxes backed by Podman.
 url: https://dmartinol.github.io
 baseurl: /agentbox
 theme: minima

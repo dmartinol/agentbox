@@ -19,6 +19,8 @@ nav_sections:
         id: standard-mode
       - title: Gateway mode
         id: gateway-mode
+  - title: Repository manifest
+    id: repository-manifest
   - title: Policy layer
     id: policy-layer
   - title: Run startup sequence
@@ -31,8 +33,8 @@ nav_sections:
     id: skills-layer
   - title: Credential resolution
     id: credential-resolution
-  - title: Attach and idle
-    id: attach-and-idle
+  - title: Attach and run status
+    id: attach-and-run-status
   - title: Diff and sync
     id: diff-and-sync
   - title: State layout
