@@ -181,10 +181,10 @@ PRs, gated merge, and close, with a GitHub tracker adapter). The
 orchestrator skill also installs
 `issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`, and
 `verify-task.md` beside its `SKILL.md`, so an installed copy carries the
-templates it tells the orchestrator to use. This repository overrides the two
-body templates with `.github/orchestrator/pr.md` and
-`.github/orchestrator/issue.md`, which keep a short scan layer for humans and
-defer file-level detail to collapsible sections.
+templates it tells the orchestrator to use. This repository owns those
+templates in `internal/skills/agentbox-orchestrator/templates/`; both bodies
+keep a short scan layer for humans and defer file-level detail to collapsible
+sections.
 
 Each skill's `SKILL.md` opens with sample prompts that trigger it; the short
 version:

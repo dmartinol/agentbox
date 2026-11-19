@@ -677,12 +677,16 @@ The skill ships six templates and installs them beside `SKILL.md`:
 
 | Template | Used for |
 | --- | --- |
-| `issue.md` | Normalized issue body: Summary, Current behavior, Proposed design, Acceptance criteria, Test plan, Risks, Out of scope, Related. |
-| `pr.md` | Pull request body: Summary, Changes, Evidence, `Closes #N`, Risks, provenance. |
+| `issue.md` | Normalized issue body: At a glance (epic, dependencies, roles, surface, risk, size), Summary, Current behavior, Proposed design, Acceptance criteria, Test plan, Risks, Out of scope, Related. |
+| `pr.md` | Pull request body: At a glance, What changed, Reviewer guide, collapsible Changes, Evidence with role-owned independent checks, `Closes #<issue>`, AGENTS.md check, Risks, Follow-ups, provenance. |
 | `verdict.md` | Review verdict: outcome, severity bar, review scope, findings with ids and status, evidence at commit, required changes, follow-ups, provenance. |
 | `state.md` | The state envelope and its schema. |
 | `review-task.md` | Reviewer mandate: role, delta scope, severity bar, checklist, output contract. |
 | `verify-task.md` | Verify mandate: role, gate-only scope, and the `gates` and `observations` output contract. |
+
+Both body templates open with a scan layer a human can read without the diff.
+Keep file-level detail in the collapsible change list, and leave the marker,
+gate results, and `Closes #<issue>` line intact.
 
 Resolve a template from the first source that defines it:
 
@@ -870,9 +874,10 @@ stage work runs inline.
    only at their real severity.
 5. **Pull request.** A capable host implementer may open it; otherwise the
    orchestrator pushes the sandbox result and opens it. Use a Conventional
-   Commits title and the `pr.md` body: Summary, Changes, Evidence (gate
-   results and SHAs), `Closes #<issue>`, Risks, and the marker and footer.
-   Wait for checks to finish before review.
+   Commits title and the `pr.md` body: At a glance, What changed, Reviewer
+   guide, Changes, Evidence (gate results and SHAs, including the verifier and
+   reviewer rows), `Closes #<issue>`, AGENTS.md check, Risks, and the marker
+   and footer. Wait for checks to finish before review.
 6. **Independent review.** Dispatch a reviewer that is not the writer, in its
    own worktree at the pull request head, as a visible Orca worker or
    terminal, using the selection recorded for the first pass; later cycles
@@ -910,6 +915,8 @@ stage work runs inline.
    Deferred `minor` and `nit` findings are not fixer work.
 8. **Merge.** The orchestrator verifies the head SHA matches the verified and
    reviewed commit, all checks are green, and branch protection is satisfied.
+   Fill the pull request's `Independent checks` rows with the verifier gate
+   result and the reviewer verdict at that commit; do not leave `pending`.
    Any rebase or force-push after verification invalidates the evidence: rerun
    gates and review. Use the repository's merge strategy; prefer a merge
    commit when unspecified.

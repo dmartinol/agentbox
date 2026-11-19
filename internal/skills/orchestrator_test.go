@@ -698,8 +698,8 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 	}
 
 	headings := map[string][]string{
-		"issue.md":       {"## Summary", "## Current behavior", "## Proposed design", "## Acceptance criteria", "## Test plan", "## Risks", "## Out of scope", "## Related"},
-		"pr.md":          {"## Summary", "## Changes", "## Evidence", "Closes #<issue>", "## Risks", "## Provenance"},
+		"issue.md":       {"## At a glance", "## Summary", "## Current behavior", "## Proposed design", "<summary>Design detail", "## Acceptance criteria", "## Test plan", "## Risks", "## Out of scope", "## Related"},
+		"pr.md":          {"## At a glance", "## What changed", "## Reviewer guide", "<summary>Full change list", "## Evidence", "**Independent checks**", "Closes #<issue>", "## AGENTS.md check", "## Risks", "## Follow-ups", "## Provenance"},
 		"verdict.md":     {"## Verdict", "## Severity bar", "## Review scope", "## Findings", "## Evidence at commit", "## Required changes", "## Follow-ups", "## Provenance"},
 		"state.md":       {"<!-- orchestrator-state -->", "schema: 2", "workflow_id:", "configuration:", "selection_sources:", "findings:", "review_cycles_max:"},
 		"review-task.md": {"## Role", "## Scope", "## Severity bar", "## Checklist", "## Output", "## Provenance"},

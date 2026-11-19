@@ -161,10 +161,10 @@ make race
 - Keep screenshots current when the Fleet or Setup visual layout changes.
 - Do not move user-facing installation or usage instructions into issue
   comments or private notes.
-- Write pull request and issue bodies from `.github/orchestrator/pr.md` and
-  `.github/orchestrator/issue.md`. Keep their scan layer short enough to read
-  without opening the diff, and keep the provenance marker, gate results, and
-  `Closes #<issue>` line intact.
+- Write pull request and issue bodies from the orchestrator skill templates in
+  `internal/skills/agentbox-orchestrator/templates/`. Keep their scan layer
+  short enough to read without opening the diff, and keep the provenance
+  marker, gate results, and `Closes #<issue>` line intact.
 
 ## Review checklist
 
