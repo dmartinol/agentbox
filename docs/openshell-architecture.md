@@ -504,8 +504,10 @@ configurations are only templates, so run copies are excluded from
 `GET /api/policies`; the Setup sheet no longer has a Policies tab.
 `GET /api/runs/{id}/policy/content` returns that run copy as
 `{"path":"...","content":"..."}` for inspection. The local policy API retains
-legacy `Profile.Policy` editing and listing until #79, but it no longer offers
-unscoped add-host or apply actions.
+legacy `Profile.Policy` editing and listing, but only profiles that select a
+legacy file contribute its network rules; the generated default at
+`policies/<profile-name>.yaml` is a marker and contributes nothing. The API no
+longer offers unscoped add-host or apply actions.
 
 The edit is allowed only when a non-dry host action reconciles the run to
 Ready, Working, or Waiting. Creating, Failed, Unreachable, Stopped, Completed,

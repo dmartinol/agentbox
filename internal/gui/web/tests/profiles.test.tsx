@@ -14,6 +14,7 @@ const profile: Profile = {
   model: 'model-x',
   provider: 'model-gateway',
   policy: '/policies/codex-default.yaml',
+  default_policy: '/policies/codex-default.yaml',
   approval: 'prompted',
   base_url: 'https://models.example.test/v1',
   api_key_env: 'UNIT_MODEL_KEY'
@@ -196,6 +197,22 @@ describe('profile policy selection', () => {
     await waitFor(() => expect(savedProfiles).toHaveLength(1));
     expect(savedProfiles[0]?.name).toBe('renamed-codex');
     expect(savedProfiles[0]?.policy).toBe('');
+  });
+
+  it('preserves a legacy policy that shares the default basename but lives elsewhere', async () => {
+    const legacyPolicy: PolicyConfiguration = { name: 'codex-default', path: '/tmp/legacy/codex-default.yaml', used_by: [profile.name] };
+    const legacyProfile: Profile = { ...profile, policy: legacyPolicy.path };
+    const { savedProfiles } = setupApi({ profiles: [legacyProfile], policies: [legacyPolicy, sharedPolicy] });
+    const user = await openEdit(legacyProfile);
+    const policySelect = await screen.findByRole('combobox', { name: 'Legacy policy' });
+
+    await screen.findByRole('option', { name: /shared-policy/ });
+    expect(policySelect).toHaveValue(legacyPolicy.path);
+    expect(policySelect).not.toHaveDisplayValue(/Default created by AgentBox/);
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(savedProfiles).toHaveLength(1));
+    expect(savedProfiles[0]?.policy).toBe(legacyPolicy.path);
   });
 
   it('keeps the current selection visible and disables the select while policies load', async () => {

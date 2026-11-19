@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-
-	"gopkg.in/yaml.v3"
 )
 
 // ImageSource records where a run's effective image came from.
@@ -39,17 +37,6 @@ type RunImage struct {
 	Warnings       []string
 
 	fragment []byte
-}
-
-// ComposePolicy returns the policy bytes a run materializes. A repository
-// image unions the repository fragment into the base policy; every other
-// source keeps the base policy unchanged. baseSource names the base policy
-// file so a composition conflict points at both inputs.
-func (i RunImage) ComposePolicy(base []byte, baseSource string) ([]byte, error) {
-	if i.Source != ImageSourceRepo {
-		return base, nil
-	}
-	return composeRepoPolicy(base, baseSource, i.fragment, i.FragmentPath)
 }
 
 // ResolveRunImage picks the image a run starts from and explains the choice.
@@ -187,33 +174,6 @@ func imageHasReference(image ImageArtifact, reference string) bool {
 		}
 	}
 	return false
-}
-
-// composeRepoPolicy merges the repository fragment's network rules into the
-// base policy. The base owns the static sections, the process user, and the
-// Landlock hard requirement. Identical rules collapse to one, and two rules
-// that claim the same named scope with different content are a conflict: the
-// fragment and the profile must agree instead of one silently winning.
-// #79 replaces the base policy input without touching this composition.
-func composeRepoPolicy(base []byte, baseSource string, fragment []byte, fragmentSource string) ([]byte, error) {
-	basePolicy, err := ParsePolicy(base)
-	if err != nil {
-		return nil, err
-	}
-	fragmentPolicy, err := ParsePolicy(fragment)
-	if err != nil {
-		return nil, err
-	}
-	if basePolicy.Network == nil {
-		basePolicy.Network = map[string]NetworkRule{}
-	}
-	for name, rule := range fragmentPolicy.Network {
-		rule.Name = name
-		if err := mergeNetworkRule(&basePolicy, name, rule, fragmentSource); err != nil {
-			return nil, err
-		}
-	}
-	return yaml.Marshal(basePolicy)
 }
 
 // canonicalRule strips the rule name and orders endpoints and binaries so

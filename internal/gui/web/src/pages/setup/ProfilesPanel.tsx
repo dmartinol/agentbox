@@ -59,9 +59,27 @@ function usesProviderDefaults(profile: Profile, provider: Provider | undefined) 
     profile.base_url === defaults.base_url && profile.api_key_env === defaults.api_key_env);
 }
 
-function isDefaultProfilePolicy(policyPath: string, profileName: string) {
-  const basename = policyPath.split(/[\\/]/).pop();
-  return basename === `${profileName}.yaml`;
+function cleanPath(value: string) {
+  if (!value) return '';
+  const normalized = value.replace(/\\/g, '/');
+  const drive = /^[a-zA-Z]:/.test(normalized);
+  const absolute = normalized.startsWith('/');
+  const parts: string[] = [];
+  for (const part of normalized.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..' && parts.length && parts[parts.length - 1] !== '..') {
+      parts.pop();
+      continue;
+    }
+    parts.push(part);
+  }
+  const cleaned = `${absolute ? '/' : ''}${parts.join('/')}`;
+  return drive ? cleaned.charAt(0).toLowerCase() + cleaned.slice(1) : cleaned;
+}
+
+function isDefaultProfilePolicy(profile: Profile) {
+  if (!profile.default_policy) return false;
+  return cleanPath(profile.policy) === cleanPath(profile.default_policy);
 }
 
 function policyBasename(policyPath: string) {
@@ -181,7 +199,7 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
   const openEdit = (profile: Profile) => {
     const provider = providers.find((item) => item.name === profile.provider);
     setEditingProfile(true);
-    const isDefaultPolicy = isDefaultProfilePolicy(profile.policy, profile.name);
+    const isDefaultPolicy = isDefaultProfilePolicy(profile);
     setCurrentDefaultPolicyPath(isDefaultPolicy ? profile.policy : '');
     setOriginalProfileName(profile.name);
     setPreserveOriginalDefault(isDefaultPolicy);

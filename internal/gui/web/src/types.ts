@@ -108,6 +108,7 @@ export interface Profile {
   model: string;
   provider: string;
   policy: string;
+  default_policy?: string;
   approval: string;
   base_url?: string;
   api_key_env?: string;

@@ -22,6 +22,7 @@ function ProjectRepositoryDetails({ project }: { project: Project }) {
   }
   return (
     <div className="space-y-2 text-sm">
+      <p className="break-words text-xs text-muted">Read-only · edit .agentbox/config.yaml or run agentbox repo setup</p>
       <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-2 gap-y-1">
         <dt className="text-muted">Manifest</dt>
         <dd className="min-w-0">{status.manifest_present ? 'present' : 'absent'} · <span className="break-all">{status.manifest_path}</span>{status.manifest_digest ? ` · ${status.manifest_digest}` : ''}</dd>

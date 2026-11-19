@@ -21,7 +21,7 @@ func TestDeriveProviderEndpointStandardAndGateway(t *testing.T) {
 		host    string
 		port    int
 	}{
-		{baseURL: "https://Models.Example.com/v1", host: "Models.Example.com", port: 443},
+		{baseURL: "https://Models.Example.com/v1", host: "models.example.com", port: 443},
 		{baseURL: "http://models.example.com/v1", host: "models.example.com", port: 80},
 		{baseURL: "https://models.example.com:8443/v1", host: "models.example.com", port: 8443},
 	}
@@ -89,6 +89,25 @@ func TestProviderRuleShapeAndLongName(t *testing.T) {
 	}
 	if _, err := ParsePolicy(policy); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDerivedPolicyLowercasesGatewayHost(t *testing.T) {
+	profile := Profile{Name: "gateway", Agent: "codex", Mode: "gateway", Provider: "enmaas", BaseURL: "https://Models.Example.com/v1"}
+	policy, provenance, err := deriveRunPolicy(profile, "gateway", nil, "", RunImage{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provenance.Host != "models.example.com" {
+		t.Fatalf("provenance host = %q, want lower-case host", provenance.Host)
+	}
+	parsed, err := ParsePolicy(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := parsed.Network["provider-models-example-com-443"]
+	if len(rule.Endpoints) != 1 || rule.Endpoints[0].Host != "models.example.com" {
+		t.Fatalf("provider endpoints = %+v", rule)
 	}
 }
 

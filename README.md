@@ -414,10 +414,12 @@ Then create a profile that uses the provider:
 ```
 
 If `--policy` is omitted, AgentBox creates and references a default policy at
-`$AGENTBOX_HOME/policies/<profile-name>.yaml`. In the GUI, leave the deprecated
-Legacy policy field blank to get the same behavior; existing profiles that still use
-the old `~/.agentbox/policies/...` reference are migrated automatically when
-the profile list is loaded.
+`$AGENTBOX_HOME/policies/<profile-name>.yaml`. That generated default is a
+marker: runs derive their policy from the AgentBox baseline and never read the
+file's contents. In the GUI, leave the deprecated Legacy policy field blank to
+get the same behavior; existing profiles that still use the old
+`~/.agentbox/policies/...` reference are migrated automatically when the
+profile list is loaded.
 
 New profiles default to `approval: unattended` (no permission prompts) from
 both `profile create` and the GUI. Pass `--approval prompted` to keep
@@ -740,11 +742,12 @@ Content-Type: application/json
   when OpenShell rejects the update; `rolledBack` is `false` when restoring the
   local policy also failed.
 
-`policyPath` is the run-scoped policy file that received the rule. Reusable
-policies under `$AGENTBOX_HOME/policies/<profile-name>.yaml` are templates;
-they never receive run edits. Persisting writes only `hosts` in
-`.agentbox/config.yaml` and regenerates the fragment; it does not stage or
-commit the change.
+`policyPath` is the run-scoped policy file that received the rule. The
+generated default at `$AGENTBOX_HOME/policies/<profile-name>.yaml` is a marker
+and contributes no network rules. Only a profile that selects a different
+legacy policy file contributes network rules, and that file never receives run
+edits. Persisting writes only `hosts` in `.agentbox/config.yaml` and
+regenerates the fragment; it does not stage or commit the change.
 
 Read the run copy directly with:
 

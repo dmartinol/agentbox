@@ -561,6 +561,13 @@ describe('run policy provenance', () => {
   it('shows derived policy provenance in details and policy output', async () => {
     const provenanceRun: Run = {
       ...runs[0],
+      manifest_digest: 'sha256:manifest-a',
+      policy_fragment: '/state/policies/repo-demo.yaml',
+      policy_fragment_digest: 'sha256:fragment-a',
+      runtime_hosts: [
+        { host: 'proxy.golang.org', port: 443, binary: '/usr/local/go/bin/go', rule: 'runtime-proxy-golang-org-443', source: 'run', added_at: '2026-01-01T12:00:00Z' },
+        { host: 'sum.golang.org', port: 443, binary: '/usr/local/go/bin/go', rule: 'runtime-sum-golang-org-443', source: 'run+manifest', added_at: '2026-01-01T12:05:00Z' }
+      ],
       policy_provenance: {
         source: 'derived',
         gateway: 'openshell',
@@ -569,7 +576,8 @@ describe('run policy provenance', () => {
         host: 'api.openai.com',
         port: 443,
         rule: 'provider-openai-443',
-        agent_binary: '/usr/local/bin/codex'
+        agent_binary: '/usr/local/bin/codex',
+        legacy_path: '/tmp/legacy-codex.yaml'
       }
     };
     mockRoutes({
@@ -586,11 +594,56 @@ describe('run policy provenance', () => {
     await user.click(await screen.findByText('active-run'));
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
     await user.click(within(panel).getByText('Policy provenance'));
-    expect(within(panel).getByText('provider-openai-443')).toBeInTheDocument();
-    expect(within(panel).getByText('api.openai.com:443')).toBeInTheDocument();
+    const provenanceDetails = within(panel).getByText('Policy provenance').closest('details');
+    if (!provenanceDetails) throw new Error('policy provenance details missing');
+    expect(within(provenanceDetails).getByText('provider-openai-443')).toBeInTheDocument();
+    expect(within(provenanceDetails).getByText('api.openai.com:443')).toBeInTheDocument();
+    expect(within(provenanceDetails).getByText('sha256:manifest-a')).toBeInTheDocument();
+    expect(within(provenanceDetails).getByText((_, node) => node?.tagName === 'DD' && node.textContent === '2')).toBeInTheDocument();
+    expect(within(provenanceDetails).getByText('/tmp/legacy-codex.yaml (network rules only)')).toBeInTheDocument();
+    expect(within(provenanceDetails).getByText('/state/policies/repo-demo.yaml · sha256:fragment-a')).toBeInTheDocument();
     await user.click(within(panel).getByRole('button', { name: 'View policy' }));
     expect(await screen.findByText(/Policy provenance: derived/)).toBeInTheDocument();
     expect(screen.getByText(/Provider rule: provider-openai-443/)).toBeInTheDocument();
+    expect(screen.getByText(/Repository manifest: sha256:manifest-a/)).toBeInTheDocument();
+    expect(screen.getByText(/Runtime-added hosts: 2/)).toBeInTheDocument();
+    expect(screen.getByText(/Legacy base \(network rules only\): \/tmp\/legacy-codex\.yaml/)).toBeInTheDocument();
+    expect(screen.getByText(/Repository fragment: \/state\/policies\/repo-demo\.yaml \(sha256:fragment-a\)/)).toBeInTheDocument();
+  });
+
+  it('marks a run without a repository manifest or fragment', async () => {
+    const provenanceRun: Run = {
+      ...runs[0],
+      policy_provenance: {
+        source: 'derived',
+        gateway: 'openshell',
+        provider: 'openai',
+        mode: 'standard',
+        host: 'api.openai.com',
+        port: 443,
+        rule: 'provider-openai-443',
+        agent_binary: '/usr/local/bin/codex'
+      }
+    };
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/overview': { ...overview, runs: [provenanceRun] },
+      'GET /api/runs': [provenanceRun],
+      'GET /api/runs/run-active/policy/content': { path: '/policies/run-active.yaml', content: 'version: 1\n' }
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText('active-run'));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByText('Policy provenance'));
+    const provenanceDetails = within(panel).getByText('Policy provenance').closest('details');
+    if (!provenanceDetails) throw new Error('policy provenance details missing');
+    expect(within(provenanceDetails).getByText('No repository manifest')).toBeInTheDocument();
+    expect(within(provenanceDetails).getByText('None')).toBeInTheDocument();
+    await user.click(within(panel).getByRole('button', { name: 'View policy' }));
+    expect(await screen.findByText(/Repository manifest: No repository manifest/)).toBeInTheDocument();
+    expect(screen.getByText(/Runtime-added hosts: 0/)).toBeInTheDocument();
+    expect(screen.getByText(/Repository fragment: none/)).toBeInTheDocument();
   });
 
   it('shows the historical fallback for runs without provenance', async () => {
