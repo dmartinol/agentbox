@@ -321,8 +321,19 @@ func (a *App) VerifyEffectivePolicy(ctx context.Context, r Run, p Profile) error
 	if err != nil {
 		return err
 	}
+	// OpenShell wraps the policy document in an envelope with metadata such as
+	// active_version and policy_source. Older releases returned the document
+	// at the top level, so accept both shapes.
+	var envelope struct {
+		Policy *Policy `yaml:"policy"`
+	}
+	if err := yaml.Unmarshal(b, &envelope); err != nil {
+		return fmt.Errorf("effective policy could not be parsed: %w", err)
+	}
 	var effective Policy
-	if err := yaml.Unmarshal(b, &effective); err != nil {
+	if envelope.Policy != nil {
+		effective = *envelope.Policy
+	} else if err := yaml.Unmarshal(b, &effective); err != nil {
 		return fmt.Errorf("effective policy could not be parsed: %w", err)
 	}
 	endpointAllowed := false
