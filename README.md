@@ -1,910 +1,103 @@
-<p align="center">
-  <img src="docs/assets/agentbox-icon.svg" alt="AgentBox OpenShell fleet activity icon" width="64">
-</p>
-
 # AgentBox
 
-[![CI](https://github.com/dmartinol/agentbox/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dmartinol/agentbox/actions/workflows/ci.yml)
-[![Latest stable release](https://img.shields.io/github/v/release/dmartinol/agentbox?label=latest%20stable%20release)](https://github.com/dmartinol/agentbox/releases/latest)
+**Sandboxed agentic development for your Git repositories.**
 
-AgentBox is a local CLI and web GUI for running multiple coding agents in isolated OpenShell sandboxes. It manages OpenShell-backed images, gateway policies, providers, and concurrent agent runs while keeping each run’s checkout, state, logs, and configuration separate.
+AgentBox lets coding agents work on your project inside local OpenShell
+sandboxes backed by Podman. Give an agent a development task, follow its work
+through the CLI or web GUI, and bring the changes back for review.
 
-This repository is an autonomous OpenShell spike. It is not a supported product release.
+Use it to investigate code, implement features, fix defects, run project checks,
+and review changes. Codex, Claude Code, and OpenCode use the model provider and
+project environment you configure.
 
-## Quick tour
+AgentBox is an experimental OpenShell utility, not a supported product release.
 
-The animated tour uses sample data and shows a typical profile-to-agent workflow.
+## How it works
 
-<p align="center">
-  <img src="docs/screenshots/flow.gif" alt="Animated AgentBox tour: configure profiles, register projects, start an OpenShell-backed agent, monitor Fleet, and switch between agents and shell sessions in a project workspace" width="100%">
-</p>
+1. Register an existing Git checkout and configure an agent profile.
+2. Prepare the repository's tools and network access when needed.
+3. Start an agent with a task. By default, each run has its own branch and worktree.
+4. Inspect progress, logs, and diffs; attach when the agent needs input.
+5. Sync the results to the local run worktree and review them before integration.
 
-## Documentation
+The sandbox works on a copy of the repository. Changes return through sync;
+the sandbox and host checkout are not a live shared filesystem.
 
-- [User guide](https://dmartinol.github.io/agentbox/) — installation and first-run workflow.
-- [CLI reference](https://dmartinol.github.io/agentbox/cli-reference/) — command syntax and options.
-- [OpenShell integration architecture](docs/openshell-architecture.md) — how images, providers, profiles, policies, and runs fit together.
-- [AGENTS.md](AGENTS.md) — operating instructions and scope guardrails for AI agents contributing to this repository.
+## Install and start
 
-## Status
-
-The current implementation provides:
-
-- `doctor` checks for Go, Git, Podman, OpenShell, and gateway connectivity.
-- `image` commands for version discovery, builds, listing, pushing, and pulling.
-- `gateway` commands for listing, connecting, starting, and inspecting gateways.
-- `provider` setup for OpenShell inference providers.
-- `policy` commands for showing and editing sandbox policies.
-- `agent` commands for start, list, show, attach, logs, stop, sync, diff, and delete.
-- A compact React web GUI for the consolidated agent fleet and setup workflows.
-
-Unit tests cover the core behavior with temporary repositories and fake command runners. Live OpenShell, registry, policy-enforcement, and real-agent checks are opt-in and documented below.
-
-## Install
-
-### Go install
-
-Requires Go 1.26 or newer:
+The documentation site follows `main`. The `v0.2` tag predates the repository
+setup and orchestrator configuration commands in these guides. To use the
+documented features, install the current source with Go 1.26+:
 
 ```sh
-go install github.com/dmartinol/agentbox/cmd/agentbox@latest
-```
-
-Ensure Go's binary directory is on `PATH`:
-
-```sh
+go install github.com/dmartinol/agentbox/cmd/agentbox@main
 export PATH="$(go env GOPATH)/bin:$PATH"
-```
-
-### GitHub Releases
-
-Download the archive for the current platform from:
-
-```text
-https://github.com/dmartinol/agentbox/releases
-```
-
-Release archives include the `agentbox` binary, README, and license, plus a `checksums.txt` file for verification.
-
-### First run
-
-```sh
 agentbox doctor
 agentbox gui
 ```
 
-## Live integration tests
+Tagged binaries are available from [GitHub Releases](https://github.com/dmartinol/agentbox/releases);
+use the documentation for the matching version when installing a release.
 
-The default test suite uses fake external commands. Live OpenShell checks are opt-in:
+Running agents also requires Git, Podman, the OpenShell CLI, a running
+OpenShell gateway, and access to a model provider. Building agent images
+requires Node.js and npm.
 
-```sh
-make test-live
-```
-
-Optional variables:
-
-```sh
-AGENTBOX_LIVE_GATEWAY=openshell
-AGENTBOX_LIVE_SOURCE=/path/to/a/git/repo
-AGENTBOX_LIVE_PROFILE=my-profile
-AGENTBOX_LIVE_RUN=run-abc123
-```
-
-The live suite checks:
-
-- `doctor` dependencies and gateway connectivity
-- Podman exposure from the active gateway
-- at least one AgentBox image and r5 metadata for all built-in agents
-- real profile validation and a launch preview when `AGENTBOX_LIVE_PROFILE` is set
-- run state, base/effective policy, and loaded policy revision when `AGENTBOX_LIVE_RUN` is set
-- live policy allow/deny behavior when a sandbox network binary is available
-- a complete real run lifecycle when `AGENTBOX_LIVE_NEW_RUN=1` is set
-- concurrent runs when `AGENTBOX_LIVE_CONCURRENT_PROFILES` is set
-- registry push/pull when `AGENTBOX_LIVE_LOCAL_IMAGE` and `AGENTBOX_LIVE_REGISTRY_REF` are set
-- a secret scan of the live state directory when `gitleaks` is installed
-
-See [IT01-REPORT.md](IT01-REPORT.md) for the current live feasibility result.
-
-## Runtime prerequisites
-
-The installed binary still requires:
-
-- Git
-- Podman
-- OpenShell CLI
-- An OpenShell gateway
-- For image builds: Node.js and npm
-
-## Build from source
+Follow [Getting started](https://dmartinol.github.io/agentbox/getting-started/)
+to configure your first project and run. Commands below assume that setup is complete.
 
 ```sh
-make build
+agentbox agent start --project demo --profile codex-gateway \
+  --gateway openshell --name fix-tests \
+  --prompt "Investigate and fix the failing tests. Run the relevant checks."
+
+agentbox agent list
+agentbox agent diff RUN_ID
+agentbox agent sync RUN_ID
 ```
 
-This creates an `agentbox` binary in the repository root. The binary embeds the compiled GUI in `internal/gui/web/dist`, so installing or building the Go binary does not require npm.
+Replace `RUN_ID` with the ID printed at startup. Sync brings work into the
+run's local worktree; integrating it into your main branch is a separate step.
 
-GUI development requires Node.js 22 or newer:
+## Agentic development lifecycle
+
+AgentBox supports the agentic development lifecycle (ADLC): agents plan,
+change, verify, and review the project in a controlled development environment.
+You can direct individual runs yourself.
+
+An optional orchestration skill coordinates an issue-to-PR workflow with
+separate workers, verification, review, and gated merge. Select AgentBox
+workers when those stages should run in OpenShell sandboxes.
+
+- [ADLC guide](https://dmartinol.github.io/agentbox/adlc/)
+- [Optional orchestration](https://dmartinol.github.io/agentbox/orchestration/)
+- [Example prompts](https://dmartinol.github.io/agentbox/prompts/)
+
+## Ask your coding assistant to operate AgentBox
+
+Install the bundled host-side usage skills, then restart your assistant session:
 
 ```sh
-make web-build
-make web-test
+agentbox skills install
+agentbox skills list
 ```
 
-## Test
-
-```sh
-make test
-make vet
-make race
-```
-
-The Go suite covers the API server and application behavior. The GUI suite uses Vitest and Testing Library to cover navigation, page layout, filters, status presentation, forms, API error handling, and the aggregated project/agent tree.
-
-## Usage
-
-Run the doctor command to inspect local prerequisites:
-
-```sh
-./agentbox doctor
-./agentbox doctor --json
-```
-
-Install AgentBox's own usage skills for host agents. The content is embedded in
-the binary and version-matched, so a coding agent working alongside AgentBox can
-discover the CLI and HTTP API without reading this repository:
-
-```sh
-./agentbox skills install                 # canonical copy + links for detected harnesses
-./agentbox skills install --agent claude,opencode
-./agentbox skills install --local         # ./.agents/skills for this project (skills only; roles are global)
-./agentbox skills install --skip-roles    # usage skills only
-./agentbox skills list
-./agentbox skills update                  # refresh after upgrading AgentBox
-./agentbox skills remove
-```
-
-Install the skills with the same binary that later serves `agentbox`
-commands. A skill installed by a newer build can instruct an agent to run a
-command that an older `agentbox` on `PATH` does not have — for example
-`agentbox orchestrator` reports `unknown command`. Upgrade with
-`go install github.com/dmartinol/agentbox/cmd/agentbox@latest` (or keep using
-the `./agentbox` build that installed the skill) before following the
-orchestrator configuration steps.
-
-Three skills ship: `agentbox-cli` (run lifecycle), `agentbox-api` (local HTTP
-API), and `agentbox-orchestrator` (the issue-to-PR orchestrator flow: triage,
-per-stage workers with the agent, model, and effort they actually applied
-(`not-applicable` for AgentBox workers, which cannot set an effort), isolated
-verify and review worktrees detached at the PR head, visible and retained
-worker sessions, a stage-aware forge matrix, provenance-marked comments and
-PRs, gated merge, and close, with a GitHub tracker adapter). The
-orchestrator skill also installs
-`issue.md`, `pr.md`, `verdict.md`, `state.md`, `review-task.md`, and
-`verify-task.md` beside its `SKILL.md`, so an installed copy carries the
-templates it tells the orchestrator to use. This repository owns those
-templates in `internal/skills/agentbox-orchestrator/templates/`; both bodies
-keep a short scan layer for humans and defer file-level detail to collapsible
-sections.
-
-Each skill's `SKILL.md` opens with sample prompts that trigger it; the short
-version:
-
-| Skill | Trigger with a request like |
-| --- | --- |
-| `agentbox-cli` | "Start a codex run on the demo project" · "what agents are running?" · "the agent can't reach api.example.com — fix it" · "set up AgentBox for this repository" · "the agent's sandbox is missing make and go — fix it" · "stop the run but keep the work" |
-| `agentbox-api` | "List every agent run through the AgentBox API" · "start a run from a script" · "where do I change the gateway setting in the web UI?" |
-| `agentbox-orchestrator` | "Take issue 35 to a merged pull request with the orchestrator flow" · "run the orchestrator on issue 42" · "resume the orchestrator run on issue 42" |
-
-### Agent roles
-
-The same install writes eight harness agent roles in each harness's native
-format: the `agentbox-orchestrator` controller plus `agentbox-triage`,
-`agentbox-planner`, `agentbox-implementer`, `agentbox-fixer`,
-`agentbox-verifier`, `agentbox-reviewer`, and `agentbox-retro`. The
-controller follows the installed orchestrator skill and dispatches the stage
-roles; it never performs stage work inline. Codex reads
-`~/.codex/agents/<role>.toml`, Claude Code reads
-`~/.claude/agents/<role>.md`, and OpenCode reads
-`~/.config/opencode/agents/<role>.md`. Roles are global-only; `--local` and
-`--dir` report them as skipped.
-
-The orchestrator, verifier, and reviewer roles are read-only, and triage and
-retro also have no shell. The orchestrator keeps a shell and child-agent
-dispatch so it can run tracker and forge commands and launch the stage roles.
-Claude omits `Edit` and `Write` as appropriate and adds `Agent` only for the
-controller; OpenCode denies `edit` and `shell` where required, denies
-`subagent` for stage roles, and renders the controller as a primary agent.
-Codex carries the write and shell rules, and the controller's
-single-orchestrator rule, as instruction text because its agent files cannot
-narrow those capabilities. Restart a harness
-session after installing so it scans the new agent files. `agentbox skills roles render <role> --harness codex
---model M --effort E` prints a per-issue copy without touching the installed
-files.
-
-Assign the controller explicitly; it never starts itself. Start Claude with
-`claude --agent agentbox-orchestrator`, select `agentbox-orchestrator` as the
-OpenCode primary agent, or ask a Codex session to use the
-`agentbox-orchestrator` custom agent. Orca's `worker-start --agent` still
-takes only a runtime ID, so the installed skill documents the supported
-in-session assignment path for each Orca-started harness and the Claude
-limitation. Start a stage role directly where the harness supports it
-(`claude --agent agentbox-verifier`, `opencode run --agent
-agentbox-verifier`); Codex dispatches it as a subagent from a top-level
-session. When an Orca worker needs a Codex profile, `worker-start` cannot set
-one, so the skill's tested path is a visible `orca terminal create` session
-with `codex -p PROFILE -m MODEL`; an unsupported profile, model, or runtime is
-a blocker rather than a silent substitution.
-
-Orchestration and per-stage worker choices can come from a user-owned registry
-at `$AGENTBOX_HOME/orchestration.yaml` (default
-`~/.agentbox/orchestration.yaml`). It supports global and per-project layers,
-a named default, fixed `coding` and `other` stage groups, and per-stage
-overrides. Resolve it with:
-
-```sh
-./agentbox orchestrator config show --project "$(git rev-parse --show-toplevel)" \
-  --remote "$(git remote get-url origin 2>/dev/null)" --json
-./agentbox orchestrator config validate
-```
-
-The shipped orchestrator skill shows the resolved selections and prerequisites
-and waits for approval unless the prompt says "use the existing configuration".
-When the prompt asks to create or change the configuration, the skill
-interviews for every setting first. A request "for this project" is saved under
-a `projects[]` entry and verified to resolve with `scope: project`; it is never
-written into `global` or the shared default. If `agentbox orchestrator` is
-unknown, upgrade the binary before editing the registry.
-See the [orchestrator configuration reference](docs/_cli/orchestrator.md) and
-the [example registry](docs/examples/orchestration.yaml).
-
-One canonical copy of each skill, including its shipped templates, is written
-to `~/.agents/skills` (or `./.agents/skills` with `--local`) and Claude and
-OpenCode receive relative symlinks into it.
-Nothing is ever written to `~/.codex/skills`: Codex reads `~/.agents/skills`
-directly and would otherwise list every skill twice. The skills land in the
-shared `.agents/skills` layout, so they appear in `npx skills list` as
-`untracked`; update them with `agentbox skills update` (not
-`npx skills update`) and remove them with `agentbox skills remove` or
-`npx skills remove`. AgentBox records what it owns in
-`~/.agents/skills/.agentbox-managed.json`, including one path and hash per
-managed file and a `roles` section for the harness agent files, and every
-forced replacement or removal first moves the previous copy to
-`~/.agents/.agentbox-skill-backups/<timestamp>/`.
-
-Discover the latest supported Codex version:
-
-```sh
-./agentbox image versions codex
-```
-
-Build an image with a pinned version:
-
-```sh
-./agentbox image build --version 0.167.0 codex
-```
-
-Image build help and command discovery:
-
-```sh
-./agentbox image --help
-./agentbox image build --help
-```
-
-If `--version` is omitted, AgentBox discovers and uses the latest compatible release for the selected agent. In the GUI build dialog, **Discover latest** queries npm and fills the exact version field so it can be inspected before building. The build pins the Node base image by digest and tags the result as `localhost/openshell:<agent>-<version>-r5`.
-
-Configure an external image registry:
-
-```sh
-./agentbox image registry set quay.io/dmartino/openshell
-./agentbox image registry discover
-./agentbox image registry discover --json
-./agentbox image registry push localhost/openshell:codex-0.167.0-r5
-./agentbox image registry show --json
-./agentbox image registry clear
-```
-
-The registry setting is stored in the private AgentBox state directory. Discovery and push/pull use Podman's existing registry login. In the GUI, open **Images → Registry** to set the registry and discover tags.
-
-### Registry image model
-
-One registry repository holds all AgentBox agent images. The agent, version, recipe, and architecture are encoded in the tag:
-
-```text
-<registry>/<namespace>/<project>:<agent>-<version>-r<recipe>-<os>-<arch>
-```
-
-Example:
-
-```text
-quay.io/dmartino/openshell:codex-0.167.0-r5-linux-arm64
-quay.io/dmartino/openshell:claude-2.1.319-r5-linux-arm64
-quay.io/dmartino/openshell:opencode-2.2.6-r5-linux-arm64
-```
-
-The `-<os>-<arch>` suffix is used for single-architecture images. A future multi-architecture manifest may publish the architecture-free tag as an additional alias.
-
-Local builds use the same agent-in-tag convention:
-
-```text
-localhost/openshell:codex-0.167.0-r5
-```
-
-Recipe `r5` images use a Debian trixie base, whose GNU make 4.4 can spawn
-recipes under OpenShell's seccomp policy, and include a fixed local-work
-toolset: `git`, `tmux`, `ca-certificates`, `curl`, `jq`, `ripgrep`, `unzip`,
-`less`, `git-lfs`, and `procps`. Rebuild at newer harness versions with
-**Refresh all agents** in Setup → Images. Remove one image with
-`./agentbox image rm REF`, or remove every image that no profile and no
-non-terminal run references with `./agentbox image prune`; prune also removes
-superseded dangling images labeled `agentbox=true` by image ID. Neither command
-rewrites profiles, and both refuse named images that are still in use.
-
-AgentBox derives the remote reference from the local image metadata and OCI labels. In **Images → Push**, the local image is selected from a dropdown and the remote reference is derived read-only from the configured registry.
-
-Community consumers can discover all agents in one repository:
-
-```sh
-./agentbox image registry discover --json
-```
-
-The JSON result includes `agent`, `version`, `recipe`, `os`, `arch`, `digest` when available, and the full `reference` field.
-
-Register a Git project and choose its workspace isolation policy:
-
-```sh
-./agentbox project create --root . dev
-./agentbox project create --root . --no-worktree scratch
-./agentbox project list
-```
-
-Worktree isolation is enabled by default. With isolation disabled, AgentBox
-requires a clean checkout and allows only one active agent against that project
-at a time.
-
-Configure global worktree placement and branch naming:
-
-```sh
-./agentbox settings show
-./agentbox settings set --worktree-root ~/.agentbox/worktrees --branch-prefix agentbox
-```
-
-New isolated agents use `<worktree-root>/<project>/<agent-name>` and
-`<branch-prefix>/<project>/<agent-name>`.
-
-### Model gateway configuration
-
-For the full image/provider/profile/run architecture, see
-[docs/openshell-architecture.md](docs/openshell-architecture.md).
-
-Gateway-mode profiles route agent model traffic through an OpenShell
-inference provider instead of a direct model-provider credential. Configuration
-is environment-agnostic: the gateway host, API base URL, and credential
-environment variable name are supplied per setup, never hard-coded.
-
-First create the OpenShell provider. `gateway-bearer` matches OpenAI-compatible
-APIs (Codex, OpenCode); `gateway-header` matches Anthropic-compatible APIs
-(Claude):
-
-```sh
-export MY_GATEWAY_KEY='...'
-./agentbox provider setup \
-  --type gateway-bearer \
-  --host models.example.com \
-  --credential MY_GATEWAY_KEY \
-  --gateway openshell \
-  my-gateway
-```
-
-Use `--dry-run` to preview the generated OpenShell provider profile. The
-credential is always referenced by environment variable name; its value is
-never written to AgentBox state or command arguments.
-
-Then create a profile that uses the provider:
-
-```sh
-./agentbox profile create \
-  --agent codex \
-  --image localhost/openshell:codex-0.167.0-r5 \
-  --mode gateway \
-  --model exact-model-id \
-  --base-url https://models.example.com/v1 \
-  --api-key-env MY_GATEWAY_KEY \
-  --provider my-gateway \
-  codex-gateway
-```
-
-If `--policy` is omitted, AgentBox creates and references a default policy at
-`$AGENTBOX_HOME/policies/<profile-name>.yaml`. That generated default is a
-marker: runs derive their policy from the AgentBox baseline and never read the
-file's contents. In the GUI, leave the deprecated Legacy policy field blank to
-get the same behavior; existing profiles that still use the old
-`~/.agentbox/policies/...` reference are migrated automatically when the
-profile list is loaded.
-
-New profiles default to `approval: unattended` (no permission prompts) from
-both `profile create` and the GUI. Pass `--approval prompted` to keep
-interactive permission prompts. The default applies only at creation: existing
-profiles and runs keep their recorded approval, and
-`agent start --approval prompted|unattended` overrides the profile for one run.
-The GUI run-start override is prefilled from the selected profile. Unattended
-runs still require an effective policy with hard Landlock enforcement and
-verified network policy.
-
-`--base-url` is the OpenAI-compatible API base (typically ending in `/v1`).
-`--api-key-env` names the environment variable that holds the gateway key in
-the environment where the OpenShell gateway runs. For Claude profiles, the
-Anthropic-compatible base URL is derived by removing a trailing `/v1`.
-
-The provider host and profile base URL are related but distinct settings. The
-provider host identifies the endpoint registered with OpenShell and is
-normalized to a hostname for network policy and authentication. The profile
-base URL is the exact model API endpoint written into the agent configuration.
-In the GUI, **Use provider base URL and credential environment** copies the
-provider defaults into the profile; unchecking it allows those two values to be
-overridden for that profile.
-
-`openai` and `anthropic` are built-in providers for `standard` mode profiles.
-AgentBox registers them automatically for each OpenShell gateway when
-`OPENAI_API_KEY` or `ANTHROPIC_API_KEY` is present in the environment where
-AgentBox and the gateway run. Their host and credential environment are fixed:
-`openai` uses `api.openai.com` and `OPENAI_API_KEY`; `anthropic` uses
-`api.anthropic.com` and `ANTHROPIC_API_KEY`. Built-in providers cannot be
-created under another name, edited, or deleted. The Setup provider list shows
-them as `Not registered` when the matching credential environment is missing.
-Use the **Set up provider** dialog only for EnMaaS and other gateway providers.
-
-### Repository access
-
-Images ship a local-work toolset (`git`, `git-lfs`, `curl`, `jq`, `ripgrep`,
-`unzip`, `less`, `procps`) and deliberately leave out `gh` and
-`openssh-client`. AgentBox never adds a forge credential, a git credential
-helper, or a generated `.gitconfig` to a run, and a sandbox has no forge
-reachability unless the run policy is edited to allow those hosts. Use plain
-`git` inside the sandbox, or run forge tooling on the host and sync the result.
-Forge-capable repository access is deferred to [issue #19](https://github.com/dmartinol/agentbox/issues/19).
-
-### Repository manifest
-
-A repository can commit `.agentbox/config.yaml` to declare what its agents
-need: extra apt packages and pinned toolchains for the repository image, build
-verification commands, and the exact network hosts its tools may reach at
-runtime. The file is credential-free — no tokens or keys, exact hosts only —
-and is normally written once by a skill or by hand, then extended mechanically
-when a new host is needed. Repositories without a manifest keep using profile
-images and policies unchanged. See the
-[repository manifest section](docs/openshell-architecture.md#repository-manifest)
-of the architecture document for the schema and validation rules.
-
-Turn a committed manifest into the repository image and policy fragment with:
-
-```sh
-agentbox repo setup --dry     # validate the manifest; fix every reported error
-agentbox repo setup           # build the repository image and write the fragment
-```
-
-`--agent` limits the build to specific agents (default: the agents present in
-local profiles). The image tag is content-addressed, so a hosts-only manifest
-change regenerates only the fragment, and reruns with an unchanged manifest
-skip the build. Setup prints the image tag, base image, manifest digest, and
-fragment path — profiles need no change.
-
-The same flow is available in the GUI: **Setup → Images → Repository images**
-validates the manifest, shows the plan, and builds the repository image with
-streamed output in the log drawer.
-
-Run start derives the policy from the AgentBox default, adds the selected
-provider's host rule, adds any legacy profile network rules, and — when the
-repository image is active — unions the repository fragment. It warns when the
-fragment is out of date with the manifest or a newer local base image exists.
-`--image profile` forces the profile image for one run, and `--image <tag>`
-overrides the image entirely.
-
-In the GUI, **Setup → Images** labels each image `FOUNDATIONAL` or
-`PROJECT <name>` and reveals a repository image's manifest digest and base
-image in its provenance disclosure. **New agent** replaces free-text image
-entry with a select that defaults to the project's latest repository image for
-the profile's agent, lists older repository images for that pair, and offers
-**Use profile image** as the opt-out. The control is disabled with an
-explanatory hint when the project has no manifest or no matching image. Run
-details show the effective image, source, base image, repository, manifest
-digest, any drift warning, and a textual **Policy provenance** disclosure;
-**View policy** opens the derived run policy with its provenance and
-repository-fragment details.
-
-EnMaaS uses one key but more than one API authentication dialect. Create two
-provider configurations with the same `ENMAAS_KEY` credential reference when
-supporting multiple agents:
-
-```sh
-export ENMAAS_KEY='...'
-
-# Codex and OpenCode: OpenAI-compatible Responses/Chat Completions
-./agentbox provider setup \
-  --type gateway-bearer \
-  --host api.enmaas.devshift.net \
-  --credential ENMAAS_KEY \
-  --gateway openshell \
-  enmaas-openai
-
-# Claude: Anthropic Messages with x-api-key
-./agentbox provider setup \
-  --type gateway-header \
-  --host api.enmaas.devshift.net \
-  --credential ENMAAS_KEY \
-  --gateway openshell \
-  enmaas-claude
-```
-
-Use `enmaas-openai` in Codex and OpenCode profiles and `enmaas-claude` in
-Claude profiles. Both profile families keep the same model API base URL:
-
-```text
-https://api.enmaas.devshift.net/v1
-```
-
-AgentBox derives Claude's Anthropic-compatible site URL by removing the
-trailing `/v1`. The same EnMaaS key is referenced everywhere; AgentBox never
-stores its value.
-
-#### Troubleshooting provider setup
-
-Provider setup failures are surfaced in three places:
-
-1. The **Set up provider** dialog shows the returned error inline.
-2. The browser developer console logs `[AgentBox] provider setup failed: …`.
-3. The terminal running `agentbox gui` logs the provider kind, name, host,
-   credential environment-variable name, gateway, and underlying error.
-
-The credential value itself is never logged or persisted. If the error says an
-environment reference is missing, export the variable in the GUI process and
-restart the server:
-
-```sh
-export MY_GATEWAY_KEY='...'
-./agentbox gui
-```
-
-OpenShell command failures include the captured stderr in the returned error,
-so the same message should appear in the dialog and the GUI server log.
-
-Provider setup is idempotent. If OpenShell reports that the generated provider
-profile already exists, AgentBox exports the existing profile, preserves its
-`resource_version`, updates the profile, and reuses an existing provider with
-the requested name instead of failing the setup.
-Provider names and provider types are immutable in OpenShell. The GUI edit
-form updates a provider's credential environment-variable reference and target
-gateway. A provider referenced by any AgentBox profile cannot be deleted; edit
-or delete the dependent profile first.
-
-Start an agent from a registered project:
-
-```sh
-./agentbox agent start --project dev --profile codex-gateway --gateway openshell
-./agentbox agent start --project dev --profile codex-gateway --name auth-refactor --gateway openshell
-```
-
-An agent name is optional, must be unique within the project, and defaults to
-the generated run ID.
-
-### MCP tools
-
-An MCP tools entry is a named selection of global MCP servers for one agent.
-Server definitions are not copied into AgentBox: they stay in the agent's own
-user-scope configuration on the host
-(`~/.claude.json`, `~/.codex/config.toml`, or
-`~/.config/opencode/opencode.json(c)`), and the entry only lists server names.
-
-```sh
-# List the global MCP servers configured for an agent on this host.
-./agentbox mcp servers --agent codex
-
-# Create an entry selecting a subset of them by name.
-./agentbox mcp create --agent codex --servers github,sentry work-codex
-
-./agentbox mcp list
-./agentbox mcp show work-codex
-./agentbox mcp delete work-codex
-
-# Start a run with the selected servers delivered into the sandbox.
-./agentbox agent start --project dev --profile codex-gateway --gateway openshell --mcp work-codex
-```
-
-Behavior:
-
-- Selected servers are extracted from the host configuration and delivered
-  into the run at user scope, in the agent's native format. Only the MCP
-  portion is ever copied; the rest of the host file (which can contain
-  account state) never enters the sandbox.
-- MCP files committed in the project (for example `.mcp.json` for Claude
-  Code, `opencode.json` for OpenCode) always ride along and win name
-  conflicts. For Claude Code runs AgentBox writes
-  `enableAllProjectMcpServers` so committed `.mcp.json` servers load without
-  an interactive approval prompt.
-- Codex has no effective project-local MCP configuration in runs:
-  `.codex/config.toml` is loaded only for trusted projects, and a fresh
-  sandbox clone is never trusted.
-- Names missing from the host configuration at start produce a warning (in
-  CLI output, `--dry-run`, JSON, and the GUI); the run starts with the
-  servers that remain.
-- Credentials must be environment-variable references (`${NAME}` for Claude
-  Code, `env_vars`/`bearer_token_env_var` for Codex, `{env:NAME}` for
-  OpenCode). AgentBox rejects inline secret-like values at start. Secret
-  values flow through OpenShell providers, never through AgentBox.
-- MCP endpoints are governed by the run policy. Use the existing policy
-  host rules to allow them, and note that rules are scoped to the binary
-  that makes the network call — for stdio MCP servers that is the server
-  process (for example `node`), not the agent binary.
-
-In the GUI, manage entries under **Setup → MCP Tools** and select one in the
-new-agent dialog.
-
-### Skills and plugin bundles
-
-A skills entry is a named selection of host skills and whole plugin skill
-bundles for one agent. AgentBox stores only names; skill folders stay in the
-agent's own host directories until run start.
-
-```sh
-# List standalone skills and plugin bundles available to an agent.
-./agentbox skill available --agent codex
-
-# Select standalone skills and whole plugin bundles.
-./agentbox skill create --agent codex --skills orca-cli,orchestration \
-  --plugins browser@openai-bundled work-codex
-
-./agentbox skill list
-./agentbox skill show work-codex
-./agentbox skill delete work-codex
-
-# Deliver the selection into the sandbox at user scope.
-./agentbox agent start --project dev --profile codex-gateway \
-  --gateway openshell --skills work-codex
-```
-
-Behavior:
-
-- Selected `SKILL.md` folders are copied into the agent's user skills
-  directory inside the run: `~/.claude/skills`, `~/.codex/skills`, or
-  `~/.config/opencode/skills` as seen from the sandbox.
-- A plugin is included or excluded as a whole. Only its bundled skills are
-  copied; plugin scripts, apps, hooks, commands, and plugin-declared MCP
-  servers are not delivered.
-- Missing skills or plugins at start produce a warning (in CLI output,
-  `--dry-run`, JSON, and the GUI); the run still starts with what remains.
-- Duplicate delivered skill names are first-wins and produce a warning.
-- Symlinked skill directories are resolved to their target contents, and
-  executable bits are preserved.
-- Project-committed skills ride along in the clone unchanged.
-- An entry whose agent differs from the profile's agent fails start with a
-  clear error.
-
-In the GUI, manage entries under **Setup → Skills** and select one in the
-new-agent dialog.
-
-Open the GUI:
-
-```sh
-./agentbox gui
-```
-
-## Web GUI
-
-Start the embedded web application:
-
-```sh
-./agentbox gui
-# or choose a listen address
-./agentbox gui --address 127.0.0.1:9090
-```
-
-The GUI is a compact, Orca-inspired React single-page application built with Vite, Tailwind CSS, Radix UI, lucide icons, and small shadcn-style local primitives. It intentionally avoids a heavy sidebar/page-model shell: the main screen shows the fleet, while a right-side setup sheet and bottom output drawer keep the common navigation paths short.
-
-The two primary surfaces are:
-
-- **Fleet:** all agents across projects in one project-grouped table, with search, project filtering, a derived status glyph plus label per run, a separate sync-state glyph plus label, a **Needs You** count for agents waiting on input, inline lifecycle actions, and selected-agent metadata. The Sync cell distinguishes **No changes**, **Up to date**, **Sync needed**, **Sync blocked**, and **Unable to check**; agent details show the last successful sync time or **Never** and explain a blocked or unverifiable sync. Agent details also report the effective image, image source, base image, repository, manifest digest, image drift warnings, and a textual **Policy provenance** disclosure, and match a copied run to its profile by the recorded profile name. The **Workspace** button on a project (or **Attach** on an agent) opens a workspace with one tab per agent plus optional shell tabs; only the visible tab holds a terminal. Logs, diffs, and effective policies open in a shared bottom drawer. **View policy** shows the derived run policy with its provenance and repository-fragment details. The logs drawer separates structured **Network denials** (host, port, binary, and reason) from raw output. A denial offers **Add host** while the run is Ready, Working, or Waiting: the dialog shows the exact manifest entry, the run-policy diff, and an optional **Persist in .agentbox/config.yaml** choice. Persisting appends the same rule to the repository manifest and regenerates the policy fragment without an image build or commit. Applied rules appear under the agent's **Runtime host rules** disclosure.
-- **Setup:** one right-side sheet with tabs for providers, profiles, projects, images, gateways, MCP tools, skills, and advanced settings. Provider and profile forms use the same resource relationships as the CLI. A blank profile policy automatically creates and references the generated default; the legacy policy selector is marked deprecated. Projects expose a read-only repository-details disclosure with manifest, fragment, host, and worker-image status. Setup → Images labels foundational and project images and exposes repository provenance, while New agent defaults to the project's latest repository image with a profile-image opt-out. Image build output and stop controls are also routed to the bottom drawer.
-
-The interface defaults to light mode and includes a header theme switcher; the selected theme is remembered locally.
-
-The GUI calls a local JSON API served by the same process. It does not expose the server on the network by default; bind explicitly if remote access is intended and protected.
-
-Denial remediation uses two run-scoped endpoints. The client sends the exact
-host, port, and binary from a surfaced sandbox denial; it never accepts a
-free-form host.
-
-```http
-POST /api/runs/{id}/policy/denial/preview
-Content-Type: application/json
-
-{"host":"api.example.com","port":443,"binary":"/usr/bin/curl","persist":false}
-```
-
-The preview returns the manifest entry, the run-policy diff, whether persisting
-is available and why, and, when `persist` is `true`, the manifest and fragment
-diffs. It writes nothing.
-
-```http
-POST /api/runs/{id}/policy/denial
-Content-Type: application/json
-
-{"host":"api.example.com","port":443,"binary":"/usr/bin/curl","persist":true}
-```
-
-- `200` with the applied result: `outcome`, `policyPath`, `runtimeHost`,
-  `persisted`, `fragmentStatus`, and the preview fields. The run policy is
-  updated before the manifest, so a persist failure still leaves the live fix
-  recorded as `source: "run"`.
-- `400` with an actionable error when the tuple is not a current denial, the
-  denial cannot become an exact rule (wildcard, invalid port, or directory
-  binary), or the request names a host that was not denied.
-- `409` when the run is not Ready, Working, or Waiting.
-- `500` with `{"outcome":"openshell-rejected","error":"...","policyDiff":"...","rolledBack":true}`
-  when OpenShell rejects the update; `rolledBack` is `false` when restoring the
-  local policy also failed.
-
-`policyPath` is the run-scoped policy file that received the rule. The
-generated default at `$AGENTBOX_HOME/policies/<profile-name>.yaml` is a marker
-and contributes no network rules. Only a profile that selects a different
-legacy policy file contributes network rules, and that file never receives run
-edits. Persisting writes only `hosts` in `.agentbox/config.yaml` and
-regenerates the fragment; it does not stage or commit the change.
-
-Read the run copy directly with:
-
-```http
-GET /api/runs/{id}/policy/content
-```
-
-It returns `{"path":"...","content":"..."}`. Fleet's policy drawer shows the
-run's recorded provenance above the YAML.
-
-The response diff is the computed policy change. OpenShell rejection leaves the
-dialog open so the user can read the error and retry after fixing the cause.
-
-Setup exposes guarded lifecycle actions for every resource. Destructive actions
-always open a confirmation dialog and state what is removed and what is kept:
-
-- **Projects:** deleting removes only `projects/<name>.yaml`; the checkout and
-  run records are kept. Any run, active or terminal, blocks deletion.
-- **Profiles:** deleting removes only `profiles/<name>.yaml`; the image,
-  policy, and run records are kept. A non-terminal run using the profile, or
-  being the only profile for its agent, blocks deletion.
-- **Policies:** deleting removes only `policies/<name>.yaml`; profiles are
-  kept. A profile that references the policy blocks deletion, as does the
-  generated default `policies/<profile-name>.yaml` while that profile exists.
-- **Gateways:** deleting runs `openshell gateway remove <name>` and removes the
-  local registration; the remote gateway, sandboxes, and run records are kept.
-  A non-terminal run on that gateway blocks deletion.
-- **Images:** deleting removes the local image and all of its tags; profile and
-  run records are kept. Profiles and non-terminal runs that reference the image
-  block deletion.
-- **MCP tools and Skills:** entries can be edited or deleted. Editing keeps the
-  entry name read-only and preserves currently selected values that are no
-  longer available, with a warning. Deleting removes only the AgentBox entry;
-  global or host configuration is kept.
-- **Registry:** clearing removes only `registry.yaml`; it does not log out of
-  Podman or delete images, and is disabled when no saved reference exists.
-
-When a guard blocks deletion, the button shows a visible reason and the API
-returns `409` with the names of the dependent objects. Deleting a missing
-resource returns `404`.
-
-## Attach behavior
-
-Attach is available from both the GUI and CLI.
-
-In the GUI, click **Attach** on a Ready, Working, or Waiting for input agent, or
-**Workspace** on a project. AgentBox opens the project workspace: the tab strip
-lists every agent in that project, and the selected tab holds an xterm.js
-terminal connected to that agent's tmux session over a same-origin WebSocket. Switching tabs detaches
-the previous terminal and reattaches on return, showing the cached log tail in
-the meantime. Closing the workspace detaches the browser client; it does not
-finish the agent. Inside the terminal, `Ctrl-b d` also detaches.
-
-Completed, Stopped, Failed, and Unreachable runs open a read-only log snapshot
-instead of a terminal. The **Shell** button in the workspace starts an extra
-shell tab inside the active agent's sandbox, at its worktree, with the agent's
-environment. Closing
-a shell tab stops that shell; it never affects the agent session.
-
-From the CLI:
-
-```sh
-./agentbox agent attach <run-id>
-```
-
-When the agent exits, the session asks whether to keep the agent ready for later
-reattachment or finish it. Choosing idle creates an idle marker, keeps the
-sandbox and tmux session available, and shows the agent as **Ready**. Exiting
-the idle shell returns to the idle/finish prompt rather than finishing the
-agent. Choosing finish writes the finished marker and closes the tmux session.
-
-## Run status
-
-Every run has one derived, read-only status. Nothing in the CLI or GUI can set
-it: AgentBox recomputes it from the sandbox, the tmux session, and explicit
-signals written by the agent or the session script.
-
-| Status | Meaning |
-| --- | --- |
-| Creating | Run record exists, sandbox is warming up; not attachable yet. |
-| Ready | Sandbox and agent session are available with no turn in flight. |
-| Working | The agent is executing a turn. |
-| Waiting for input | The agent asked for permission or a decision, or the session is asking whether to keep the run ready. |
-| Failed | Cannot run: prepare, create, policy, or bootstrap error. The detail says which. |
-| Unreachable | The sandbox or gateway cannot be inspected, so status cannot be computed. |
-| Stopped | You stopped the run; results were synced and the sandbox was stopped. |
-| Completed | The agent session ended and results were synced. |
-
-When the agent stops to ask a question, or finishes a plan and asks whether to
-implement it, the run reports Waiting for input until you answer. Press ESC in a Codex turn to return the run to Ready right away: tool results
-that arrive after the interrupt belong to the cancelled turn and are ignored
-instead of restoring Working.
-
-`agent list` and `agent show` print the status and its detail; `--json` includes
-`status` and `status_detail`. Attach and Stop apply to Ready, Working, and
-Waiting for input. Direct-checkout mode refuses a second run while any run on
-that checkout is active, or while its state cannot be verified.
-
-Fleet keeps itself current: it re-reads every run about once a second while a
-run is Creating, Working, or Waiting for input, every 2.5 seconds while runs are
-Ready (1.5 seconds when a workspace is open), and every 15 seconds when every
-run is terminal. Returning to the browser tab refreshes immediately. Each read
-recomputes the status from inside the sandbox, so the probe round trip adds to
-the refresh interval. The badge uses the short label (for example **Waiting**);
-hovering it, or reading it with a screen reader, gives the full status name.
-
-## State location
-
-AgentBox stores all default state under `~/.agentbox`:
-
-```text
-~/.agentbox/
-  settings.yaml
-  projects/
-  profiles/
-  runs/
-  policies/
-  mcps/
-  skills/
-  orchestration.yaml
-  worktrees/
-```
-
-Set `AGENTBOX_HOME` to use a different private state directory for testing or
-custom layouts. Worktrees then live under `$AGENTBOX_HOME/worktrees`.
-
-## Repository artwork
-
-The blue OpenShell fleet icon shown above and used as the web app favicon is stored at:
-
-```text
-docs/assets/agentbox-icon.svg
-```
-
-The AgentBox wordmark remains at `docs/assets/logo.svg`.
-
-A GitHub social-preview image is stored at:
-
-```text
-docs/assets/social-preview.png
-```
-
-GitHub does not expose repository social-preview upload through its public REST
-or GraphQL API. To use the generated artwork as the repository card image, upload
-`docs/assets/social-preview.png` manually under **Settings → Social preview**.
-
-## Repository layout
-
-```text
-cmd/agentbox     CLI entry point
-internal/app     Core application logic
-internal/gui     JSON API and embedded React web GUI
-docs             Architecture guide, artwork, and screenshots
-.github          CI workflow
-Makefile         Build and test targets
-```
+Try: “Use agentbox-cli to set up AgentBox for this repository”, or
+“Use agentbox-cli to show which runs need my attention.”
+
+The bundled skills operate AgentBox from the host. Selecting your own skills
+to deliver into a sandbox is a separate feature: see the
+[skill selection reference](https://dmartinol.github.io/agentbox/cli-reference/skill/).
+
+## Documentation
+
+- [Getting started](https://dmartinol.github.io/agentbox/getting-started/) — first task and results.
+- [Repository setup](https://dmartinol.github.io/agentbox/repository-setup/) — tools, checks, and allowed hosts.
+- [CLI reference](https://dmartinol.github.io/agentbox/cli-reference/) — commands and options.
+- [OpenShell architecture](docs/openshell-architecture.md) — runtime, policies, credentials, and sync.
+- [Contributor guide](https://dmartinol.github.io/agentbox/contributing/) — build and check the project.
+- [Contributor instructions](AGENTS.md) — scope, architecture boundaries, and required checks.
 
 ## License
 
-This project is licensed under the [Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE).

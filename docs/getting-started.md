@@ -13,11 +13,16 @@ nav_sections:
     id: prepare-an-image-and-profile
   - title: Start an agent
     id: start-an-agent
+  - title: Review the results
+    id: review-the-results
+  - title: Next steps
+    id: next-steps
   - title: Open the web GUI
     id: open-the-web-gui
 ---
 
-This quick start covers the local CLI workflow. The same projects, profiles, and agents are available in the web GUI.
+Run a first development task on an existing Git checkout, inspect its work,
+and bring the changes back for review. The CLI and web GUI share the same state.
 
 ## Requirements
 
@@ -29,10 +34,12 @@ Run `agentbox doctor` to check the local setup.
 
 ## Install
 
-Install the latest published version:
+Install the source version that matches this documentation. The `v0.2` tag
+predates repository setup and orchestrator configuration, so use `@main` for
+the features described in those guides:
 
 ```sh
-go install github.com/dmartinol/agentbox/cmd/agentbox@latest
+go install github.com/dmartinol/agentbox/cmd/agentbox@main
 ```
 
 Make sure Go's binary directory is on `PATH`, then verify the install:
@@ -93,7 +100,11 @@ interactive permission prompts. The default applies only at profile creation:
 existing profiles and runs keep their recorded approval, and an explicit
 `agent start --approval` overrides the profile for one run only.
 
-See [the OpenShell architecture guide](architecture/) for provider types, direct-provider profiles, gateway configuration, and policy behavior.
+See [the OpenShell architecture guide]({{ '/architecture/' | relative_url }}) for provider types, direct-provider profiles, gateway configuration, and policy behavior.
+
+Before assigning a build or test task, [prepare the repository environment]({{ '/repository-setup/' | relative_url }})
+if the profile image lacks the project's tools. Use that page to author and
+apply `.agentbox/config.yaml`; the CLI does not infer it automatically.
 
 ## Start an agent
 
@@ -104,10 +115,35 @@ agentbox agent start \
   --project demo \
   --profile codex-gateway \
   --gateway openshell \
-  --name docs-review
+  --name docs-review \
+  --prompt "Review the installation guide against the current commands and propose focused corrections."
 ```
 
 Use `agentbox agent list` to see its state. `agentbox agent attach <id>` attaches to the existing tmux session; detaching does not finish the agent.
+
+## Review the results
+
+Replace `RUN_ID` with the ID printed at startup:
+
+```sh
+agentbox agent logs RUN_ID
+agentbox agent diff RUN_ID
+agentbox agent sync RUN_ID
+agentbox agent show RUN_ID --json
+```
+
+The run details identify the local worktree and branch. Review the synced
+changes there before integrating them into the main branch. Sync transfers
+results from the sandbox copy; it does not merge your main branch. Stop an
+active run with `agentbox agent stop RUN_ID` to sync and retain its work before
+the sandbox stops.
+
+## Next steps
+
+- [Prepare project tools and network access]({{ '/repository-setup/' | relative_url }}).
+- [Explore the agentic development lifecycle]({{ '/adlc/' | relative_url }}).
+- [Operate AgentBox through example prompts]({{ '/prompts/' | relative_url }}).
+- [Add the optional issue-to-PR workflow]({{ '/orchestration/' | relative_url }}).
 
 ## Open the web GUI
 
