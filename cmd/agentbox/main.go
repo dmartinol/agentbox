@@ -81,6 +81,8 @@ func dispatch(ctx context.Context, a *app.App, args []string) error {
 		return profileCmd(ctx, a, args[1:])
 	case "image":
 		return imageCmd(ctx, a, args[1:])
+	case "repo":
+		return repoCmd(ctx, a, args[1:])
 	case "gateway":
 		return gatewayCmd(ctx, a, args[1:])
 	case "provider":
@@ -121,6 +123,7 @@ func usage() {
 	fmt.Println("  project create|edit|show|list")
 	fmt.Println("  profile create|edit|show|list")
 	fmt.Println("  image versions|build|list|push|pull|rm|prune|registry")
+	fmt.Println("  repo setup [--agent codex,claude] [--dry]")
 	fmt.Println("  gateway list|connect|start|info")
 	fmt.Println("  provider setup")
 	fmt.Println("  policy show|edit")
@@ -614,6 +617,56 @@ func imageBuildUsage(f *flag.FlagSet) {
 	fmt.Fprintln(f.Output())
 	fmt.Fprintln(f.Output(), "Flags:")
 	f.PrintDefaults()
+}
+
+func repoCmd(ctx context.Context, a *app.App, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("repo setup required")
+	}
+	switch args[0] {
+	case "setup":
+		f := flags("repo setup")
+		agent := f.String("agent", "", "comma-separated agents to build for (claude, codex, opencode; default: agents present in local profiles)")
+		dry := f.Bool("dry", false, "validate the manifest and preview without building images or writing files")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		result, err := a.RepoSetup(ctx, app.RepoSetupOptions{Agents: splitList(*agent), Dry: *dry})
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(result)
+		}
+		printRepoSetup(result)
+		return nil
+	default:
+		return fmt.Errorf("unknown repo command %q", args[0])
+	}
+}
+
+func printRepoSetup(result app.RepoSetupResult) {
+	if result.Dry {
+		fmt.Println("dry run: manifest validated; nothing was built or written")
+	}
+	fmt.Printf("repo:      %s\n", result.Repo)
+	fmt.Printf("manifest:  %s (%s)\n", result.ManifestPath, result.ManifestDigest)
+	for _, image := range result.Images {
+		state := "built"
+		if !image.Built {
+			state = "already present"
+		}
+		fmt.Printf("%s image: %s (%s)\n", image.Agent, image.Tag, state)
+		fmt.Printf("  base:   %s\n", image.Base)
+	}
+	if len(result.Images) == 0 {
+		for _, agent := range result.Agents {
+			fmt.Printf("%s image: tag resolves at build time from the newest local %s image (recipe r%s)\n", agent, agent, app.CurrentImageRecipe())
+		}
+	}
+	fmt.Printf("fragment:  %s (%s)\n", result.FragmentPath, result.FragmentStatus)
+	fmt.Println("profiles need no change: repository runs resolve the repository image and fragment automatically")
 }
 
 func gatewayCmd(ctx context.Context, a *app.App, args []string) error {

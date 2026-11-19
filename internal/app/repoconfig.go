@@ -167,6 +167,9 @@ func validateRepoToolchains(image *RepoImageSection) error {
 		if err != nil || u.Scheme != "https" || u.Host == "" {
 			return fmt.Errorf("%s.url: %q must be an HTTPS download URL", field, tc.URL)
 		}
+		if strings.ContainsFunc(tc.URL, unicode.IsSpace) {
+			return fmt.Errorf("%s.url: must not contain whitespace; percent-encode spaces in the URL", field)
+		}
 		if !repoSHA256.MatchString(tc.SHA256) {
 			return fmt.Errorf("%s.sha256: must be exactly 64 hexadecimal characters", field)
 		}
