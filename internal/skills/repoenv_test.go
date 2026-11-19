@@ -23,7 +23,8 @@ func cliCollapsed(t *testing.T) string {
 func TestCLISkillRepositoryEnvironmentAuthoring(t *testing.T) {
 	body := cliCollapsed(t)
 	wantAll(t, body,
-		"prepare repository worker environments",
+		"set up a repository for AgentBox agents",
+		"Set up AgentBox for this repository.",
 		"`.agentbox/config.yaml`",
 		"no CLI command infers tools or hosts",
 		"image.toolchains",
@@ -94,7 +95,7 @@ func TestCLISkillHostBlockPersistsToManifest(t *testing.T) {
 func TestOrchestratorSkillRepositoryEnvironment(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
-		"prepare repository worker environments",
+		"prepare repository environments",
 		"Repository worker environment (one-time)",
 		"Check for it during triage",
 		"the same standing as worktree creation, not stage work",

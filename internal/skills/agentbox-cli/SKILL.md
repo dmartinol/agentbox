@@ -1,6 +1,6 @@
 ---
 name: agentbox-cli
-description: "Operate AgentBox from a shell: start, inspect, attach to, sync, and delete OpenShell-backed coding-agent runs, prepare repository worker environments, and recover from sandbox policy host blocks. Use when a user asks you to run or manage an agent through the agentbox CLI."
+description: "Operate AgentBox from a shell: start, inspect, attach to, sync, and delete OpenShell-backed coding-agent runs, set up a repository for AgentBox agents (`.agentbox/config.yaml`), and recover from sandbox policy host blocks. Use when a user asks you to run or manage an agent through the agentbox CLI."
 version: "{{VERSION}}"
 ---
 
@@ -19,7 +19,9 @@ Requests like these select this skill:
 - "Attach me to the auth-refactor run."
 - "Show what that run changed, then sync it."
 - "The agent hit a DNS error reaching api.example.com — fix it."
-- "Prepare the worker environment for this repository."
+- "Set up AgentBox for this repository."
+- "Create the .agentbox/config.yaml for this repo."
+- "The agent's sandbox is missing make and go — fix it."
 - "Stop the run but keep the work."
 
 ## Ground rules
@@ -99,11 +101,15 @@ AgentBox adds no forge credential, no git credential helper, and no generated
 `.gitconfig`, so do not paste a token into a profile or prompt. Sandboxes have
 no forge reachability unless the run policy is edited to allow those hosts.
 
-## Prepare a repository worker environment
+## Set up AgentBox for a repository
+
+Requests like "set up AgentBox for this repository", "create the
+`.agentbox/config.yaml`", or "the agent's sandbox is missing make and go"
+resolve to this section.
 
 A repository declares its development and CI needs in a committed
 `.agentbox/config.yaml`: apt packages and pinned toolchains for the repository
-worker image, verify commands for the image build, and the exact runtime
+image, verify commands for the image build, and the exact runtime
 egress hosts. Authoring reads repository configuration, so an agent (or a
 human) authors it; no CLI command infers tools or hosts.
 
