@@ -367,7 +367,7 @@ func TestStartResolvesSkillsSelection(t *testing.T) {
 	}
 	if err := store.SaveProfile(Profile{
 		Version: 1, Name: "mycodex", Agent: "codex", Image: "localhost/openshell-codex:1.2.3-r3",
-		Mode: "standard", Provider: "unit-provider", Policy: policyConfig.Path, Approval: "prompted",
+		Mode: "standard", Provider: "openai", Policy: policyConfig.Path, Approval: "prompted",
 	}); err != nil {
 		t.Fatal(err)
 	}

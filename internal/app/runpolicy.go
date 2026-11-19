@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -15,15 +16,15 @@ import (
 )
 
 type RunPolicyProvenance struct {
-	Source       string `json:"source"`
-	Gateway      string `json:"gateway"`
-	Provider     string `json:"provider"`
-	Mode         string `json:"mode"`
-	Host         string `json:"host"`
-	Port         int    `json:"port"`
-	Rule         string `json:"rule"`
-	AgentBinary  string `json:"agent_binary"`
-	LegacyPath   string `json:"legacy_path,omitempty"`
+	Source      string `json:"source"`
+	Gateway     string `json:"gateway"`
+	Provider    string `json:"provider"`
+	Mode        string `json:"mode"`
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	Rule        string `json:"rule"`
+	AgentBinary string `json:"agent_binary"`
+	LegacyPath  string `json:"legacy_path,omitempty"`
 }
 
 type providerEndpoint struct {
@@ -158,7 +159,8 @@ func deriveRunPolicy(profile Profile, gateway string, legacy map[string]NetworkR
 	if err := mergeNetworkRule(&policy, ruleName, providerRule, "generated provider rule"); err != nil {
 		return nil, nil, fmt.Errorf("profile %q cannot derive its run policy: %w", profile.Name, err)
 	}
-	for name, rule := range legacy {
+	for _, name := range sortedNetworkRuleNames(legacy) {
+		rule := legacy[name]
 		rule.Name = name
 		if err := mergeNetworkRule(&policy, name, rule, "legacy policy "+legacyPath); err != nil {
 			return nil, nil, fmt.Errorf("profile %q cannot derive its run policy: %w", profile.Name, err)
@@ -172,7 +174,8 @@ func deriveRunPolicy(profile Profile, gateway string, legacy map[string]NetworkR
 		if _, err := ParsePolicy(runImage.fragment); err != nil {
 			return nil, nil, fmt.Errorf("profile %q cannot compose repository policy fragment %s: %v", profile.Name, runImage.FragmentPath, err)
 		}
-		for name, rule := range fragment.Network {
+		for _, name := range sortedNetworkRuleNames(fragment.Network) {
+			rule := fragment.Network[name]
 			rule.Name = name
 			if err := mergeNetworkRule(&policy, name, rule, "repository fragment "+runImage.FragmentPath); err != nil {
 				return nil, nil, fmt.Errorf("profile %q cannot derive its run policy: %w", profile.Name, err)
@@ -201,19 +204,34 @@ func mergeNetworkRule(policy *Policy, name string, rule NetworkRule, source stri
 	if policy.Network == nil {
 		policy.Network = map[string]NetworkRule{}
 	}
-	if existing, ok := policy.Network[name]; ok && !reflect.DeepEqual(canonicalRule(existing), canonicalRule(rule)) {
-		return fmt.Errorf("network rule %q is defined differently by %s and the derived policy; align them before running", name, source)
-	}
-	if existing, ok := policy.Network[name]; ok && reflect.DeepEqual(canonicalRule(existing), canonicalRule(rule)) {
-		return nil
-	}
-	for existingName, existing := range policy.Network {
-		if existingName != name && reflect.DeepEqual(canonicalRule(existing), canonicalRule(rule)) {
+	if existing, ok := policy.Network[name]; ok {
+		if reflect.DeepEqual(canonicalRule(existing), canonicalRule(rule)) {
 			return nil
 		}
+		return fmt.Errorf("network rule %q is defined differently by %s and the derived policy; align them before running", name, source)
+	}
+	if _, ok := identicalNetworkRule(policy.Network, rule); ok {
+		return nil
 	}
 	rule.Name = name
 	policy.Network[name] = rule
 	return nil
 }
 
+func sortedNetworkRuleNames(rules map[string]NetworkRule) []string {
+	names := make([]string, 0, len(rules))
+	for name := range rules {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func identicalNetworkRule(rules map[string]NetworkRule, candidate NetworkRule) (string, bool) {
+	for _, name := range sortedNetworkRuleNames(rules) {
+		if reflect.DeepEqual(canonicalRule(rules[name]), canonicalRule(candidate)) {
+			return name, true
+		}
+	}
+	return "", false
+}

@@ -13,6 +13,10 @@ import (
 )
 
 func testProfile(agent, mode, approval string) Profile {
+	provider := "unit-provider"
+	if mode == "standard" {
+		provider = "openai"
+	}
 	return Profile{
 		Version:   1,
 		Name:      "unit-profile",
@@ -20,7 +24,7 @@ func testProfile(agent, mode, approval string) Profile {
 		Image:     "localhost/openshell-" + agent + ":1.2.3-r3",
 		Mode:      mode,
 		Model:     "unit-model",
-		Provider:  "unit-provider",
+		Provider:  provider,
 		Policy:    "/tmp/unit-policy.yaml",
 		Approval:  approval,
 		BaseURL:   "https://models.example.test/v1",

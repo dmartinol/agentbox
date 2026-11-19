@@ -84,7 +84,7 @@ func TestProviderRuleShapeAndLongName(t *testing.T) {
 	if len(provenance.Rule) != 63 || !strings.HasPrefix(provenance.Rule, "provider-") {
 		t.Fatalf("long rule = %q (%d)", provenance.Rule, len(provenance.Rule))
 	}
-	if provenance.Rule != "provider-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-f04464" {
+	if provenance.Rule != "provider-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-0763ba" {
 		t.Fatalf("long rule hash = %q", provenance.Rule)
 	}
 	if _, err := ParsePolicy(policy); err != nil {
@@ -124,7 +124,7 @@ func TestLegacyPolicyAddsOnlyNetworkRules(t *testing.T) {
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	legacyPath := filepath.Join(store.PolicyDir(), "legacy.yaml")
+	legacyPath := filepath.Join(store.PolicyDir(), "shared-legacy.yaml")
 	legacy := strings.Replace(string(DefaultPolicy()), "run_as_user: sandbox", "run_as_user: attacker", 1)
 	legacy = strings.Replace(legacy, "network_policies: {}", `network_policies:
   legacy-host:
@@ -171,7 +171,7 @@ func TestLegacyPolicyMissingAndInvalidErrors(t *testing.T) {
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	profile := Profile{Name: "legacy", Agent: "codex", Mode: "standard", Provider: "openai", Policy: filepath.Join(store.PolicyDir(), "legacy.yaml")}
+	profile := Profile{Name: "legacy", Agent: "codex", Mode: "standard", Provider: "openai", Policy: filepath.Join(store.PolicyDir(), "shared-legacy.yaml")}
 	app := App{Store: store}
 	_, _, err := app.legacyPolicyNetwork(profile)
 	if err == nil || !strings.Contains(err.Error(), "references missing legacy policy file") {
@@ -188,12 +188,12 @@ func TestLegacyPolicyMissingAndInvalidErrors(t *testing.T) {
 
 func TestDerivedPolicyDeduplicatesAndPreservesConflicts(t *testing.T) {
 	providerRule := NetworkRule{
-		Endpoints: []Endpoint{{Host: "proxy.golang.org", Port: 443, Protocol: "tcp"}},
+		Endpoints: []Endpoint{{Host: "api.openai.com", Port: 443, Protocol: "tcp"}},
 		Binaries:  []Binary{{Path: "/usr/local/bin/codex"}},
 	}
 	fragmentRule := providerRule
-	fragmentRule.Name = "host-proxy-golang-org-443"
-	fragment := testPolicyBytes(t, map[string]NetworkRule{"host-proxy-golang-org-443": fragmentRule})
+	fragmentRule.Name = "host-api-openai-com-443"
+	fragment := testPolicyBytes(t, map[string]NetworkRule{"host-api-openai-com-443": fragmentRule})
 	runImage := RunImage{Source: ImageSourceRepo, FragmentPath: "repo.yaml", fragment: fragment}
 	profile := Profile{Name: "standard", Agent: "codex", Mode: "standard", Provider: "openai"}
 	policy, _, err := deriveRunPolicy(profile, "openshell", nil, "", runImage)
@@ -204,17 +204,43 @@ func TestDerivedPolicyDeduplicatesAndPreservesConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(parsed.Network) != 1 || parsed.Network["provider-openai-443"].Name != "provider-openai-443" {
+	if len(parsed.Network) != 1 || parsed.Network["provider-api-openai-com-443"].Name != "provider-api-openai-com-443" {
 		t.Fatalf("deduplicated policy = %+v", parsed.Network)
 	}
 
 	different := fragmentRule
 	different.Binaries = []Binary{{Path: "/usr/local/go/bin/go"}}
-	fragment = testPolicyBytes(t, map[string]NetworkRule{"provider-openai-443": different})
+	fragment = testPolicyBytes(t, map[string]NetworkRule{"provider-api-openai-com-443": different})
 	runImage.fragment = fragment
 	_, _, err = deriveRunPolicy(profile, "openshell", nil, "", runImage)
-	if err == nil || !strings.Contains(err.Error(), `profile "standard"`) || !strings.Contains(err.Error(), `network rule "provider-openai-443"`) {
+	if err == nil || !strings.Contains(err.Error(), `profile "standard"`) || !strings.Contains(err.Error(), `network rule "provider-api-openai-com-443"`) {
 		t.Fatalf("conflict error = %v", err)
+	}
+}
+
+func TestDerivedPolicyMergesLegacyRulesInDeterministicOrder(t *testing.T) {
+	endpoints := []Endpoint{{Host: "legacy.example.com", Port: 443, Protocol: "tcp"}}
+	binaries := []Binary{{Path: "/usr/local/bin/codex"}}
+	legacy := map[string]NetworkRule{
+		"zeta-legacy":  {Endpoints: endpoints, Binaries: binaries},
+		"alpha-legacy": {Endpoints: endpoints, Binaries: binaries},
+	}
+	profile := Profile{Name: "standard", Agent: "codex", Mode: "standard", Provider: "openai"}
+	for attempt := 0; attempt < 20; attempt++ {
+		policy, _, err := deriveRunPolicy(profile, "openshell", legacy, "/tmp/legacy.yaml", RunImage{})
+		if err != nil {
+			t.Fatalf("attempt %d: %v", attempt, err)
+		}
+		parsed, err := ParsePolicy(policy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := parsed.Network["alpha-legacy"]; !ok {
+			t.Fatalf("attempt %d kept %+v, want the alphabetically first rule", attempt, parsed.Network)
+		}
+		if _, ok := parsed.Network["zeta-legacy"]; ok {
+			t.Fatalf("attempt %d duplicated a canonical-equal rule: %+v", attempt, parsed.Network)
+		}
 	}
 }
 

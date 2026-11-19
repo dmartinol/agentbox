@@ -93,7 +93,9 @@ agentbox gui [--address HOST:PORT]
 
 The GUI talks to the same local state and OpenShell environment as the CLI.
 Fleet is the default surface; **Setup** contains providers, profiles, projects,
-images, gateways, policies, and diagnostics. The address can be changed to
+images, gateways, MCP tools, skills, and advanced diagnostics. Legacy policy
+files are managed with `agentbox policy` or the `/api/policies` endpoints, and
+each run's derived policy is read-only under **View policy**. The address can be changed to
 expose the GUI on another interface, but the default loopback binding is the
 intended mode.
 

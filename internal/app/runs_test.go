@@ -160,18 +160,21 @@ func TestStartReportsMissingProfileAndPolicy(t *testing.T) {
 
 	policy := filepath.Join(store.PolicyDir(), "missing.yaml")
 	if err := store.SaveProfile(Profile{
-		Version:  1,
-		Name:     "mycodex",
-		Agent:    "codex",
-		Image:    "localhost/openshell-codex:1.2.3-r3",
-		Mode:     "standard",
-		Provider: "provider",
-		Policy:   policy,
-		Approval: "prompted",
+		Version:   1,
+		Name:      "mycodex",
+		Agent:     "codex",
+		Image:     "localhost/openshell-codex:1.2.3-r3",
+		Mode:      "gateway",
+		Provider:  "provider",
+		Model:     "unit-model",
+		BaseURL:   "https://models.example.test/v1",
+		APIKeyEnv: "UNIT_KEY",
+		Policy:    policy,
+		Approval:  "prompted",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.Start(ctx, StartOptions{Profile: "mycodex", Gateway: "openshell"}); err == nil || !strings.Contains(err.Error(), "references missing policy file") {
+	if _, err := app.Start(ctx, StartOptions{Profile: "mycodex", Gateway: "openshell"}); err == nil || !strings.Contains(err.Error(), "references missing legacy policy file") {
 		t.Fatalf("missing policy error = %v", err)
 	}
 }
@@ -476,7 +479,7 @@ func TestRunRecordsProfileName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile := Profile{Version: 1, Name: "mycodex", Agent: "codex", Image: "localhost/openshell:codex-1.2.3-r3", Mode: "standard", Provider: "unit-provider", Policy: policy.Path, Approval: "prompted"}
+	profile := Profile{Version: 1, Name: "mycodex", Agent: "codex", Image: "localhost/openshell:codex-1.2.3-r3", Mode: "standard", Provider: "openai", Policy: policy.Path, Approval: "prompted"}
 	if err := store.SaveProfile(profile); err != nil {
 		t.Fatal(err)
 	}

@@ -115,4 +115,4 @@ Use `agentbox agent list` to see its state. `agentbox agent attach <id>` attache
 agentbox gui
 ```
 
-Open the address printed by the command (default `http://127.0.0.1:8080`). Fleet shows agents grouped by project; **Setup** contains providers, profiles, projects, images, gateways, policies, and diagnostics.
+Open the address printed by the command (default `http://127.0.0.1:8080`). Fleet shows agents grouped by project; **Setup** contains providers, profiles, projects, images, gateways, MCP tools, skills, and advanced diagnostics. Legacy policy files are managed with `agentbox policy` or the `/api/policies` endpoints, and each run's derived policy is read-only under **View policy**.

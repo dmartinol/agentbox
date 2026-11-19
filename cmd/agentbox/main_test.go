@@ -709,7 +709,7 @@ func TestSkillsCommandsAndAgentStartFlag(t *testing.T) {
 	}
 	if err := store.SaveProfile(app.Profile{
 		Version: 1, Name: "codex", Agent: "codex", Image: "localhost/openshell-codex:1.2.3-r3",
-		Mode: "standard", Provider: "unit-provider", Policy: policy.Path, Approval: "prompted",
+		Mode: "standard", Provider: "openai", Policy: policy.Path, Approval: "prompted",
 	}); err != nil {
 		t.Fatal(err)
 	}

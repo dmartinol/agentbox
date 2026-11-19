@@ -695,10 +695,10 @@ func TestStartWithRepositoryImageComposesRunPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(policy.Network) != 2 {
-		t.Fatalf("rules = %v, want the profile rule and the repository rule", policy.Network)
+	if len(policy.Network) != 3 {
+		t.Fatalf("rules = %v, want the derived provider rule, the profile rule, and the repository rule", policy.Network)
 	}
-	for _, name := range []string{"profile-only", "host-proxy-golang-org-443"} {
+	for _, name := range []string{"provider-api-openai-com-443", "profile-only", "host-proxy-golang-org-443"} {
 		if _, ok := policy.Network[name]; !ok {
 			t.Fatalf("run policy lost rule %q: %v", name, policy.Network)
 		}

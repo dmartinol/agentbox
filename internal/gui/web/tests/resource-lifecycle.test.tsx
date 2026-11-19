@@ -127,9 +127,13 @@ describe('resource lifecycle panels', () => {
     });
     render(<ProjectsPanel />);
     await user.click(await screen.findByText('Repository details'));
-    expect(await screen.findByText(/present · \/repo\/\.agentbox\/config\.yaml/)).toBeInTheDocument();
-    expect(screen.getByText(/current · \/state\/policies\/repo-github-com-example-demo\.yaml/)).toBeInTheDocument();
-    expect(screen.getByText(/proxy\.golang\.org:443 — \/usr\/local\/go\/bin\/go/)).toBeInTheDocument();
+    const details = screen.getByText('Repository details').closest('details');
+    if (!details) throw new Error('repository details missing');
+    expect(await within(details).findByText((_, node) => node?.tagName === 'DD'
+      && node.textContent === 'present · /repo/.agentbox/config.yaml · sha256:manifest')).toBeInTheDocument();
+    expect(within(details).getByText((_, node) => node?.tagName === 'DD'
+      && node.textContent === 'current · /state/policies/repo-github-com-example-demo.yaml · sha256:fragment')).toBeInTheDocument();
+    expect(within(details).getByText(/proxy\.golang\.org:443 — \/usr\/local\/go\/bin\/go/)).toBeInTheDocument();
     expect(screen.getByText(/codex: current · repo-image/)).toBeInTheDocument();
     expect(screen.getByText(/opencode: stale · old-image/)).toBeInTheDocument();
     expect(screen.getByText(/claude: missing/)).toBeInTheDocument();

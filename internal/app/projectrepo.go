@@ -18,10 +18,10 @@ const (
 )
 
 type ProjectWorkerImageStatus struct {
-	Agent           string `json:"agent"`
-	Status          string `json:"status"`
-	Reference       string `json:"reference,omitempty"`
-	ManifestDigest  string `json:"manifest_digest,omitempty"`
+	Agent          string `json:"agent"`
+	Status         string `json:"status"`
+	Reference      string `json:"reference,omitempty"`
+	ManifestDigest string `json:"manifest_digest,omitempty"`
 }
 
 type ProjectRepoStatus struct {
@@ -38,10 +38,10 @@ type ProjectRepoStatus struct {
 
 func (a *App) ProjectRepoStatus(ctx context.Context, root string) ProjectRepoStatus {
 	status := ProjectRepoStatus{
-		ManifestPath: RepoConfigPath(root),
+		ManifestPath:   RepoConfigPath(root),
 		FragmentStatus: ProjectRepoFragmentAbsent,
-		WorkerImages: []ProjectWorkerImageStatus{},
-		HostRules: []RepoHostRule{},
+		WorkerImages:   []ProjectWorkerImageStatus{},
+		HostRules:      []RepoHostRule{},
 	}
 	manifest, err := os.ReadFile(status.ManifestPath)
 	status.ManifestPresent = !errors.Is(err, os.ErrNotExist)
