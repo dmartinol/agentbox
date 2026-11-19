@@ -298,13 +298,18 @@ func TestWaitForSandboxDeletedPollsUntilGone(t *testing.T) {
 
 func TestVerifyEffectivePolicyAcceptsGatewayWithExplicitPort(t *testing.T) {
 	effectivePolicy := []byte(`{
-		"version": 1,
-		"landlock": {"compatibility": "hard_requirement"},
-		"network_policies": {
-			"_provider_unit-provider": {
-				"name": "_provider_unit-provider",
-				"endpoints": [{"host": "models.example.test", "port": 8443, "protocol": "tcp"}],
-				"binaries": [{"path": "/usr/local/bin/codex"}]
+		"active_version": 2,
+		"policy_source": "sandbox",
+		"status": "effective",
+		"policy": {
+			"version": 1,
+			"landlock": {"compatibility": "hard_requirement"},
+			"network_policies": {
+				"_provider_unit-provider": {
+					"name": "_provider_unit-provider",
+					"endpoints": [{"host": "models.example.test", "port": 8443, "protocol": "tcp"}],
+					"binaries": [{"path": "/usr/local/bin/codex"}]
+				}
 			}
 		}
 	}`)
@@ -331,36 +336,54 @@ func TestVerifyEffectivePolicyAcceptsGatewayWithExplicitPort(t *testing.T) {
 }
 
 func TestVerifyEffectivePolicyRequiresComposedProviderEndpointInEveryMode(t *testing.T) {
-	effectivePolicy := []byte(`{
-		"version": 1,
-		"landlock": {"compatibility": "hard_requirement"},
-		"network_policies": {
-			"_provider_openai": {
-				"name": "_provider_openai",
-				"endpoints": [{"host": "api.openai.com", "port": 443, "path": "/v1/**", "protocol": "rest"}],
-				"binaries": [{"path": "/usr/local/bin/codex"}]
-			}
+	const providerRule = `"network_policies": {
+		"_provider_openai": {
+			"name": "_provider_openai",
+			"endpoints": [{"host": "api.openai.com", "port": 443, "path": "/v1/**", "protocol": "rest"}],
+			"binaries": [{"path": "/usr/local/bin/codex"}]
 		}
+	}`
+	valid := map[string][]byte{
+		"OpenShell envelope": []byte(`{
+			"active_version": 2,
+			"policy_source": "sandbox",
+			"status": "effective",
+			"policy": {"version": 1, "landlock": {"compatibility": "hard_requirement"}, ` + providerRule + `}
+		}`),
+		"unwrapped legacy shape": []byte(`{
+			"version": 1,
+			"landlock": {"compatibility": "hard_requirement"},
+			` + providerRule + `
+		}`),
+	}
+	profile := testProfile("codex", "standard", "prompted")
+	run := Run{Sandbox: "sandbox-unit123", Gateway: "gateway-one", Mode: "standard", Approval: "prompted"}
+	for name, payload := range valid {
+		runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+			if call.name == "openshell" && commandHasArg(call, "policy") {
+				return payload, nil
+			}
+			return nil, nil
+		}}
+		app := App{Runner: runner}
+		if err := app.VerifyEffectivePolicy(context.Background(), run, profile); err != nil {
+			t.Fatalf("%s: valid composed standard policy rejected: %v", name, err)
+		}
+	}
+
+	missing := []byte(`{
+		"active_version": 2,
+		"policy_source": "sandbox",
+		"status": "effective",
+		"policy": {"version": 1, "landlock": {"compatibility": "hard_requirement"}, "network_policies": {}}
 	}`)
 	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
 		if call.name == "openshell" && commandHasArg(call, "policy") {
-			return effectivePolicy, nil
+			return missing, nil
 		}
 		return nil, nil
 	}}
-	profile := testProfile("codex", "standard", "prompted")
-	app := App{Runner: runner}
-	run := Run{Sandbox: "sandbox-unit123", Gateway: "gateway-one", Mode: "standard", Approval: "prompted"}
-	if err := app.VerifyEffectivePolicy(context.Background(), run, profile); err != nil {
-		t.Fatalf("valid composed standard policy rejected: %v", err)
-	}
-
-	effectivePolicy = []byte(`{
-		"version": 1,
-		"landlock": {"compatibility": "hard_requirement"},
-		"network_policies": {}
-	}`)
-	err := app.VerifyEffectivePolicy(context.Background(), run, profile)
+	err := (&App{Runner: runner}).VerifyEffectivePolicy(context.Background(), run, profile)
 	if err == nil || !strings.Contains(err.Error(), "api.openai.com:443") || !strings.Contains(err.Error(), `provider "openai" is not ready`) {
 		t.Fatalf("missing composed endpoint error = %v", err)
 	}
