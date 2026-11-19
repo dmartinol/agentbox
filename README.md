@@ -767,8 +767,8 @@ always open a confirmation dialog and state what is removed and what is kept:
 - **Projects:** deleting removes only `projects/<name>.yaml`; the checkout and
   run records are kept. Any run, active or terminal, blocks deletion.
 - **Profiles:** deleting removes only `profiles/<name>.yaml`; the image,
-  policy, and run records are kept. A non-terminal run using the profile, or
-  being the only profile for its agent, blocks deletion.
+  policy, and run records are kept. A non-terminal run using the profile
+  blocks deletion.
 - **Policies:** deleting removes only `policies/<name>.yaml`; profiles are
   kept. A profile that references the policy blocks deletion, as does the
   generated default `policies/<profile-name>.yaml` while that profile exists.

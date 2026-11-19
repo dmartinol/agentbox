@@ -114,7 +114,6 @@ export interface Profile {
   api_key_env?: string;
   args?: string[];
   used_by?: string[];
-  last_for_agent?: boolean;
 }
 
 export interface ImageArtifact {

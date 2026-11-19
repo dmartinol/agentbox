@@ -89,7 +89,7 @@ func TestDeleteProfileAllowedAfterRunTerminal(t *testing.T) {
 	}
 }
 
-func TestDeleteProfileLastAgentGuard(t *testing.T) {
+func TestDeleteProfileAllowsLastProfileForAgent(t *testing.T) {
 	store := Store{Base: t.TempDir()}
 	if err := store.Ensure(); err != nil {
 		t.Fatal(err)
@@ -101,22 +101,11 @@ func TestDeleteProfileLastAgentGuard(t *testing.T) {
 	if err := store.SaveProfile(profileFixture("only-codex", "codex", policy)); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SaveProfile(profileFixture("claude", "claude", policy)); err != nil {
-		t.Fatal(err)
-	}
 	app := App{Store: store, Runner: &fakeRunner{}}
-	err := app.DeleteProfile("only-codex")
-	var conflict *ConflictError
-	if err == nil || !errors.As(err, &conflict) || conflict.Reason == "" {
-		t.Fatalf("error = %v; want last-agent conflict", err)
-	}
-	if err := app.DeleteProfile("claude"); err == nil {
-		t.Fatal("last claude profile was accepted")
-	}
-	if err := store.SaveProfile(profileFixture("second-codex", "codex", policy)); err != nil {
-		t.Fatal(err)
-	}
 	if err := app.DeleteProfile("only-codex"); err != nil {
-		t.Fatalf("delete with same-agent profile remaining: %v", err)
+		t.Fatalf("delete last profile for agent: %v", err)
+	}
+	if _, err := os.Stat(store.ProfilePath("only-codex")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("profile file still exists: %v", err)
 	}
 }
