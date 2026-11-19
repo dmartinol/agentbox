@@ -239,6 +239,124 @@ func validateRepoHosts(hosts []RepoHostRule) error {
 	return nil
 }
 
+// ValidateHostRule applies the manifest's exactness rules to one runtime host
+// rule. Denials must not widen egress: hosts are exact, ports are valid, and a
+// binary is one exact path rather than a glob. Secret-like values are refused
+// here for every caller, including the live run-policy path.
+func ValidateHostRule(rule RepoHostRule) error {
+	if err := validateRepoHosts([]RepoHostRule{rule}); err != nil {
+		return err
+	}
+	if err := checkSecretValue(rule.Host, []string{"hosts", "host"}); err != nil {
+		return err
+	}
+	for i, binary := range rule.Binaries {
+		if strings.ContainsAny(binary, "*?[]") {
+			return fmt.Errorf("hosts[0].binaries[%d]: %q must be one exact binary path; wildcards are not allowed", i, binary)
+		}
+		if strings.HasSuffix(binary, "/") {
+			return fmt.Errorf("hosts[0].binaries[%d]: %q must name an executable, not a directory", i, binary)
+		}
+		if err := checkSecretValue(binary, []string{"hosts", "binaries", strconv.Itoa(i)}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AppendRepoHostRule adds one exact host rule to a repository manifest. It
+// preserves the existing YAML document (including comments) and is idempotent:
+// when the host and port already exist, only a missing binary is appended. The
+// result is re-parsed with the full manifest validator before it is returned.
+func AppendRepoHostRule(b []byte, rule RepoHostRule) ([]byte, error) {
+	if err := ValidateHostRule(rule); err != nil {
+		return nil, err
+	}
+	if _, err := ParseRepoConfig(b); err != nil {
+		return nil, err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return nil, fmt.Errorf("invalid YAML: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("manifest must be a YAML mapping")
+	}
+	root := doc.Content[0]
+	hosts := mappingValue(root, "hosts")
+	if hosts == nil {
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "hosts"},
+			&yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"},
+		)
+		hosts = root.Content[len(root.Content)-1]
+	}
+	if hosts.Kind != yaml.SequenceNode {
+		return nil, fmt.Errorf("hosts: must be a list of host rules")
+	}
+	binary := rule.Binaries[0]
+	for _, entry := range hosts.Content {
+		host := mappingValue(entry, "host")
+		port := mappingValue(entry, "port")
+		if host == nil || port == nil {
+			continue
+		}
+		entryPort, err := strconv.Atoi(port.Value)
+		if err != nil || !strings.EqualFold(host.Value, rule.Host) || entryPort != rule.Port {
+			continue
+		}
+		binaries := mappingValue(entry, "binaries")
+		if binaries == nil || binaries.Kind != yaml.SequenceNode {
+			return nil, fmt.Errorf("hosts: existing %s:%d rule has no binaries list", rule.Host, rule.Port)
+		}
+		for _, existing := range binaries.Content {
+			if existing.Value == binary {
+				return b, nil
+			}
+		}
+		binaries.Content = append(binaries.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: binary})
+		return marshalRepoConfig(&doc)
+	}
+	hosts.Content = append(hosts.Content, &yaml.Node{
+		Kind: yaml.MappingNode,
+		Tag:  "!!map",
+		Content: []*yaml.Node{
+			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "host"},
+			{Kind: yaml.ScalarNode, Tag: "!!str", Value: rule.Host},
+			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "port"},
+			{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(rule.Port)},
+			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "binaries"},
+			{Kind: yaml.SequenceNode, Tag: "!!seq", Content: []*yaml.Node{
+				{Kind: yaml.ScalarNode, Tag: "!!str", Value: binary},
+			}},
+		},
+	})
+	return marshalRepoConfig(&doc)
+}
+
+func mappingValue(node *yaml.Node, key string) *yaml.Node {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func marshalRepoConfig(doc *yaml.Node) ([]byte, error) {
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := ParseRepoConfig(out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // validateRepoBinaryPath checks one sandbox binary path. Absolute paths are
 // required; OpenShell-style trailing "**" globs are allowed.
 func validateRepoBinaryPath(field, path string) error {

@@ -40,5 +40,11 @@ func (e *NotFoundError) Error() string {
 type NoLiveSandboxError struct{}
 
 func (e *NoLiveSandboxError) Error() string {
-	return "Allow host is available only for Ready, Working, and Waiting agents."
+	return "Add host is available only for Ready, Working, and Waiting agents."
 }
+
+// ValidationError reports a user-correctable request problem. It maps to HTTP
+// 400 so the GUI can show the message without treating it as a server fault.
+type ValidationError struct{ Message string }
+
+func (e *ValidationError) Error() string { return e.Message }

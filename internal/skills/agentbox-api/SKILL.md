@@ -85,34 +85,33 @@ curl -fsS -X POST "$BASE/api/runs/RUN_ID/shells/SHELL_NAME/delete"
 
 ## Fix a blocked host
 
-The Fleet **Allow host** action and the CLI share this one-step run-scoped path.
-Send only the host; the run supplies the agent, binary, and policy:
+The Fleet **Add host** action and the CLI share the exact-denial path. The
+request carries the host, port, and binary from the surfaced denial; there is
+no free-form host input.
 
 ```sh
-curl -fsS -X POST "$BASE/api/runs/RUN_ID/policy/host" \
+curl -fsS -X POST "$BASE/api/runs/RUN_ID/policy/denial/preview" \
   -H 'Content-Type: application/json' \
-  -d '{"host": "api.example.com"}'
+  -d '{"host":"api.example.com","port":443,"binary":"/usr/bin/curl","persist":false}'
+
+curl -fsS -X POST "$BASE/api/runs/RUN_ID/policy/denial" \
+  -H 'Content-Type: application/json' \
+  -d '{"host":"api.example.com","port":443,"binary":"/usr/bin/curl","persist":true}'
 ```
 
-The response carries the computed diff and the outcome:
+The preview writes nothing and returns the manifest entry, run-policy diff,
+persist availability, and (with `persist: true`) the manifest and fragment
+diffs. Applying patches the live run policy; with `persist: true` it also
+appends the same rule to `.agentbox/config.yaml` and regenerates the fragment
+without building an image or committing.
 
 | Status | Body | Meaning |
 | --- | --- | --- |
-| `200` | `{"outcome":"live-applied","diff":"...","policyPath":"..."}` | Network rule applied to the live sandbox. |
-| `202` | `{"outcome":"static-pending","diff":"...","policyPath":"..."}` | Change saved for the next sandbox. |
-| `409` | `{"outcome":"no-live-sandbox","error":"..."}` | Run is not Ready, Working, or Waiting; nothing changed. |
-| `500` | `{"outcome":"openshell-rejected","error":"...","diff":"...","rolledBack":true}` | OpenShell rejected the update and the local policy was restored. `rolledBack` is `false` when restore also failed. |
+| `200` | `{"outcome":"live-applied","policyPath":"...","runtimeHost":{...},"persisted":false}` | Network rule applied to the live sandbox. |
+| `400` | `{"error":"..."}` | Tuple is not a current denial, or the rule would use a wildcard, directory, invalid port, or secret-like value. |
+| `409` | `{"error":"..."}` | Run is not Ready, Working, or Waiting; nothing changed. |
+| `500` | `{"outcome":"openshell-rejected","error":"...","policyDiff":"...","rolledBack":true}` | OpenShell rejected the update and the local policy was restored. `rolledBack` is `false` when restore also failed. |
 
-`policyPath` names the run-scoped file that received the rule: the run policy
-for `live-applied` or the `*-pending.yaml` copy for `static-pending`. `GET
-/api/policies` lists reusable templates only; run copies are separate. Read the
-run copy with `GET /api/runs/RUN_ID/policy/content` (`{"path":"...","content":"..."}`)
-and the effective policy with `GET /api/runs/RUN_ID/policy`.
-
-Rules are binary-scoped: the rule names the agent launcher derived by
-`GET /api/runs/RUN_ID` (`agent_binary`) plus `node`, `git`, git's HTTPS helper,
-`curl`, and `git-lfs`. Never weaken hard isolation or bypass the
-sandbox to make a command run.
 
 ## Configuration endpoints
 

@@ -36,6 +36,8 @@ type guiRunner struct {
 	probes          map[string]string
 	search          string
 	logs            string
+	denials         string
+	denialErr       error
 	policySet       func() error
 }
 
@@ -110,6 +112,11 @@ func (r guiRunner) Output(_ context.Context, name string, args ...string) ([]byt
 			return nil, r.policySet()
 		}
 		return nil, nil
+	case name == "openshell" && len(args) > 0 && args[0] == "logs":
+		if r.denialErr != nil {
+			return nil, r.denialErr
+		}
+		return []byte(r.denials), nil
 	default:
 		return []byte(`{}`), nil
 	}
@@ -914,7 +921,10 @@ func TestRunEndpointsIncludeSyncState(t *testing.T) {
 	}
 }
 
-func postRunHost(t *testing.T, url, body string) (*http.Response, []byte) {
+const guiDenialLog = `[1795092202.467] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED /usr/bin/curl(0) -> example.com:443 [reason:transparent_tcp_policy_denied]
+`
+
+func postRunDenial(t *testing.T, url, body string) (*http.Response, []byte) {
 	t.Helper()
 	response, err := http.Post(url, "application/json", strings.NewReader(body))
 	if err != nil {
@@ -928,88 +938,56 @@ func postRunHost(t *testing.T, url, body string) (*http.Response, []byte) {
 	return response, content
 }
 
-func TestWriteRunHostResultMapsExactSuccessBodies(t *testing.T) {
-	recorder := httptest.NewRecorder()
-	writeRunHostResult(recorder, app.PolicyEditResult{Outcome: app.PolicyEditLiveApplied, Diff: "computed diff"}, nil)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("live status = %d", recorder.Code)
-	}
-	if got, want := recorder.Body.String(), "{\"outcome\":\"live-applied\",\"diff\":\"computed diff\"}\n"; got != want {
-		t.Fatalf("live body = %q; want %q", got, want)
-	}
-
-	recorder = httptest.NewRecorder()
-	writeRunHostResult(recorder, app.PolicyEditResult{Outcome: app.PolicyEditStaticPending, Diff: "computed diff"}, nil)
-	if recorder.Code != http.StatusAccepted {
-		t.Fatalf("static status = %d", recorder.Code)
-	}
-	if got, want := recorder.Body.String(), "{\"outcome\":\"static-pending\",\"diff\":\"computed diff\"}\n"; got != want {
-		t.Fatalf("static body = %q; want %q", got, want)
-	}
-}
-
-func TestRunHostEndpointAppliesLivePolicy(t *testing.T) {
-	server, store := newTestServerAndStore(t, testRunner())
-	run, err := store.LoadRun("run-active")
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, body := postRunHost(t, server.URL+"/api/runs/run-active/policy/host", `{"host":"api.example.com"}`)
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d body = %s", response.StatusCode, body)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if len(payload) != 3 || payload["outcome"] != "live-applied" || payload["policyPath"] != run.Policy {
-		t.Fatalf("body = %s", body)
-	}
-	diff, _ := payload["diff"].(string)
-	if !strings.Contains(diff, "host-api-example-com") {
-		t.Fatalf("diff = %q", diff)
-	}
-}
-
-func TestRunPolicyContentEndpointReturnsTheRunCopy(t *testing.T) {
-	server, store := newTestServerAndStore(t, testRunner())
-	run, err := store.LoadRun("run-active")
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, err := http.Get(server.URL + "/api/runs/run-active/policy/content")
+func TestRunLogsIncludesStructuredDenials(t *testing.T) {
+	runner := testRunner()
+	runner.denials = guiDenialLog
+	server := newTestServerWithRunner(t, runner)
+	response, err := http.Get(server.URL + "/api/runs/run-active/logs")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", response.StatusCode)
+	var payload struct {
+		Logs    string `json:"logs"`
+		Denials []struct {
+			Host   string `json:"host"`
+			Port   int    `json:"port"`
+			Binary string `json:"binary"`
+			Valid  bool   `json:"valid"`
+		} `json:"denials"`
 	}
-	var payload map[string]string
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload["path"] != run.Policy {
-		t.Fatalf("path = %q; want %q", payload["path"], run.Policy)
+	if payload.Logs != "agent log output\n" || len(payload.Denials) != 1 {
+		t.Fatalf("payload = %+v", payload)
 	}
-	if !strings.Contains(payload["content"], "network_policies") {
-		t.Fatalf("content = %q", payload["content"])
+	if payload.Denials[0].Host != "example.com" || payload.Denials[0].Port != 443 || payload.Denials[0].Binary != "/usr/bin/curl" || !payload.Denials[0].Valid {
+		t.Fatalf("denial = %+v", payload.Denials[0])
 	}
 }
 
-func TestRunHostEndpointRejectsBlankHostWithoutEditorOrMutation(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "editor-invoked")
-	editor := filepath.Join(t.TempDir(), "editor.sh")
-	if err := os.WriteFile(editor, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0700); err != nil {
+func TestRunLogsReportsDenialReadFailureWithoutLosingLogs(t *testing.T) {
+	runner := testRunner()
+	runner.denialErr = errors.New("gateway unavailable")
+	server := newTestServerWithRunner(t, runner)
+	response, err := http.Get(server.URL + "/api/runs/run-active/logs")
+	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("EDITOR", editor)
-	calls := 0
-	runner := testRunner()
-	runner.policySet = func() error {
-		calls++
-		return nil
+	defer response.Body.Close()
+	var payload map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
 	}
+	if payload["logs"] != "agent log output\n" || !strings.Contains(payload["denialsError"].(string), "sandbox policy log unavailable") {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestRunDenialPreviewReturnsScopedDiffWithoutWriting(t *testing.T) {
+	runner := testRunner()
+	runner.denials = guiDenialLog
 	server, store := newTestServerAndStore(t, runner)
 	run, err := store.LoadRun("run-active")
 	if err != nil {
@@ -1019,66 +997,78 @@ func TestRunHostEndpointRejectsBlankHostWithoutEditorOrMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, body := range []string{`{"host":""}`, `{"host":"   "}`, `{}`} {
-		response, content := postRunHost(t, server.URL+"/api/runs/run-active/policy/host", body)
-		if response.StatusCode != http.StatusBadRequest {
-			t.Fatalf("body %s: status = %d response = %s", body, response.StatusCode, content)
-		}
-		var payload map[string]string
-		if err := json.Unmarshal(content, &payload); err != nil {
-			t.Fatal(err)
-		}
-		if payload["error"] != "Host is required." {
-			t.Fatalf("body %s: error = %q", body, payload["error"])
-		}
-	}
-	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("policy editor was invoked (marker stat err = %v)", err)
-	}
-	after, err := os.ReadFile(run.Policy)
-	if err != nil || !bytes.Equal(before, after) {
-		t.Fatalf("policy mutated: %v", err)
-	}
-	if calls != 0 {
-		t.Fatalf("policy set calls = %d", calls)
-	}
-}
-
-func TestRunHostEndpointRejectsTerminalRunWithoutMutation(t *testing.T) {
-	calls := 0
-	runner := testRunner()
-	runner.policySet = func() error {
-		calls++
-		return nil
-	}
-	server, store := newTestServerAndStore(t, runner)
-	run, err := store.LoadRun("run-finished")
-	if err != nil {
-		t.Fatal(err)
-	}
-	before, err := os.ReadFile(run.Policy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, body := postRunHost(t, server.URL+"/api/runs/run-finished/policy/host", `{"host":"api.example.com"}`)
-	if response.StatusCode != http.StatusConflict {
+	response, body := postRunDenial(t, server.URL+"/api/runs/run-active/policy/denial/preview", `{"host":"example.com","port":443,"binary":"/usr/bin/curl"}`)
+	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d body = %s", response.StatusCode, body)
 	}
-	want := "{\"outcome\":\"no-live-sandbox\",\"error\":\"Allow host is available only for Ready, Working, and Waiting agents.\"}\n"
-	if string(body) != want {
-		t.Fatalf("body = %q; want %q", body, want)
+	var payload struct {
+		Entry      app.RepoHostRule `json:"entry"`
+		PolicyDiff string           `json:"policyDiff"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Entry.Host != "example.com" || payload.Entry.Port != 443 || !strings.Contains(payload.PolicyDiff, "host-example-com-443") {
+		t.Fatalf("payload = %s", body)
 	}
 	after, err := os.ReadFile(run.Policy)
 	if err != nil || !bytes.Equal(before, after) {
-		t.Fatalf("policy mutated: %v", err)
-	}
-	if calls != 0 {
-		t.Fatalf("policy set calls = %d", calls)
+		t.Fatalf("preview mutated the policy: %v", err)
 	}
 }
 
-func TestRunHostEndpointReportsOpenShellRejectionWithRollback(t *testing.T) {
+func TestRunDenialApplyPatchesLivePolicy(t *testing.T) {
 	runner := testRunner()
+	runner.denials = guiDenialLog
+	server, store := newTestServerAndStore(t, runner)
+	run, err := store.LoadRun("run-active")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, body := postRunDenial(t, server.URL+"/api/runs/run-active/policy/denial", `{"host":"example.com","port":443,"binary":"/usr/bin/curl"}`)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d body = %s", response.StatusCode, body)
+	}
+	var payload app.DenialApplyResult
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Outcome != app.PolicyEditLiveApplied || payload.RuntimeHost.Binary != "/usr/bin/curl" || payload.Persisted {
+		t.Fatalf("payload = %s", body)
+	}
+	stored, err := store.LoadRun(run.ID)
+	if err != nil || len(stored.RuntimeHosts) != 1 {
+		t.Fatalf("runtime hosts = %+v, %v", stored.RuntimeHosts, err)
+	}
+}
+
+func TestRunDenialRejectsTerminalRunAndUnknownEntry(t *testing.T) {
+	runner := testRunner()
+	runner.denials = guiDenialLog
+	server := newTestServerWithRunner(t, runner)
+	response, body := postRunDenial(t, server.URL+"/api/runs/run-finished/policy/denial", `{"host":"example.com","port":443,"binary":"/usr/bin/curl"}`)
+	if response.StatusCode != http.StatusConflict || !strings.Contains(string(body), "Add host is available only") {
+		t.Fatalf("terminal status = %d body = %s", response.StatusCode, body)
+	}
+	response, body = postRunDenial(t, server.URL+"/api/runs/run-active/policy/denial", `{"host":"other.example.com","port":443,"binary":"/usr/bin/curl"}`)
+	if response.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), "No active denial") {
+		t.Fatalf("unknown status = %d body = %s", response.StatusCode, body)
+	}
+}
+
+func TestRunDenialRejectsWildcardsWithActionableError(t *testing.T) {
+	runner := testRunner()
+	runner.denials = guiDenialLog
+	server := newTestServerWithRunner(t, runner)
+	response, body := postRunDenial(t, server.URL+"/api/runs/run-active/policy/denial", `{"host":"*.example.com","port":443,"binary":"/usr/bin/curl"}`)
+	if response.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), "must be an exact hostname") {
+		t.Fatalf("status = %d body = %s", response.StatusCode, body)
+	}
+}
+
+func TestRunDenialReportsOpenShellRejectionWithRollback(t *testing.T) {
+	runner := testRunner()
+	runner.denials = guiDenialLog
 	runner.policySet = func() error { return errors.New("policy rejected") }
 	server, store := newTestServerAndStore(t, runner)
 	run, err := store.LoadRun("run-active")
@@ -1089,66 +1079,25 @@ func TestRunHostEndpointReportsOpenShellRejectionWithRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, body := postRunHost(t, server.URL+"/api/runs/run-active/policy/host", `{"host":"api.example.com"}`)
+	response, body := postRunDenial(t, server.URL+"/api/runs/run-active/policy/denial", `{"host":"example.com","port":443,"binary":"/usr/bin/curl"}`)
 	if response.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status = %d body = %s", response.StatusCode, body)
 	}
 	var payload struct {
 		Outcome    string `json:"outcome"`
 		Error      string `json:"error"`
-		Diff       string `json:"diff"`
+		PolicyDiff string `json:"policyDiff"`
 		RolledBack *bool  `json:"rolledBack"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.Outcome != "openshell-rejected" || payload.RolledBack == nil || !*payload.RolledBack {
-		t.Fatalf("body = %s", body)
-	}
-	wantErr := "OpenShell rejected the policy update; the local policy was restored: policy rejected"
-	if payload.Error != wantErr || !strings.Contains(payload.Diff, "host-api-example-com") {
+	if payload.Outcome != "openshell-rejected" || payload.RolledBack == nil || !*payload.RolledBack || !strings.Contains(payload.PolicyDiff, "host-example-com-443") {
 		t.Fatalf("payload = %+v", payload)
 	}
 	after, err := os.ReadFile(run.Policy)
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatalf("rollback did not restore policy: %v", err)
-	}
-}
-
-func TestRunHostEndpointReportsRollbackFailure(t *testing.T) {
-	var policyPath string
-	runner := testRunner()
-	runner.policySet = func() error {
-		if err := os.Remove(policyPath); err != nil {
-			return err
-		}
-		if err := os.Mkdir(policyPath, 0700); err != nil {
-			return err
-		}
-		return errors.New("policy rejected")
-	}
-	server, store := newTestServerAndStore(t, runner)
-	run, err := store.LoadRun("run-active")
-	if err != nil {
-		t.Fatal(err)
-	}
-	policyPath = run.Policy
-	response, body := postRunHost(t, server.URL+"/api/runs/run-active/policy/host", `{"host":"api.example.com"}`)
-	if response.StatusCode != http.StatusInternalServerError {
-		t.Fatalf("status = %d body = %s", response.StatusCode, body)
-	}
-	var payload struct {
-		Error      string `json:"error"`
-		RolledBack *bool  `json:"rolledBack"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload.RolledBack == nil || *payload.RolledBack {
-		t.Fatalf("rolledBack = %v", payload.RolledBack)
-	}
-	if !strings.Contains(payload.Error, "local policy rollback failed: policy rejected") {
-		t.Fatalf("error = %q", payload.Error)
 	}
 }
 
@@ -1159,24 +1108,6 @@ func TestInvalidPolicyContentIsRejected(t *testing.T) {
 	response := requestJSON(t, http.MethodPost, server.URL+"/api/policies/bad", map[string]string{"content": "version: 2"}, nil)
 	if response.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status = %d", response.StatusCode)
-	}
-}
-
-func TestPolicyHostEndpointAddsNetworkRule(t *testing.T) {
-	server := newTestServer(t)
-	var policy app.PolicyConfiguration
-	response := requestJSON(t, http.MethodPost, server.URL+"/api/policies/default/host", map[string]string{
-		"agent": "codex", "host": "example.com",
-	}, &policy)
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", response.StatusCode)
-	}
-	content, err := os.ReadFile(policy.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(content), "example.com") {
-		t.Fatalf("updated policy = %s", content)
 	}
 }
 

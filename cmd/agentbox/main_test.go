@@ -973,12 +973,12 @@ func policyCLIFixture(t *testing.T) (*app.App, string) {
 
 func TestPolicyEditCLIPrintsNetworkPreviewDiff(t *testing.T) {
 	a, runID := policyCLIFixture(t)
-	preview, err := a.PolicyEdit(context.Background(), runID, "api.example.test", "", true)
+	preview, err := a.PolicyEdit(context.Background(), runID, "api.example.test", 443, "/usr/bin/curl", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	output, err := captureStdout(t, func() error {
-		return dispatch(context.Background(), a, []string{"policy", "edit", "--allow-host", "api.example.test", "--dry-run", runID})
+		return dispatch(context.Background(), a, []string{"policy", "edit", "--allow-host", "api.example.test", "--binary", "/usr/bin/curl", "--dry-run", runID})
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -997,7 +997,7 @@ func TestPolicyEditCLIPrintsStaticPreviewDiff(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("EDITOR", editor)
-	preview, err := a.PolicyEdit(context.Background(), runID, "", "", true)
+	preview, err := a.PolicyEdit(context.Background(), runID, "", 0, "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1016,13 +1016,13 @@ func TestPolicyEditCLIPrintsStaticPreviewDiff(t *testing.T) {
 func TestPolicyEditCLIPrintsDiffBeforeOpenShellError(t *testing.T) {
 	a, runID := policyCLIFixture(t)
 	a.Runner = policyCLIRunner{reject: true}
-	preview, err := a.PolicyEdit(context.Background(), runID, "api.example.test", "", true)
+	preview, err := a.PolicyEdit(context.Background(), runID, "api.example.test", 443, "/usr/bin/curl", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	a.Runner = policyCLIRunner{reject: true}
 	output, err := captureStdout(t, func() error {
-		return dispatch(context.Background(), a, []string{"policy", "edit", "--allow-host", "api.example.test", runID})
+		return dispatch(context.Background(), a, []string{"policy", "edit", "--allow-host", "api.example.test", "--binary", "/usr/bin/curl", runID})
 	})
 	if err == nil || !strings.Contains(err.Error(), "the local policy was restored") {
 		t.Fatalf("error = %v", err)
