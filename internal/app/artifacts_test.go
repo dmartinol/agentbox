@@ -2,9 +2,74 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 )
+
+func TestParseLocalImagesResolvesRepositoryBase(t *testing.T) {
+	records := []map[string]any{
+		{
+			"Id":     "base",
+			"Names":  []string{"localhost/openshell:codex-1.2.3-r4"},
+			"Labels": map[string]string{"agentbox.agent": "codex", "agentbox.version": "1.2.3", "agentbox.recipe": "4"},
+		},
+		{
+			"Id":    "repo",
+			"Names": []string{"localhost/openshell:repo-example-codex-abcd1234"},
+			"Labels": map[string]string{
+				"agentbox.agent":           "codex",
+				"agentbox.version":         "1.2.3",
+				"agentbox.recipe":          "4",
+				"agentbox.worker":          "true",
+				"agentbox.repo":            "github.com/example/demo",
+				"agentbox.manifest-digest": "sha256:manifest",
+			},
+		},
+	}
+	data, err := json.Marshal(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	images, err := parseLocalImages(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(images) != 2 {
+		t.Fatalf("images = %#v", images)
+	}
+	var repo ImageArtifact
+	for _, image := range images {
+		if image.Worker {
+			repo = image
+		}
+	}
+	if repo.Reference != "localhost/openshell:repo-example-codex-abcd1234" {
+		t.Fatalf("repo image = %#v", repo)
+	}
+	if repo.BaseReference != "localhost/openshell:codex-1.2.3-r4" {
+		t.Fatalf("base reference = %q; want the matching local base", repo.BaseReference)
+	}
+	if repo.Repo != "github.com/example/demo" || repo.ManifestDigest != "sha256:manifest" {
+		t.Fatalf("repo provenance = %#v", repo)
+	}
+}
+
+func TestParseLocalImagesPrefersRecordedBaseLabel(t *testing.T) {
+	data := []byte(`[
+		{"Id":"base","Names":["localhost/openshell:codex-1.2.3-r4"],"Labels":{"agentbox.agent":"codex","agentbox.version":"1.2.3","agentbox.recipe":"4"}},
+		{"Id":"repo","Names":["localhost/openshell:repo-example-codex-abcd1234"],"Labels":{"agentbox.agent":"codex","agentbox.version":"1.2.3","agentbox.recipe":"4","agentbox.worker":"true","agentbox.base":"quay.io/team/openshell:codex-1.2.3-r4"}}
+	]`)
+	images, err := parseLocalImages(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, image := range images {
+		if image.Worker && image.BaseReference != "quay.io/team/openshell:codex-1.2.3-r4" {
+			t.Fatalf("recorded base label was not used: %#v", image)
+		}
+	}
+}
 
 func TestImageArtifactRemoteNaming(t *testing.T) {
 	img := ImageArtifact{Agent: "codex", Version: "0.167.0", Recipe: 3, OS: "linux", Arch: "arm64"}

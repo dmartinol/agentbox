@@ -17,11 +17,27 @@ import { AgentWorkspace } from '../components/AgentWorkspace';
 import { Disclosure } from '../components/ui/disclosure';
 import { ExpandableValue } from '../components/ui/copy-value';
 import { cn } from '../lib/utils';
-import { formatSyncTimestamp } from '../lib/text';
+import { compareVersions, formatSyncTimestamp, middleEllipsis } from '../lib/text';
 import { StatusBadge, SyncStateBadge, canAttachRun, isActiveRun, canStopRun, isWaitingRun, statusLabel, syncStateExplanation, syncStateLabel } from '../components/StatusBadge';
 import type { LogDrawerState } from '../components/LogDrawer';
 
 const allProjects = 'All projects';
+
+const autoImage = 'auto';
+const profileImage = 'profile';
+
+function imageSourceLabel(source?: string): string {
+  switch (source) {
+    case 'repo':
+      return 'Repository image';
+    case 'override':
+      return 'Run override';
+    case 'profile':
+      return 'Profile image';
+    default:
+      return 'Not recorded';
+  }
+}
 
 // Fleet stays live on its own: a run that is still starting must not sit on
 // Creating until someone reloads the page. Poll fast while something is
@@ -130,12 +146,45 @@ export function FleetView({
   }, [filtered]);
 
   const selectedProfile: Profile | undefined = overview?.profiles.find((profile) => profile.name === startForm.profile);
+  const selectedProject = overview?.projects.find((project) => project.name === startForm.project);
+  const repoImages = useMemo(() => {
+    const repo = selectedProject?.repo;
+    const agent = selectedProfile?.agent;
+    if (!repo || !agent) return [];
+    return (overview?.images ?? [])
+      .filter((image) => image.worker && image.repo === repo && image.agent === agent)
+      .sort((left, right) => compareVersions(right.version, left.version) || left.reference.localeCompare(right.reference));
+  }, [overview?.images, selectedProject?.repo, selectedProfile?.agent]);
+  const defaultImageSelection = repoImages.length ? autoImage : profileImage;
+  const imageUnavailableReason = !selectedProject
+    ? 'Select a project to choose an image.'
+    : !selectedProject.manifest
+      ? 'This project has no .agentbox/config.yaml, so runs keep the profile image.'
+      : repoImages.length === 0
+        ? `No repository image for ${selectedProfile?.agent || 'this agent'} in this project. Set up repository images first.`
+        : undefined;
+  const recordedImage = overrides.image && ![autoImage, profileImage].includes(overrides.image) && !repoImages.some((image) => image.reference === overrides.image)
+    ? overrides.image
+    : undefined;
+  const imageSelection = overrides.image === autoImage && repoImages.length === 0 ? profileImage : overrides.image || defaultImageSelection;
+  const imageHelper = recordedImage
+    ? 'Keeping the image recorded on the copied run.'
+    : imageUnavailableReason ?? (repoImages[0] ? `Defaults to the latest repository image: ${repoImages[0].reference}` : undefined);
   const canStart = Boolean(overview && startForm.project && startForm.gateway);
 
   useEffect(() => {
     if (!startOpen || approvalExplicit.current) return;
     setOverrides((current) => ({ ...current, approval: approvalForProfile(selectedProfile) }));
   }, [startOpen, selectedProfile?.approval]);
+
+  useEffect(() => {
+    if (!useOverrides) return;
+    setOverrides((current) => {
+      const values = new Set([autoImage, profileImage, ...repoImages.map((image) => image.reference)]);
+      if (current.image && (values.has(current.image) || current.image === copySource?.image)) return current;
+      return { ...current, image: defaultImageSelection };
+    });
+  }, [useOverrides, repoImages, defaultImageSelection, copySource?.image]);
 
   const openWorkspace = (agent: Run) => {
     setFocusedRunId(agent.id);
@@ -277,7 +326,7 @@ export function FleetView({
 
   const copyAgent = (run: Run) => {
     const profiles = overview?.profiles ?? [];
-    const profile = profiles.find((item) => item.image === run.image) ?? profiles.find((item) => item.agent === run.agent);
+    const profile = profiles.find((item) => item.name === run.profile) ?? profiles.find((item) => item.image === run.image) ?? profiles.find((item) => item.agent === run.agent);
     setStartError('');
     setCopySource(run);
     setStartForm({
@@ -308,9 +357,10 @@ export function FleetView({
     setNotice('');
     setStartSubmitting(true);
     try {
+      const overrideImage = useOverrides && overrides.image !== autoImage ? overrides.image : undefined;
       const created = await api.startRun({
         ...startForm,
-        ...(useOverrides ? overrides : {}),
+        ...(useOverrides ? { ...overrides, image: overrideImage } : {}),
         name: startForm.name?.trim() || undefined,
         prompt: startForm.prompt?.trim() || undefined,
         mcp: startForm.mcp?.trim() || undefined,
@@ -366,7 +416,14 @@ export function FleetView({
     }
     openLog({ title: `Policy · ${agent.name || agent.id}`, content: '', loading: true });
     try {
-      updateLog({ content: JSON.stringify(await api.policy(agent.id), null, 2), loading: false, error: undefined });
+      const policy = await api.runPolicyContent(agent.id);
+      const provenance = [
+        `Policy file: ${policy.path || agent.policy}`,
+        agent.policy_fragment
+          ? `Repository fragment: ${agent.policy_fragment}${agent.policy_fragment_digest ? ` (${agent.policy_fragment_digest})` : ''}`
+          : 'Repository fragment: none (profile policy)'
+      ].join('\n');
+      updateLog({ content: `${provenance}\n\n${policy.content}`, loading: false, error: undefined });
     } catch (err) {
       updateLog({ content: '', loading: false, error: (err as Error).message });
     }
@@ -603,9 +660,14 @@ export function FleetView({
                 {([
                   ['ID', selected.id, 18],
                   ['Agent type', selected.agent, 18],
+                  ...(selected.profile ? [['Profile', selected.profile, 18] as const] : []),
                   ['Branch', selected.branch, 18],
                   ['Sandbox', selected.sandbox, 18],
                   ['Image', selected.image, 18],
+                  ...(selected.image_source ? [['Image source', imageSourceLabel(selected.image_source), 24] as const] : []),
+                  ...(selected.base_image && selected.base_image !== selected.image ? [['Base image', selected.base_image, 18] as const] : []),
+                  ...(selected.image_repo ? [['Repository', selected.image_repo, 22] as const] : []),
+                  ...(selected.manifest_digest ? [['Manifest digest', selected.manifest_digest, 18] as const] : []),
                   ['Mode', selected.mode, 18],
                   ['Approval', approvalLabel(selected.approval), 18],
                   ['Worktree', selected.worktree, 18],
@@ -619,6 +681,14 @@ export function FleetView({
                   </div>
                 ))}
               </dl>
+
+              {selected.image_warnings?.length ? (
+                <Alert variant="warning" title="Image warnings">
+                  <ul className="list-disc space-y-1 pl-4">
+                    {selected.image_warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                  </ul>
+                </Alert>
+              ) : null}
 
               <section aria-label="Sync" className="space-y-1.5 rounded-lg border border-border p-2">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Sync</h3>
@@ -836,10 +906,22 @@ export function FleetView({
           </label>
           {useOverrides ? (
             <>
-              <Field label="Image" htmlFor="new-agent-image">
-                <Input id="new-agent-image" list="new-agent-images" value={overrides.image} onChange={(event) => setOverrides({ ...overrides, image: event.target.value })} />
+              <Field label="Image" htmlFor="new-agent-image" className="sm:col-span-2" helper={imageHelper}>
+                <Select
+                  id="new-agent-image"
+                  value={imageSelection}
+                  disabled={Boolean(imageUnavailableReason) && !recordedImage}
+                  onChange={(event) => setOverrides({ ...overrides, image: event.target.value })}
+                >
+                  {repoImages.map((image, index) => (
+                    <option key={image.reference} value={index === 0 ? autoImage : image.reference}>
+                      {index === 0 ? 'Latest project image' : 'Project image'} · {image.agent} {image.version} · {middleEllipsis(image.reference, 36)}
+                    </option>
+                  ))}
+                  {recordedImage ? <option value={recordedImage}>Recorded image · {middleEllipsis(recordedImage, 36)}</option> : null}
+                  <option value={profileImage}>Use profile image{selectedProfile ? ` · ${selectedProfile.agent} profile` : ''}</option>
+                </Select>
               </Field>
-              <datalist id="new-agent-images">{(overview?.images ?? []).map((image) => <option key={image.reference} value={image.reference} />)}</datalist>
               <Field label="Model" htmlFor="new-agent-model">
                 <Input id="new-agent-model" value={overrides.model} onChange={(event) => setOverrides({ ...overrides, model: event.target.value })} />
               </Field>

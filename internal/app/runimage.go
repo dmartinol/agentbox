@@ -84,12 +84,11 @@ func (a *App) ResolveRunImage(ctx context.Context, p Profile, root string) RunIm
 	digest := repoManifestDigest(manifestBytes)
 	image.ManifestDigest = digest
 
-	remote, err := a.gitOutput(ctx, root, "remote", "get-url", "origin")
+	repo, err := a.RepoIdentity(ctx, root)
 	if err != nil {
 		image.Warnings = append(image.Warnings, fmt.Sprintf("repository identity unavailable (%v); the run uses the profile image", err))
 		return image
 	}
-	repo := normalizeGitRemote(remote)
 	if repo == "" {
 		image.Warnings = append(image.Warnings, "repository origin remote could not be normalized; the run uses the profile image")
 		return image
@@ -128,6 +127,16 @@ func (a *App) ResolveRunImage(ctx context.Context, p Profile, root string) RunIm
 		image.Warnings = append(image.Warnings, fmt.Sprintf("repository image %s is built on %s while the newest local base is %s; run `agentbox repo setup` to rebuild", found.Reference, base.Reference, newestBase.Reference))
 	}
 	return image
+}
+
+// RepoIdentity normalizes a checkout's origin remote. It is the key that
+// matches a project to its repository images and policy fragment.
+func (a *App) RepoIdentity(ctx context.Context, root string) (string, error) {
+	remote, err := a.gitOutput(ctx, root, "remote", "get-url", "origin")
+	if err != nil {
+		return "", err
+	}
+	return normalizeGitRemote(remote), nil
 }
 
 // repoImageForAgent finds the repository image whose content matches cfg on

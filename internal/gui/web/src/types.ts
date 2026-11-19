@@ -29,7 +29,13 @@ export interface Run {
   agent: string;
   agent_binary?: string;
   image: string;
+  base_image?: string;
+  image_source?: string;
+  image_repo?: string;
+  manifest_digest?: string;
   image_warnings?: string[];
+  policy_fragment?: string;
+  policy_fragment_digest?: string;
   mode: string;
   model: string;
   approval: string;
@@ -52,6 +58,7 @@ export interface Project {
   worktree?: boolean;
   used_by?: string[];
   manifest?: boolean;
+  repo?: string;
 }
 
 export interface Profile {
@@ -79,6 +86,10 @@ export interface ImageArtifact {
   os?: string;
   arch?: string;
   digest?: string;
+  worker?: boolean;
+  repo?: string;
+  manifest_digest?: string;
+  base_reference?: string;
   used_by?: string[];
 }
 

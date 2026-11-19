@@ -40,10 +40,10 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 | Fleet toolbar | Search, project filter, Needs You count, refresh, New agent | — | Wrapping rows; search and filter span the width |
 | Project group | Project name, counts, Workspace entry | Agent rows | Wrapping header badges and actions |
 | Agent row | Name, type, operational status, derived sync state, branch, primary action | Details button opens the detail panel | Name plus type/status/sync on one line; sync state keeps its text and glyph; actions beneath; branch in the detail panel |
-| Agent detail panel | Identity, operational status, project | Sync state with last-sync time and explanation; Open, Manage, and destructive action groups; expandable metadata | Bottom sheet with close control; same grouped actions |
+| Agent detail panel | Identity, operational status, project | Sync state with last-sync time and explanation; image source, base image, repository, manifest digest, and drift warnings; Open, Manage, and destructive action groups; expandable metadata | Bottom sheet with close control; same grouped actions |
 | Workspace | Project, agent tabs, shell tabs | Terminal or cached log tail | Horizontally scrollable tabs; terminal fills the surface |
-| New agent | Project, profile, gateway, name, MCP, skills, prompt | Resolved image/model/provider/approval disclosure; optional overrides | Single-column form; actions wrap |
-| Logs / diff / policy drawer | Title and task status | Full output with copy action | Full-width drawer; text wraps and scrolls |
+| New agent | Project, profile, gateway, name, MCP, skills, prompt | Resolved image/model/provider/approval disclosure; image select defaults to the project's latest repository image with a profile-image opt-out; optional overrides | Single-column form; the image select spans the row and actions wrap |
+| Logs / diff / policy drawer | Title and task status | Full output with copy action; run policy shows its file and repository fragment provenance | Full-width drawer; text wraps and scrolls |
 
 ## Setup tabs
 
@@ -52,7 +52,7 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 | Providers | Name, type, credential-env name, usage count | Full credential names, full usage lists, edit/delete | Compact card: identity plus inline metadata; actions beneath |
 | Profiles | Name, agent, mode, model, provider | Expandable model, edit/delete | Compact card: identity plus inline metadata; actions beneath |
 | Projects | Name, isolation | Expandable Git root, edit/delete | Compact card: identity plus inline metadata; actions beneath |
-| Images | Reference, agent, version, recipe, platform | Expandable reference, delete; registry matches; repository setup (project, agents, validation plan, streamed build) | Compact card: identity plus inline metadata; actions beneath; setup form wraps with its actions |
+| Images | Kind badge (`FOUNDATIONAL` or `PROJECT <name>`), reference, agent, version, recipe, platform | Expandable reference, repository provenance disclosure (manifest digest, base image), delete; registry matches; repository setup (project, agents, validation plan, streamed build) | Compact card: identity plus inline metadata; actions beneath; provenance disclosure and setup form wrap with their actions |
 | Gateways | Name, status, type | Expandable endpoint, inspect payload, remove | Compact card; toolbar wraps |
 | Policies | Name, usage count | Expandable path, add host, apply, edit, delete; run-policy copies | Compact card: identity plus inline metadata; actions beneath |
 | MCP Tools | Name, agent, server names | Expandable server list, edit/delete | Compact card; explanatory panel below |

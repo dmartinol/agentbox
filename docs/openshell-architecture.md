@@ -332,9 +332,11 @@ manifest into the two reusable artifacts runs consume:
    `verify` command as the sandbox user — a broken toolchain fails the
    build, not the run. Base labels are inherited, and the build also sets
    `agentbox.worker=true`, `agentbox.repo=<normalized origin remote>`,
-   `agentbox.manifest-digest`, and explicit `agentbox.agent`,
-   `agentbox.version`, and `agentbox.recipe` labels so repository images
-   never depend on label inheritance.
+   `agentbox.manifest-digest`, `agentbox.base=<base reference>`, and
+   explicit `agentbox.agent`, `agentbox.version`, and `agentbox.recipe`
+   labels so repository images never depend on label inheritance. Images
+   built before the base label existed derive the same value from their
+   agent, version, and recipe labels.
 2. **A policy fragment** at `$AGENTBOX_HOME/policies/repo-<repo>.yaml`,
    shared by every checkout of the repository: the `DefaultPolicy` baseline
    (filesystem, process, hard Landlock requirement) with each `hosts` entry
@@ -388,6 +390,16 @@ available warns and still runs.
 Resolution reads the manifest from the selected project checkout. An isolated
 run worktree carries committed and tracked changes only, so an untracked
 manifest informs resolution but is not present inside the sandbox.
+
+The GUI reads the same record. **Setup → Images** derives its
+`FOUNDATIONAL`/`PROJECT <name>` badges from the worker and repository labels
+and exposes the manifest digest and base reference. **New agent** matches
+repository images by the project's normalized origin remote and the selected
+profile's agent; its latest-image default sends no explicit image override so
+run start still records `image_source: repo`, while **Use profile image**
+sends the forced-profile opt-out. Run details render the recorded source,
+base, repository, manifest digest, and warnings, and **View policy** shows the
+run policy file with its repository-fragment path and digest.
 
 ## Policy layer
 
