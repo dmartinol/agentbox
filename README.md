@@ -1,5 +1,8 @@
 # AgentBox
 
+[![CI](https://github.com/dmartinol/agentbox/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dmartinol/agentbox/actions/workflows/ci.yml)
+[![Latest stable release](https://img.shields.io/github/v/release/dmartinol/agentbox?label=latest%20stable%20release)](https://github.com/dmartinol/agentbox/releases/latest)
+
 **Sandboxed agentic development for your Git repositories.**
 
 AgentBox lets coding agents work on your project inside local OpenShell
