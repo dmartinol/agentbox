@@ -59,7 +59,7 @@ effective policy with `hard_requirement` Landlock compatibility and
 
 ```sh
 agentbox profile create --agent codex \
-  --image localhost/openshell:codex-0.167.0-r4 codex
+  --image localhost/openshell:codex-0.167.0-r5 codex
 ```
 
 ## edit

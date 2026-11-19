@@ -613,7 +613,7 @@ func imageBuildUsage(f *flag.FlagSet) {
 	fmt.Fprintln(f.Output(), "Build a revisioned AgentBox image for one agent.")
 	fmt.Fprintln(f.Output(), "Usage: agentbox image build [--version EXACT] [--dry-run] <claude|codex|opencode>")
 	fmt.Fprintln(f.Output(), "If --version is omitted, the latest official release is proposed and used.")
-	fmt.Fprintln(f.Output(), "The base image is pinned to a digest and the build is tagged as localhost/openshell:<agent>-<version>-r4.")
+	fmt.Fprintf(f.Output(), "The base image is pinned to a digest and the build is tagged as localhost/openshell:<agent>-<version>-r%s.\n", app.CurrentImageRecipe())
 	fmt.Fprintln(f.Output())
 	fmt.Fprintln(f.Output(), "Flags:")
 	f.PrintDefaults()

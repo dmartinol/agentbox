@@ -141,11 +141,11 @@ func TestRepoSetupSummaryReportsReferences(t *testing.T) {
 	}
 	applied := dry
 	applied.Dry = false
-	applied.Images = []RepoImageRecord{{Agent: "codex", Base: "localhost/openshell:codex-0.167.0-r4", Tag: "localhost/openshell:repo-github-com-owner-repo-codex-1a2b3c4d", Built: true}}
+	applied.Images = []RepoImageRecord{{Agent: "codex", Base: "localhost/openshell:codex-0.167.0-r5", Tag: "localhost/openshell:repo-github-com-owner-repo-codex-1a2b3c4d", Built: true}}
 	summary = applied.Summary()
 	for _, want := range []string{
 		"codex image: localhost/openshell:repo-github-com-owner-repo-codex-1a2b3c4d (built)",
-		"  base:   localhost/openshell:codex-0.167.0-r4",
+		"  base:   localhost/openshell:codex-0.167.0-r5",
 		"fragment:  " + applied.FragmentPath,
 	} {
 		if !strings.Contains(summary, want) {
@@ -207,8 +207,8 @@ func TestRepoSetupDryRunValidatesWithoutSideEffects(t *testing.T) {
 func TestRepoSetupBuildsContentAddressedImagePerAgent(t *testing.T) {
 	env := newRepoSetupEnv(t, repoSetupManifest)
 	env.imagesJSON = podmanImagesJSON(t,
-		imageRecord([]string{"localhost/openshell:codex-0.166.0-r4"}, baseImageLabels("codex", "0.166.0")),
-		imageRecord([]string{"localhost/openshell:codex-0.167.0-r4"}, baseImageLabels("codex", "0.167.0")),
+		imageRecord([]string{"localhost/openshell:codex-0.166.0-r5"}, baseImageLabels("codex", "0.166.0")),
+		imageRecord([]string{"localhost/openshell:codex-0.167.0-r5"}, baseImageLabels("codex", "0.167.0")),
 		imageRecord([]string{"localhost/openshell:repo-github-com-owner-repo-codex-ffffffff"}, func() map[string]string {
 			labels := baseImageLabels("codex", "9.9.9")
 			labels["agentbox.worker"] = "true"
@@ -237,7 +237,7 @@ func TestRepoSetupBuildsContentAddressedImagePerAgent(t *testing.T) {
 		t.Fatalf("images = %#v", result.Images)
 	}
 	image := result.Images[0]
-	if image.Agent != "codex" || image.Base != "localhost/openshell:codex-0.167.0-r4" {
+	if image.Agent != "codex" || image.Base != "localhost/openshell:codex-0.167.0-r5" {
 		t.Fatalf("unexpected image record: %+v", image)
 	}
 	if image.Tag != "localhost/openshell:repo-github-com-owner-repo-codex-"+repoSetupHash(t, image.Base) {
@@ -251,7 +251,7 @@ func TestRepoSetupBuildsContentAddressedImagePerAgent(t *testing.T) {
 	}
 	dockerfile := dockerfiles[0]
 	for _, want := range []string{
-		"FROM localhost/openshell:codex-0.167.0-r4\n",
+		"FROM localhost/openshell:codex-0.167.0-r5\n",
 		"USER root\n",
 		"RUN apt-get update && apt-get install -y --no-install-recommends make gcc && rm -rf /var/lib/apt/lists/*\n",
 		"ENV PATH=/usr/local/go/bin:$PATH\n",
@@ -318,7 +318,7 @@ func TestRepoSetupRerunSkipsExistingImageAndKeepsFragmentStable(t *testing.T) {
 	env := newRepoSetupEnv(t, repoSetupManifest)
 	app := App{Store: env.store, Runner: env.runner}
 	env.imagesJSON = podmanImagesJSON(t,
-		imageRecord([]string{"localhost/openshell:codex-0.167.0-r4"}, baseImageLabels("codex", "0.167.0")),
+		imageRecord([]string{"localhost/openshell:codex-0.167.0-r5"}, baseImageLabels("codex", "0.167.0")),
 	)
 	first, err := app.RepoSetup(context.Background(), RepoSetupOptions{Agents: []string{"codex"}})
 	if err != nil {
@@ -333,7 +333,7 @@ func TestRepoSetupRerunSkipsExistingImageAndKeepsFragmentStable(t *testing.T) {
 	}
 	// Second run: the content-addressed tag now exists locally.
 	env.imagesJSON = podmanImagesJSON(t,
-		imageRecord([]string{"localhost/openshell:codex-0.167.0-r4"}, baseImageLabels("codex", "0.167.0")),
+		imageRecord([]string{"localhost/openshell:codex-0.167.0-r5"}, baseImageLabels("codex", "0.167.0")),
 		imageRecord([]string{first.Images[0].Tag}, func() map[string]string {
 			labels := baseImageLabels("codex", "0.167.0")
 			labels["agentbox.worker"] = "true"
@@ -364,7 +364,7 @@ func TestRepoSetupRerunSkipsExistingImageAndKeepsFragmentStable(t *testing.T) {
 }
 
 func TestRepoSetupHashCoversImageSectionsOnly(t *testing.T) {
-	base := "localhost/openshell:codex-0.167.0-r4"
+	base := "localhost/openshell:codex-0.167.0-r5"
 	cfg, err := ParseRepoConfig([]byte(repoSetupManifest))
 	if err != nil {
 		t.Fatal(err)
@@ -396,7 +396,7 @@ func TestRepoSetupHashCoversImageSectionsOnly(t *testing.T) {
 	if changed, err := repoImageHash(base, verifyChanged); err != nil || changed == hash {
 		t.Fatal("verify change kept the image tag")
 	}
-	if changed, err := repoImageHash("localhost/openshell:codex-0.168.0-r4", cfg); err != nil || changed == hash {
+	if changed, err := repoImageHash("localhost/openshell:codex-0.168.0-r5", cfg); err != nil || changed == hash {
 		t.Fatal("base change kept the image tag")
 	}
 }
@@ -501,7 +501,7 @@ func TestRepoSetupActionableErrors(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(env.root, ".agentbox", "config.yaml"), []byte(repoSetupManifest), 0600); err != nil {
 		t.Fatal(err)
 	}
-	env.imagesJSON = podmanImagesJSON(t, imageRecord([]string{"localhost/openshell:claude-2.1.0-r4"}, baseImageLabels("claude", "2.1.0")))
+	env.imagesJSON = podmanImagesJSON(t, imageRecord([]string{"localhost/openshell:claude-2.1.0-r5"}, baseImageLabels("claude", "2.1.0")))
 	_, err = app.RepoSetup(context.Background(), RepoSetupOptions{Agents: []string{"codex"}})
 	if err == nil || !strings.Contains(err.Error(), "agentbox image build codex") {
 		t.Fatalf("missing base error = %v", err)
@@ -523,9 +523,9 @@ func TestRepoImageDockerfileInstallsBinaryToolchains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dockerfile := repoImageDockerfile("localhost/openshell:claude-2.1.0-r4", cfg)
+	dockerfile := repoImageDockerfile("localhost/openshell:claude-2.1.0-r5", cfg)
 	for _, want := range []string{
-		"FROM localhost/openshell:claude-2.1.0-r4\n",
+		"FROM localhost/openshell:claude-2.1.0-r5\n",
 		"USER root\n",
 		"ENV PATH=/usr/local/bin:$PATH\n",
 		"RUN curl -fsSL https://example.com/tool/linux-amd64 -o /tmp/agentbox-toolchain-custom && echo '1111111111111111111111111111111111111111111111111111111111111111  /tmp/agentbox-toolchain-custom' | sha256sum -c - && install -Dm755 /tmp/agentbox-toolchain-custom /usr/local/bin/tool\n",

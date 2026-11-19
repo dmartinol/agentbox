@@ -67,7 +67,7 @@ func TestImageBuildPreviewReturnsRecipeAndExactVersionAsJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &record); err != nil {
 		t.Fatalf("image preview output is invalid JSON: %s (%v)", output, err)
 	}
-	if record.Agent != "codex" || record.Version != "0.167.0" || record.Tag != "localhost/openshell:codex-0.167.0-r4" {
+	if record.Agent != "codex" || record.Version != "0.167.0" || record.Tag != "localhost/openshell:codex-0.167.0-r5" {
 		t.Fatalf("unexpected image preview: %+v", record)
 	}
 }

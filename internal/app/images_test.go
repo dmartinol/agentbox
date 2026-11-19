@@ -58,7 +58,7 @@ func TestImageVersionUsesAgentChannelAndRejectsWrongOpenCodeMajor(t *testing.T) 
 func TestImageBuildUsesPinnedDigestAndRecipeTag(t *testing.T) {
 	runner := &fakeRunner{
 		output: func(call recordedCommand) ([]byte, error) {
-			if commandHasArg(call, "docker.io/library/node:22-bookworm-slim") {
+			if commandHasArg(call, "docker.io/library/node:22-trixie-slim") {
 				return []byte("sha256:base123\n"), nil
 			}
 			return []byte("sha256:image-id sha256:image-digest\n"), nil
@@ -87,7 +87,7 @@ func TestImageBuildUsesPinnedDigestAndRecipeTag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.Tag != "localhost/openshell:codex-0.167.0-r4" || record.BaseDigest != "sha256:base123" || record.ImageID != "sha256:image-id" || record.Digest != "sha256:image-digest" {
+	if record.Tag != "localhost/openshell:codex-0.167.0-r5" || record.BaseDigest != "sha256:base123" || record.ImageID != "sha256:image-id" || record.Digest != "sha256:image-digest" {
 		t.Fatalf("unexpected build record: %+v", record)
 	}
 	if len(runner.streams) != 2 || !commandHasArg(runner.streams[1], record.Tag) {
@@ -99,7 +99,7 @@ func TestImageBuildPreviewAndRegistryReferences(t *testing.T) {
 	runner := &fakeRunner{}
 	app := App{Runner: runner}
 	record, err := app.ImageBuild(context.Background(), "claude", "2.1.319", true)
-	if err != nil || record.Tag != "localhost/openshell:claude-2.1.319-r4" {
+	if err != nil || record.Tag != "localhost/openshell:claude-2.1.319-r5" {
 		t.Fatalf("unexpected preview: %+v, %v", record, err)
 	}
 	if len(runner.outputs)+len(runner.streams) != 0 {
@@ -214,8 +214,8 @@ func filteredImages(t *testing.T, data []byte) []struct {
 func TestRecipeDockerfileInstallsPinnedToolset(t *testing.T) {
 	record := ImageRecord{Agent: "codex", Version: "1.2.3", BaseDigest: "sha256:base123"}
 	got := imageDockerfile(record, "@openai/codex")
-	if recipeRevision != "4" {
-		t.Fatalf("recipeRevision = %q; want 4", recipeRevision)
+	if recipeRevision != "5" {
+		t.Fatalf("recipeRevision = %q; want 5", recipeRevision)
 	}
 	if !strings.Contains(got, "FROM docker.io/library/node@sha256:base123") {
 		t.Fatalf("base image is not pinned by digest:\n%s", got)

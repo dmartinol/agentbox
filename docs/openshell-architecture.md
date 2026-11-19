@@ -25,12 +25,12 @@ Those are attached or copied when a run starts.
 AgentBox builds one local image per agent version:
 
 ```text
-localhost/openshell:codex-0.167.0-r4
-localhost/openshell:claude-2.1.321-r4
-localhost/openshell:opencode-2.2.6-r4
+localhost/openshell:codex-0.167.0-r5
+localhost/openshell:claude-2.1.321-r5
+localhost/openshell:opencode-2.2.6-r5
 ```
 
-The `r4` suffix identifies the image recipe. The image contains:
+The `r5` suffix identifies the image recipe. The image contains:
 
 - the agent CLI binary;
 - Node.js and required runtime dependencies;
@@ -38,6 +38,13 @@ The `r4` suffix identifies the image recipe. The image contains:
   `ripgrep` (`rg`), `unzip`, `less`, `git-lfs`, and `procps` (`ps`);
 - OpenShell-compatible filesystem paths;
 - OCI labels describing the agent, version, and recipe.
+
+The recipe builds on a Debian trixie base. OpenShell's sandbox seccomp policy
+denies the `setuid`/`setgid` family unconditionally, and GNU make before 4.4
+calls `posix_spawn` with `POSIX_SPAWN_RESETIDS`, which makes glibc attempt an
+identity-preserving `setuid`/`setgid` in the child and fail with `EPERM`
+(`make: /bin/sh: Operation not permitted`). Trixie ships make 4.4.1, which no
+longer sets that flag, so recipes and `$(shell ...)` work inside the sandbox.
 
 The image does not contain:
 
