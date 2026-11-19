@@ -596,7 +596,7 @@ func TestRepoSetupEndpointErrorsAreActionable(t *testing.T) {
 	noManifest, _, _ := newRepoSetupServer(t, "")
 	payload = nil
 	response = requestJSON(t, http.MethodPost, noManifest.URL+"/api/repos/setup", map[string]any{"project": "owned", "dry": true}, &payload)
-	if response.StatusCode != http.StatusInternalServerError || !strings.Contains(payload["error"], "no repository manifest") {
+	if response.StatusCode != http.StatusNotFound || !strings.Contains(payload["error"], "no repository manifest") {
 		t.Fatalf("missing manifest: status = %d payload = %#v", response.StatusCode, payload)
 	}
 	// Missing project name.

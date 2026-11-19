@@ -681,6 +681,24 @@ describe('repository setup', () => {
     await waitFor(() => expect(screen.getByText(/profiles need no change/i)).toBeInTheDocument(), { timeout: 2500 });
   });
 
+  it('shows the task error in the drawer when the build fails', async () => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/repos/setup': { id: 'repo-task-failed', status: 'running', output: '' },
+      'GET /api/tasks/repo-task-failed': {
+        id: 'repo-task-failed',
+        status: 'failed',
+        output: '',
+        error: 'no local AgentBox image for codex at recipe r4; run `agentbox image build codex` first'
+      }
+    });
+    const user = userEvent.setup();
+    await openImagesTab(user);
+    await user.click(await screen.findByRole('button', { name: 'Set up repository' }));
+    expect(await screen.findByText(/Set up repository · demo/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/no local AgentBox image for codex/i)).toBeInTheDocument(), { timeout: 2500 });
+  });
+
   it('shows actionable validation errors next to the action', async () => {
     mockRoutes({
       ...defaultRoutes(),

@@ -1346,6 +1346,12 @@ func (s *Server) repoSetup(w http.ResponseWriter, r *http.Request) {
 	if request.Dry {
 		result, err := s.app.RepoSetup(r.Context(), app.RepoSetupOptions{Root: project.Root, Agents: request.Agents, Dry: true})
 		if err != nil {
+			// A missing manifest is an expected, discoverable state, not a
+			// server fault: the projects list reports it as manifest: false.
+			if errors.Is(err, os.ErrNotExist) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+				return
+			}
 			writeError(w, err)
 			return
 		}

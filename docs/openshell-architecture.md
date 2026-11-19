@@ -354,7 +354,9 @@ without running podman or writing files.
 Setup never creates or edits profiles. It reports the image tag, base image,
 manifest digest, and fragment path for information; run-time resolution of
 the repository image and policy composition are part of run start, not
-setup.
+setup. The same flow is exposed to the GUI as an explicit action in
+Setup → Images (Repository images) backed by `POST /api/repos/setup`,
+which validates with `dry` and streams the build as a cancellable task.
 
 ## Policy layer
 

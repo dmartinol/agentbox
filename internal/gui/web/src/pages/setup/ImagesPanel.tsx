@@ -14,6 +14,8 @@ import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 import { StatusBadge } from '../../components/StatusBadge';
 import type { LogDrawerState } from '../../components/LogDrawer';
 
+const SUPPORTED_AGENTS = ['codex', 'claude', 'opencode'];
+
 export function ImagesPanel({
   openLog,
   updateLog
@@ -27,7 +29,6 @@ export function ImagesPanel({
   const [projects, setProjects] = useState<Project[]>([]);
   const [repoProject, setRepoProject] = useState('');
   const [repoAgents, setRepoAgents] = useState<Record<string, boolean>>({});
-  const [repoAgentsTouched, setRepoAgentsTouched] = useState(false);
   const [validation, setValidation] = useState<RepoSetupResult>();
   const [repoError, setRepoError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,15 +54,17 @@ export function ImagesPanel({
       setRegistry(nextRegistry);
       setProjects(nextProjects ?? []);
       setRepoProject((current) => (current || nextProjects?.[0]?.name) || '');
-      if (!repoAgentsTouched) {
-        // Default the checkboxes to the agents present in local profiles,
-        // matching the CLI default for `agentbox repo setup`.
+      // Default the checkboxes to the agents present in local profiles,
+      // matching the CLI default for `agentbox repo setup`. Once the user
+      // has made a selection (any key present, true or false), keep it.
+      setRepoAgents((current) => {
+        if (Object.keys(current).length) return current;
         const next: Record<string, boolean> = {};
-        for (const agent of ['codex', 'claude', 'opencode']) {
+        for (const agent of SUPPORTED_AGENTS) {
           next[agent] = (nextProfiles ?? []).some((profile) => profile.agent === agent);
         }
-        setRepoAgents(next);
-      }
+        return next;
+      });
       setError(null);
     } catch (err) {
       setError(err as Error);
@@ -80,7 +83,12 @@ export function ImagesPanel({
         const next = await api.task(task.id);
         if (!active) return;
         setTask(next);
-        updateLog({ content: next.output, taskStatus: next.status, loading: false });
+        updateLog({
+          content: next.output,
+          taskStatus: next.status,
+          loading: false,
+          error: next.status === 'failed' ? next.error : undefined
+        });
         if (next.status === 'succeeded') await load();
       } catch {
         // Keep last output on transient polling failure.
@@ -122,9 +130,14 @@ export function ImagesPanel({
     }
   };
 
-  const selectedRepoAgents = () => ['codex', 'claude', 'opencode'].filter((agent) => repoAgents[agent]);
+  const selectedRepoAgents = () => SUPPORTED_AGENTS.filter((agent) => repoAgents[agent]);
 
   const selectedProject = projects.find((project) => project.name === repoProject);
+
+  const clearRepoPlan = () => {
+    setValidation(undefined);
+    setRepoError(null);
+  };
 
   const validateRepo = async () => {
     setBusy('repo-validate');
@@ -267,29 +280,30 @@ export function ImagesPanel({
           <div className="flex flex-wrap items-end gap-3">
             <span className="text-sm text-muted" id="repo-setup-agents-label">Agents</span>
             <div className="flex flex-wrap gap-3" role="group" aria-labelledby="repo-setup-agents-label">
-              {['codex', 'claude', 'opencode'].map((agent) => (
+              {SUPPORTED_AGENTS.map((agent) => (
                 <label key={agent} className="flex items-center gap-1 text-sm">
                   <input
                     type="checkbox"
                     checked={Boolean(repoAgents[agent])}
-                    onChange={(event) => { setRepoAgentsTouched(true); setRepoAgents({ ...repoAgents, [agent]: event.target.checked }); }}
+                    onChange={(event) => { clearRepoPlan(); setRepoAgents({ ...repoAgents, [agent]: event.target.checked }); }}
                   />
                   {agent}
                 </label>
               ))}
             </div>
           </div>
-          <Button
+          <ActionButton
             size="sm"
             variant="outline"
             loading={busy === 'repo-validate'}
-            disabled={!repoProject}
+            disabledReason={!repoProject ? 'Register a project first' : selectedRepoAgents().length === 0 ? 'Select at least one agent' : undefined}
             onClick={() => void validateRepo()}
           >
             {busy === 'repo-validate' ? 'Validating' : 'Validate'}
-          </Button>
+          </ActionButton>
           <ActionButton
             size="sm"
+            loading={busy === 'repo-setup'}
             disabledReason={!repoProject ? 'Register a project first' : selectedRepoAgents().length === 0 ? 'Select at least one agent' : undefined}
             onClick={() => void setupRepo()}
           >
