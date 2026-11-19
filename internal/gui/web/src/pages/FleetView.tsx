@@ -66,6 +66,7 @@ export function FleetView({
   const [mcpEntries, setMcpEntries] = useState<MCPTools[]>([]);
   const [skillsEntries, setSkillsEntries] = useState<SkillsEntry[]>([]);
   const [startWarnings, setStartWarnings] = useState<string[]>([]);
+  const [imageWarnings, setImageWarnings] = useState<string[]>([]);
   const [skillWarnings, setSkillWarnings] = useState<string[]>([]);
   const [pending, setPending] = useState<Record<string, AgentAction>>({});
   const [deleteTarget, setDeleteTarget] = useState<Run>();
@@ -252,6 +253,7 @@ export function FleetView({
     const nextProfile = startForm.profile || overview?.profiles[0]?.name || '';
     setStartError('');
     setStartWarnings([]);
+    setImageWarnings([]);
     setSkillWarnings([]);
     setCopySource(undefined);
     setStartForm((form) => ({
@@ -288,6 +290,7 @@ export function FleetView({
       skills: run.skills || ''
     });
     setStartWarnings([]);
+    setImageWarnings([]);
     setSkillWarnings([]);
     setUseOverrides(true);
     setOverrides({ image: run.image, model: run.model, approval: run.approval || approvalForProfile(profile) });
@@ -315,6 +318,7 @@ export function FleetView({
       });
       closeStart();
       setSelected(created);
+      setImageWarnings(created.image_warnings ?? []);
       setStartWarnings(created.mcp_warnings ?? []);
       setSkillWarnings(created.skills_warnings ?? []);
       setNotice(`Agent ${created.name || created.id} started`);
@@ -705,6 +709,13 @@ export function FleetView({
         </div>
       ) : null}
 
+      {imageWarnings.length > 0 ? (
+        <Alert variant="warning" title="Image warnings" className="m-3">
+          <ul className="list-disc space-y-1 pl-4">
+            {imageWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+          </ul>
+        </Alert>
+      ) : null}
       {startWarnings.length > 0 ? (
         <Alert variant="warning" title="MCP tools warnings" className="m-3">
           <ul className="list-disc space-y-1 pl-4">

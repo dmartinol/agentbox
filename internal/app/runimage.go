@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -55,24 +56,30 @@ func (i RunImage) ComposePolicy(base []byte, baseSource string) ([]byte, error) 
 // ResolveRunImage picks the image a run starts from and explains the choice.
 // A project without a manifest keeps the profile image. A project with a
 // manifest uses the repository image whose content matches the manifest on a
-// current-recipe base, preferring the newest base, and reports drift instead
-// of failing. Unusable repository artifacts never block a run: they warn and
-// leave it on the profile image. Nothing here builds an image.
-func (a *App) ResolveRunImage(ctx context.Context, p Profile, root string) (RunImage, error) {
+// current-recipe base, preferring the newest base, and warns about a stale
+// policy fragment or base instead of failing. Unusable repository artifacts
+// never block a run: they warn and leave it on the profile image. Nothing
+// here builds an image.
+func (a *App) ResolveRunImage(ctx context.Context, p Profile, root string) RunImage {
 	image := RunImage{Image: p.Image, BaseImage: p.Image, Source: ImageSourceProfile}
 	manifestPath := RepoConfigPath(root)
 	manifestBytes, err := os.ReadFile(manifestPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return image, nil
+			return image
 		}
 		image.Warnings = append(image.Warnings, fmt.Sprintf("repository manifest %s is unreadable (%v); run `agentbox repo setup` — this run uses the profile image", manifestPath, err))
-		return image, nil
+		return image
 	}
 	cfg, err := ParseRepoConfig(manifestBytes)
 	if err != nil {
 		image.Warnings = append(image.Warnings, fmt.Sprintf("repository manifest %s is unusable (%v); run `agentbox repo setup` — this run uses the profile image", manifestPath, err))
-		return image, nil
+		return image
+	}
+	expectedFragment, err := RepoPolicyFragment(cfg)
+	if err != nil {
+		image.Warnings = append(image.Warnings, fmt.Sprintf("repository policy fragment cannot be generated from %s (%v); run `agentbox repo setup` — this run uses the profile image", manifestPath, err))
+		return image
 	}
 	digest := repoManifestDigest(manifestBytes)
 	image.ManifestDigest = digest
@@ -80,12 +87,12 @@ func (a *App) ResolveRunImage(ctx context.Context, p Profile, root string) (RunI
 	remote, err := a.gitOutput(ctx, root, "remote", "get-url", "origin")
 	if err != nil {
 		image.Warnings = append(image.Warnings, fmt.Sprintf("repository identity unavailable (%v); the run uses the profile image", err))
-		return image, nil
+		return image
 	}
 	repo := normalizeGitRemote(remote)
 	if repo == "" {
 		image.Warnings = append(image.Warnings, "repository origin remote could not be normalized; the run uses the profile image")
-		return image, nil
+		return image
 	}
 	image.Repo = repo
 	image.FragmentPath = filepath.Join(a.Store.PolicyDir(), "repo-"+repoKey(repo)+".yaml")
@@ -93,34 +100,34 @@ func (a *App) ResolveRunImage(ctx context.Context, p Profile, root string) (RunI
 	images, err := a.LocalImages(ctx)
 	if err != nil {
 		image.Warnings = append(image.Warnings, fmt.Sprintf("local image inventory unavailable (%v); this run uses the profile image", err))
-		return image, nil
+		return image
 	}
 	found, base, newestBase, ok := repoImageForAgent(images, repo, p.Agent, cfg)
 	fragment, fragmentErr := os.ReadFile(image.FragmentPath)
 	switch {
 	case !ok:
 		image.Warnings = append(image.Warnings, fmt.Sprintf("no current repository image for %s in %s; run `agentbox repo setup --agent %s` — this run uses the profile image", p.Agent, repo, p.Agent))
-		return image, nil
+		return image
 	case fragmentErr != nil:
 		image.Warnings = append(image.Warnings, fmt.Sprintf("repository policy fragment %s is unavailable; run `agentbox repo setup --agent %s` — this run uses the profile image", image.FragmentPath, p.Agent))
-		return image, nil
+		return image
 	}
 	if _, err := ParsePolicy(fragment); err != nil {
 		image.Warnings = append(image.Warnings, fmt.Sprintf("repository policy fragment %s is invalid (%v); run `agentbox repo setup` — this run uses the profile image", image.FragmentPath, err))
-		return image, nil
+		return image
 	}
 	image.Image = found.Reference
 	image.BaseImage = base.Reference
 	image.Source = ImageSourceRepo
 	image.fragment = fragment
 	image.FragmentDigest = contentDigest(fragment)
-	if found.ManifestDigest != "" && found.ManifestDigest != digest {
-		image.Warnings = append(image.Warnings, fmt.Sprintf("repository manifest changed since image %s was built; run `agentbox repo setup` to refresh the policy fragment", found.Reference))
+	if !bytes.Equal(fragment, expectedFragment) {
+		image.Warnings = append(image.Warnings, fmt.Sprintf("repository policy fragment %s is out of date with %s; run `agentbox repo setup` to refresh it", image.FragmentPath, manifestPath))
 	}
 	if newestBase.Reference != "" && newestBase.Reference != base.Reference {
 		image.Warnings = append(image.Warnings, fmt.Sprintf("repository image %s is built on %s while the newest local base is %s; run `agentbox repo setup` to rebuild", found.Reference, base.Reference, newestBase.Reference))
 	}
-	return image, nil
+	return image
 }
 
 // repoImageForAgent finds the repository image whose content matches cfg on
@@ -210,7 +217,7 @@ func composeRepoPolicy(base []byte, baseSource string, fragment []byte, fragment
 // equal scopes compare equal regardless of how they were written.
 func canonicalRule(rule NetworkRule) NetworkRule {
 	rule.Name = ""
-	endpoints := append([]Endpoint(nil), rule.Endpoints...)
+	endpoints := append([]Endpoint{}, rule.Endpoints...)
 	for i := range endpoints {
 		if endpoints[i].Protocol == "" {
 			endpoints[i].Protocol = "tcp"
@@ -225,7 +232,7 @@ func canonicalRule(rule NetworkRule) NetworkRule {
 		}
 		return endpoints[i].Protocol < endpoints[j].Protocol
 	})
-	binaries := append([]Binary(nil), rule.Binaries...)
+	binaries := append([]Binary{}, rule.Binaries...)
 	sort.Slice(binaries, func(i, j int) bool { return binaries[i].Path < binaries[j].Path })
 	rule.Endpoints = endpoints
 	rule.Binaries = binaries

@@ -379,10 +379,15 @@ The run record captures the effective image, its base image, the source, the
 normalized repository identity, the manifest digest, the repository fragment
 path when one was composed, and any warnings. Missing or unusable artifacts
 never fail the run: it falls back to the profile image with a warning naming
-`agentbox repo setup --agent <agent>`. Manifest drift and a newer local base
-warn and still use the image, so a hosts-only manifest change does not
-invalidate a correct image — but the fragment is read from disk, so new or
-removed hosts take effect only after `agentbox repo setup` refreshes it.
+`agentbox repo setup --agent <agent>`. A policy fragment that is out of date
+with the manifest warns and still uses the image, so a hosts-only manifest
+change does not invalidate a correct image; `agentbox repo setup` refreshes the
+fragment. A repository image built on an older local base than the newest one
+available warns and still runs.
+
+Resolution reads the manifest from the selected project checkout. An isolated
+run worktree carries committed and tracked changes only, so an untracked
+manifest informs resolution but is not present inside the sandbox.
 
 ## Policy layer
 
@@ -402,6 +407,9 @@ At run start, AgentBox:
 4. writes a run-specific policy;
 5. passes it to OpenShell during sandbox creation;
 6. fetches and verifies the effective policy before starting the agent.
+
+Applying a reusable policy configuration to a repository run recomposes that
+run's fragment, so the repository host rules survive the replacement policy.
 
 This is why a run can fail before the agent starts if the effective policy does
 not allow the expected endpoint or lacks the required Landlock/network

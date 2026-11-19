@@ -29,6 +29,7 @@ export interface Run {
   agent: string;
   agent_binary?: string;
   image: string;
+  image_warnings?: string[];
   mode: string;
   model: string;
   approval: string;

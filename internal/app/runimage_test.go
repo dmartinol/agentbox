@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -213,10 +214,7 @@ func TestResolveRunImageUsesRepositoryImage(t *testing.T) {
 	f.writeFragment(t)
 	app, _ := f.app(t, f.baseRecord("0.169.0"), f.repoRecord(t, f.baseRef, "0.169.0", f.digest()))
 
-	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	image := app.ResolveRunImage(context.Background(), f.profile(), f.root)
 	if image.Source != ImageSourceRepo {
 		t.Fatalf("source = %q, want repo", image.Source)
 	}
@@ -244,10 +242,7 @@ func TestResolveRunImageKeepsProfileWithoutManifest(t *testing.T) {
 	f := newRunImageFixture(t, "")
 	app, runner := f.app(t, f.baseRecord("0.169.0"))
 
-	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	image := app.ResolveRunImage(context.Background(), f.profile(), f.root)
 	if image.Source != ImageSourceProfile || image.Image != f.baseRef || image.BaseImage != f.baseRef {
 		t.Fatalf("image = %+v, want the profile image", image)
 	}
@@ -266,10 +261,7 @@ func TestResolveRunImageFallsBackWhenImageMissing(t *testing.T) {
 	f.writeFragment(t)
 	app, _ := f.app(t, f.baseRecord("0.169.0"))
 
-	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	image := app.ResolveRunImage(context.Background(), f.profile(), f.root)
 	if image.Source != ImageSourceProfile || image.Image != f.baseRef {
 		t.Fatalf("image = %+v, want the profile image", image)
 	}
@@ -282,10 +274,7 @@ func TestResolveRunImageFallsBackWhenFragmentMissing(t *testing.T) {
 	f := newRunImageFixture(t, runRepoManifest)
 	app, _ := f.app(t, f.baseRecord("0.169.0"), f.repoRecord(t, f.baseRef, "0.169.0", f.digest()))
 
-	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	image := app.ResolveRunImage(context.Background(), f.profile(), f.root)
 	if image.Source != ImageSourceProfile {
 		t.Fatalf("source = %q, want profile", image.Source)
 	}
@@ -294,7 +283,7 @@ func TestResolveRunImageFallsBackWhenFragmentMissing(t *testing.T) {
 	}
 }
 
-func TestResolveRunImageWarnsOnManifestDrift(t *testing.T) {
+func TestResolveRunImageWarnsWhenFragmentIsStale(t *testing.T) {
 	f := newRunImageFixture(t, runRepoManifest)
 	f.writeFragment(t)
 	app, _ := f.app(t, f.baseRecord("0.169.0"), f.repoRecord(t, f.baseRef, "0.169.0", f.digest()))
@@ -303,15 +292,35 @@ func TestResolveRunImageWarnsOnManifestDrift(t *testing.T) {
 	if err := writeRepoManifest(t, f.root, changed); err != nil {
 		t.Fatal(err)
 	}
-	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	image := app.ResolveRunImage(context.Background(), f.profile(), f.root)
 	if image.Source != ImageSourceRepo || image.Image != f.repoTag(t, f.baseRef) {
 		t.Fatalf("image = %+v, want the repository image", image)
 	}
-	if len(image.Warnings) != 1 || !strings.Contains(image.Warnings[0], "manifest changed") {
-		t.Fatalf("warnings = %v, want manifest drift", image.Warnings)
+	if len(image.Warnings) != 1 || !strings.Contains(image.Warnings[0], "out of date") {
+		t.Fatalf("warnings = %v, want a stale fragment warning", image.Warnings)
+	}
+}
+
+func TestResolveRunImageClearsWarningAfterFragmentRefresh(t *testing.T) {
+	f := newRunImageFixture(t, runRepoManifest)
+	f.writeFragment(t)
+	app, _ := f.app(t, f.baseRecord("0.169.0"), f.repoRecord(t, f.baseRef, "0.169.0", f.digest()))
+
+	// A hosts-only edit keeps the content-addressed image tag; rerunning repo
+	// setup refreshes the fragment without rebuilding the image.
+	changed := strings.Replace(runRepoManifest, "proxy.golang.org", "proxy.golang.dev", 1)
+	if err := writeRepoManifest(t, f.root, changed); err != nil {
+		t.Fatal(err)
+	}
+	f.manifest = changed
+	f.writeFragment(t)
+
+	image := app.ResolveRunImage(context.Background(), f.profile(), f.root)
+	if image.Source != ImageSourceRepo {
+		t.Fatalf("image = %+v, want the repository image", image)
+	}
+	if len(image.Warnings) != 0 {
+		t.Fatalf("warnings = %v, want none after repo setup refreshed the fragment", image.Warnings)
 	}
 }
 
@@ -324,10 +333,7 @@ func TestResolveRunImageWarnsOnStaleBase(t *testing.T) {
 		f.repoRecord(t, f.baseRef, "0.169.0", f.digest()),
 	)
 
-	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	image := app.ResolveRunImage(context.Background(), f.profile(), f.root)
 	if image.Source != ImageSourceRepo || image.Image != f.repoTag(t, f.baseRef) {
 		t.Fatalf("image = %+v, want the older-base repository image", image)
 	}
@@ -436,6 +442,21 @@ func TestComposeRepoPolicyRejectsConflictingScope(t *testing.T) {
 	}
 }
 
+func TestCanonicalRuleIgnoresNamesAndNilLists(t *testing.T) {
+	withNil := NetworkRule{
+		Name:      "first",
+		Endpoints: []Endpoint{{Host: "proxy.golang.org", Port: 443}},
+	}
+	withEmpty := NetworkRule{
+		Name:      "second",
+		Endpoints: []Endpoint{{Host: "proxy.golang.org", Port: 443, Protocol: "tcp"}},
+		Binaries:  []Binary{},
+	}
+	if !reflect.DeepEqual(canonicalRule(withNil), canonicalRule(withEmpty)) {
+		t.Fatalf("equivalent scopes differ: %+v vs %+v", canonicalRule(withNil), canonicalRule(withEmpty))
+	}
+}
+
 func TestStartRecordsRepositoryImage(t *testing.T) {
 	f := newRunImageFixture(t, runRepoManifest)
 	f.writeFragment(t)
@@ -533,10 +554,7 @@ func TestResolveRunImageFallsBackWhenManifestInvalid(t *testing.T) {
 	f := newRunImageFixture(t, "schema: 1\nunknown_field: true\n")
 	app, runner := f.app(t, f.baseRecord("0.169.0"))
 
-	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	image := app.ResolveRunImage(context.Background(), f.profile(), f.root)
 	if image.Source != ImageSourceProfile || image.Image != f.baseRef {
 		t.Fatalf("image = %+v, want the profile image", image)
 	}
@@ -560,10 +578,7 @@ func TestResolveRunImageFallsBackWhenManifestUnreadable(t *testing.T) {
 	}
 	app, _ := f.app(t, f.baseRecord("0.169.0"))
 
-	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	image := app.ResolveRunImage(context.Background(), f.profile(), f.root)
 	if image.Source != ImageSourceProfile {
 		t.Fatalf("source = %q, want profile", image.Source)
 	}
@@ -585,10 +600,7 @@ func TestResolveRunImageFallsBackWhenInventoryFails(t *testing.T) {
 		return nil, nil
 	}}}
 
-	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	image := app.ResolveRunImage(context.Background(), f.profile(), f.root)
 	if image.Source != ImageSourceProfile || image.Image != f.baseRef {
 		t.Fatalf("image = %+v, want the profile image", image)
 	}
@@ -608,10 +620,7 @@ func TestResolveRunImagePrefersNewestMatchingBase(t *testing.T) {
 		f.repoRecord(t, newBase, "0.170.0", f.digest()),
 	)
 
-	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	image := app.ResolveRunImage(context.Background(), f.profile(), f.root)
 	if image.Image != f.repoTag(t, newBase) || image.BaseImage != newBase {
 		t.Fatalf("image = %q on base %q, want the newest base %q", image.Image, image.BaseImage, newBase)
 	}
@@ -725,10 +734,7 @@ func TestResolveRunImageIgnoresPreviousRecipeImages(t *testing.T) {
 		map[string]any{"Id": "old-repo", "Names": []string{f.repoTag(t, oldBaseRef)}, "Labels": oldRepoLabels},
 	)
 
-	image, err := app.ResolveRunImage(context.Background(), f.profile(), f.root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	image := app.ResolveRunImage(context.Background(), f.profile(), f.root)
 	if image.Source != ImageSourceProfile || image.Image != f.baseRef {
 		t.Fatalf("image = %+v, want the profile image", image)
 	}

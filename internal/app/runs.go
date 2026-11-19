@@ -166,10 +166,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	case override != "":
 		runImage = RunImage{Image: override, Source: ImageSourceOverride}
 	case !forceProfileImage:
-		runImage, err = a.ResolveRunImage(ctx, p, sourceRoot)
-		if err != nil {
-			return Run{}, err
-		}
+		runImage = a.ResolveRunImage(ctx, p, sourceRoot)
 	}
 	policy, err = runImage.ComposePolicy(policy, p.Policy)
 	if err != nil {
