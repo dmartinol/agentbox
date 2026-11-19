@@ -1,6 +1,6 @@
 ---
 name: agentbox-orchestrator
-description: "Drive one tracker issue end to end: dispatch tracker-blind triage, plan, implement, fix, verify, and review to isolated workers, run a post-terminal retro, record agent, model, and effort, enforce gates, post provenance-marked PRs and verdicts, and own merge and close. Use when asked to take an issue to a merged pull request with the orchestrator flow."
+description: "Drive one tracker issue end to end: dispatch tracker-blind triage, plan, implement, fix, verify, and review to isolated workers, prepare repository worker environments, run a post-terminal retro, record agent, model, and effort, enforce gates, post provenance-marked PRs and verdicts, and own merge and close. Use when asked to take an issue to a merged pull request with the orchestrator flow."
 version: "{{VERSION}}"
 ---
 
@@ -221,6 +221,11 @@ raw result before recording or retrying:
   `--dangerously-bypass-approvals-and-sandbox`, `--yolo`, or an equivalent to
   make a stage run; report a blocker when the workflow cannot proceed under
   the runtime's normal controls.
+- All environment operations go through the `agentbox` CLI; never drive
+  `openshell` or `podman` directly. If the CLI is missing or a documented
+  command is unknown, ask the user to install the current binary
+  (`go install github.com/dmartinol/agentbox/cmd/agentbox@main`) instead of
+  improvising.
 - One stage is one agent process. A worker performs the stage itself and never
   launches another agent or a nested non-interactive agent for the same work.
 - Never bypass branch protection, required checks, or review requirements.
@@ -941,6 +946,31 @@ worktree, and commit in the state record for every stage, plus the effort
 actually applied: a concrete level for Orca, and `not-applicable` for
 AgentBox, which has no effort control.
 
+### Repository worker environment (one-time)
+
+AgentBox workers run the repository's own tools, so before the first AgentBox
+worker is dispatched to a repository, ensure the repository has a worker
+environment: a committed `.agentbox/config.yaml`, validated and applied.
+Check for it during triage alongside the other prerequisites.
+
+- If the manifest exists, the environment is ready. Refresh it after manifest
+  changes by rerunning `agentbox repo setup`.
+- If it is absent, ask the user. With approval, perform the one-time
+  initialization as preparation — the same standing as worktree creation, not
+  stage work — exactly as the `agentbox-cli` skill documents: author the
+  manifest from repository evidence (CI-pinned toolchains, Makefile tools and
+  targets, module and package registries, the git remote), validate with
+  `agentbox repo setup --dry`, fix every reported error, then apply with
+  `agentbox repo setup`. Committing the manifest is a normal repository
+  change the user reviews.
+- If `agentbox repo` is an unknown command, the installed binary predates
+  repository manifests: ask the user to install the current AgentBox
+  (`go install github.com/dmartinol/agentbox/cmd/agentbox@main`) and retry.
+- Never create or edit a profile for this: runs started for the project use
+  the repository image automatically, and setup reports references for
+  information only. Report the printed image tag and fragment path to the
+  user.
+
 ### AgentBox worker loop
 
 ```sh
@@ -948,6 +978,12 @@ agentbox agent start --profile PROFILE --project PROJECT --gateway GATEWAY \
   --name ISSUE-SLUG --model MODEL --prompt "<full task spec>" \
   --approval unattended
 ```
+
+Name each stage run `issue-<number>-<slug>`. AgentBox derives the run branch
+from its worktree settings, so the generated branch follows
+`<branch_prefix>/<project>/issue-<number>-<slug>` (default prefix `agentbox`);
+the orchestrator pushes the synced result to the pull request branch
+`orchestrator/<issue>-<slug>`.
 
 Poll `agentbox agent show RUN_ID --json` every 20–30 seconds with a per-task
 deadline. On completion or stall: `agentbox agent diff RUN_ID` and
@@ -958,6 +994,18 @@ pull request, and keeps the run and its worktree until the stage evidence is
 captured and the final report is delivered. Honor an explicit request to keep
 the run; otherwise delete it with `agentbox agent delete RUN_ID` after the
 final report. Never reuse a run for a second task.
+
+When a worker must be interrupted — a stall past its deadline or a user stop —
+use `agentbox agent stop RUN_ID`. Stop interrupts the agent, syncs the changes
+into the host worktree before the sandbox stops, and keeps the run, branch,
+and worktree, so the stage resumes from the synced branch in a fresh dispatch.
+Never `delete --discard` a run whose changes were not reviewed.
+
+A worker blocked by a sandbox host denial is recovered with the run's **Add
+host** remediation — `agentbox policy edit --allow-host HOST RUN_ID`, previewed
+with `--dry-run` — never by hand-editing policies. When the repository has a
+manifest, also append the host to `.agentbox/config.yaml` and commit it, so
+later runs start with the host allowed.
 
 For verify and review, never dispatch with `--project`: that uses the
 registered project's current checkout, whose HEAD may not be the pull request
