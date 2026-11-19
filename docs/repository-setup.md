@@ -1,20 +1,21 @@
 ---
 layout: docs
-title: Repository setup
+title: Project configuration
 permalink: /repository-setup/
 nav_sections:
-  - title: Declare the project environment
-    id: declare-the-project-environment
+  - title: Describe the project environment
+    id: describe-the-project-environment
   - title: Validate and apply
     id: validate-and-apply
   - title: Extend the environment
     id: extend-the-environment
 ---
 
-The sandbox needs the tools your project uses to build and test. A repository
-manifest records those requirements so later runs can use the same declared setup.
+Project configuration gives sandboxed agents the tools and network access the
+repository needs. A repository manifest records those requirements so later
+runs can use the same declared setup.
 
-## Declare the project environment
+## Describe the project environment
 
 Commit `.agentbox/config.yaml` with the repository's extra packages, pinned
 toolchains, image-build verification commands, and exact runtime network hosts.
@@ -24,8 +25,9 @@ With the bundled host skills installed, ask your assistant:
 
 > Use agentbox-cli to set up AgentBox for this repository. Derive its tools, verification commands, and required hosts from the repository and CI.
 
-The assistant authors the manifest from repository evidence. AgentBox does
-not automatically infer it. Inspect the proposed changes before committing them.
+The assistant derives and authors the manifest from repository and CI
+evidence; AgentBox does not automatically infer the configuration. Inspect the
+proposed changes before committing them.
 
 ## Validate and apply
 
@@ -37,9 +39,9 @@ agentbox repo setup
 ```
 
 The first command validates the manifest and previews setup. The second builds
-the repository image and generates the policy fragment. Existing profiles
-provide the base agent images; they do not need to be rewritten. Project runs
-automatically select the applicable repository image.
+a repository image for each selected harness on top of its base agent image,
+then generates the network policy fragment from the declared hosts. Project
+runs automatically select the applicable repository image.
 
 The GUI exposes the same flow under **Setup → Images → Repository images**.
 
@@ -49,9 +51,9 @@ They are distinct from the acceptance checks a development task must run later.
 ## Extend the environment
 
 Update the manifest and rerun setup when a task needs an additional tool or
-network host. For a blocked network operation, use the run's surfaced denial
-to identify the host, port, and executable; retain the rule in the repository
-manifest if future runs need it.
+network host. For a blocked network operation, AgentBox surfaces the denied
+host, port, and executable. Add the host to the active run's policy, then
+optionally persist the same rule in project configuration for future runs.
 
 Repositories without a manifest can use their profile image. AgentBox workers
 in the orchestrated workflow require a prepared repository environment.
