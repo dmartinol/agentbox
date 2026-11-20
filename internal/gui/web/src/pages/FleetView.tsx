@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, ChevronRight, CircleHelp, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal, X } from 'lucide-react';
+import { Bot, CircleHelp, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal, X } from 'lucide-react';
 import { api } from '../api';
 import { approvalForProfile, approvalLabel, approvalOptions, defaultApproval } from '../approvals';
 import type { MCPTools, Overview, Profile, Run, SkillsEntry, StartRunRequest } from '../types';
@@ -637,8 +637,20 @@ export function FleetView({
                       return (
                         <TR
                           key={agent.id}
-                          className={selected?.id === agent.id ? 'bg-accent/10' : undefined}
+                          className={cn(
+                            'cursor-pointer focus-visible:bg-surface/50',
+                            selected?.id === agent.id && 'bg-accent/10'
+                          )}
+                          aria-current={selected?.id === agent.id || undefined}
+                          tabIndex={0}
                           onClick={() => setSelected(agent)}
+                          onKeyDown={(event) => {
+                            // Inner controls keep their own key handling.
+                            if (event.target !== event.currentTarget) return;
+                            if (event.key !== 'Enter' && event.key !== ' ') return;
+                            event.preventDefault();
+                            setSelected(agent);
+                          }}
                         >
                           <TD className="truncate font-medium" onClick={(event) => { event.stopPropagation(); setSelected(agent); }}>
                             <span title={label}>{label}</span>
@@ -676,15 +688,6 @@ export function FleetView({
                                   <Terminal className="size-3" /> Logs
                                 </Button>
                               ) : null}
-                              <Button
-                                size="xs"
-                                variant="ghost"
-                                className="ml-auto sm:ml-0"
-                                aria-label={`Details for ${label}`}
-                                onClick={(event) => { event.stopPropagation(); setSelected(agent); }}
-                              >
-                                Details <ChevronRight className="size-3" aria-hidden />
-                              </Button>
                             </div>
                           </TD>
                         </TR>

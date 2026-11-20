@@ -180,10 +180,6 @@ textarea {
     padding-top: 0.125rem;
   }
 
-  .agentbox-table td[data-label="Actions"] .ml-auto {
-    margin-left: 0;
-  }
-
   /* A disabled-reason caption must not widen its button and shove the next
      action across the card. Dissolve the wrapper so all buttons sit in the
      action row, then place each reason on its own line beneath them. */

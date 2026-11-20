@@ -981,11 +981,11 @@ describe('fleet actions', () => {
     render(<App />);
     const row = (await screen.findByText('active-run')).closest('tr');
     if (!row) throw new Error('agent row missing');
-    await user.click(within(row).getByRole('button', { name: 'Details for active-run' }));
+    await user.click(row);
     await user.click(within(await screen.findByRole('complementary', { name: 'Agent details' })).getByRole('button', { name: 'Sync' }));
     expect(within(row).getByText('Syncing…')).toBeInTheDocument();
     expect(within(await screen.findByRole('complementary', { name: 'Agent details' })).getByRole('button', { name: 'Syncing…' })).toBeInTheDocument();
-    expect(within(row).getByRole('button', { name: 'Details for active-run' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Attach' })).toBeInTheDocument();
     resolveSync(runs[0]);
     await waitFor(() => expect(screen.getByText('Sync requested for active-run')).toBeInTheDocument());
     expect(await screen.findByText('Sync requested for active-run')).toBeInTheDocument();
@@ -1001,7 +1001,7 @@ describe('fleet actions', () => {
     render(<App />);
     const row = (await screen.findByText('active-run')).closest('tr');
     if (!row) throw new Error('agent row missing');
-    await user.click(within(row).getByRole('button', { name: 'Details for active-run' }));
+    await user.click(row);
     await user.click(within(await screen.findByRole('complementary', { name: 'Agent details' })).getByRole('button', { name: 'Stop' }));
     expect(within(row).getByText('Stopping', { selector: 'span' })).toBeInTheDocument();
     resolveStop(runs[0]);
@@ -1734,7 +1734,7 @@ describe('readable fleet layout', () => {
     expect(within(row).getByLabelText('Status: Working')).toBeInTheDocument();
     expect(within(row).getByLabelText('Sync: Sync needed')).toBeInTheDocument();
 
-    await user.click(within(row).getByRole('button', { name: 'Details for active-run' }));
+    await user.click(row);
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
     expect(within(panel).getByRole('button', { name: 'Close agent details' })).toBeInTheDocument();
     expect(within(panel).getByRole('heading', { name: 'Open' })).toBeInTheDocument();
@@ -1743,10 +1743,41 @@ describe('readable fleet layout', () => {
     expect(within(panel).getAllByText('Show full').length).toBeGreaterThan(0);
   });
 
+  it('selects an agent row with the keyboard', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const row = (await screen.findByText('active-run')).closest('tr');
+    if (!row) throw new Error('agent row missing');
+    expect(row).toHaveAttribute('tabindex', '0');
+    row.focus();
+    await user.keyboard('{Enter}');
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    expect(within(panel).getByText('active-run')).toBeInTheDocument();
+    expect(row).toHaveAttribute('aria-current', 'true');
+
+    const other = (await screen.findByText('idle-run')).closest('tr');
+    if (!other) throw new Error('idle row missing');
+    other.focus();
+    await user.keyboard(' ');
+    expect(within(panel).getByText('idle-run')).toBeInTheDocument();
+    expect(other).toHaveAttribute('aria-current', 'true');
+    expect(row).not.toHaveAttribute('aria-current');
+  });
+
+  it('keeps row button keys working when the row itself handles keys', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const row = (await screen.findByText('active-run')).closest('tr');
+    if (!row) throw new Error('agent row missing');
+    within(row).getByRole('button', { name: 'Logs' }).focus();
+    await user.keyboard(' ');
+    expect(await screen.findByText('agent log output')).toBeInTheDocument();
+  });
+
   it('leads the agent panel with harness and running model', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(within((await screen.findByText('active-run')).closest('tr') as HTMLElement).getByRole('button', { name: 'Details for active-run' }));
+    await user.click((await screen.findByText('active-run')).closest('tr') as HTMLElement);
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
     expect(within(panel).getByText('Harness')).toBeInTheDocument();
     expect(within(panel).getByText('codex')).toBeInTheDocument();
@@ -1762,7 +1793,7 @@ describe('readable fleet layout', () => {
   it('opens a read-only configuration view for the moved metadata', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(within((await screen.findByText('active-run')).closest('tr') as HTMLElement).getByRole('button', { name: 'Details for active-run' }));
+    await user.click((await screen.findByText('active-run')).closest('tr') as HTMLElement);
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
     await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
     const dialog = await screen.findByRole('dialog', { name: 'Configuration' });
@@ -1789,7 +1820,7 @@ describe('readable fleet layout', () => {
   it('closes the configuration view with Escape and restores focus', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(within((await screen.findByText('active-run')).closest('tr') as HTMLElement).getByRole('button', { name: 'Details for active-run' }));
+    await user.click((await screen.findByText('active-run')).closest('tr') as HTMLElement);
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
     const trigger = within(panel).getByRole('button', { name: 'Configuration' });
     await user.click(trigger);
@@ -1837,7 +1868,7 @@ describe('readable fleet layout', () => {
   it('shows sync state, explanation, localized timestamp, and Never in agent details', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(within((await screen.findByText('active-run')).closest('tr') as HTMLElement).getByRole('button', { name: 'Details for active-run' }));
+    await user.click((await screen.findByText('active-run')).closest('tr') as HTMLElement);
     let panel = await screen.findByRole('complementary', { name: 'Agent details' });
     expect(within(panel).getByText('Sync state')).toBeInTheDocument();
     expect(within(panel).getByText('Sync needed')).toBeInTheDocument();
@@ -1845,7 +1876,7 @@ describe('readable fleet layout', () => {
     expect(within(panel).getByText(formatSyncTimestamp('2026-01-01T10:30:00Z'))).toBeInTheDocument();
     expect(within(panel).getByText('Sandbox changes have not been transferred to the host run worktree.')).toBeInTheDocument();
 
-    await user.click(within((await screen.findByText('idle-run')).closest('tr') as HTMLElement).getByRole('button', { name: 'Details for idle-run' }));
+    await user.click((await screen.findByText('idle-run')).closest('tr') as HTMLElement);
     panel = await screen.findByRole('complementary', { name: 'Agent details' });
     expect(within(panel).getByText('Unable to check')).toBeInTheDocument();
     expect(within(panel).getByText('Never')).toBeInTheDocument();
@@ -1869,7 +1900,7 @@ describe('readable fleet layout', () => {
     render(<App />);
     const row = (await screen.findByText('blocked-run')).closest('tr');
     if (!row) throw new Error('blocked row missing');
-    await user.click(within(row).getByRole('button', { name: 'Details for blocked-run' }));
+    await user.click(row);
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
     expect(within(panel).getByText('Sync blocked')).toBeInTheDocument();
     expect(within(panel).getByText('The host run worktree changed, so sync will refuse to overwrite it.')).toBeInTheDocument();
@@ -1932,7 +1963,7 @@ describe('readable fleet layout', () => {
     render(<App />);
     const row = (await screen.findByText('active-run')).closest('tr');
     if (!row) throw new Error('agent row missing');
-    await user.click(within(row).getByRole('button', { name: 'Details for active-run' }));
+    await user.click(row);
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
     await user.click(within(panel).getByRole('button', { name: 'View logs' }));
     await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Agent details' })).toBeNull());

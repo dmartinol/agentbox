@@ -40,7 +40,7 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 | --- | --- | --- | --- |
 | Fleet toolbar | Search, project filter, Needs You count, refresh, New agent | — | Wrapping rows; search and filter span the width |
 | Project group | Project name, counts, Workspace entry | Agent rows | Wrapping header badges and actions |
-| Agent row | Name, type, operational status, derived sync state, branch, primary action | Details button opens the detail panel | Name plus type/status/sync on one line; sync state keeps its text and glyph; actions beneath; branch in the detail panel |
+| Agent row | Name, type, operational status, derived sync state, branch, primary action | Selecting the row (click, or Enter/Space on the focused row) opens the detail panel | Name plus type/status/sync on one line; sync state keeps its text and glyph; actions beneath; branch in the detail panel |
 | Agent detail panel | Identity, operational status, project, harness, running model, profile, image | Image-source qualifier and drift warnings; Attach, Logs, Diff, Policy, and Configuration; Sync and Stop; sync state with last-sync time and explanation | Bottom sheet with close control; same grouped actions |
 | Agent configuration | — | Read-only New agent field grid (project, profile, gateway, name, MCP, skills, image, model, approval); identifiers and repository disclosure; runtime host rules disclosure; Copy agent and Delete agent in the footer | Single-column form; footer actions wrap |
 | Workspace | Project, agent tabs, shell tabs | Terminal or cached log tail | Horizontally scrollable tabs; terminal fills the surface |
