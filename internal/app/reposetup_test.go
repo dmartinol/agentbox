@@ -256,6 +256,8 @@ func TestRepoSetupBuildsContentAddressedImagePerAgent(t *testing.T) {
 		"RUN apt-get update && apt-get install -y --no-install-recommends make gcc && rm -rf /var/lib/apt/lists/*\n",
 		"ENV PATH=/usr/local/go/bin:$PATH\n",
 		"RUN curl -fsSL https://go.dev/dl/go1.26.11.linux-arm64.tar.gz -o /tmp/agentbox-toolchain-go && echo '6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e  /tmp/agentbox-toolchain-go' | sha256sum -c - && tar -C /usr/local -xf /tmp/agentbox-toolchain-go && rm -f /tmp/agentbox-toolchain-go\n",
+		"RUN ln -sf /usr/local/go/bin/go /usr/local/bin/go\n",
+		"RUN printf 'export PATH=\"/usr/local/go/bin:$PATH\"\\n' > /etc/profile.d/agentbox-toolchains.sh\n",
 		"USER sandbox\n",
 		"RUN go version\n",
 		"RUN make --version\n",
@@ -537,6 +539,27 @@ func TestRepoImageDockerfileInstallsBinaryToolchains(t *testing.T) {
 	}
 	if strings.Contains(dockerfile, "apt-get install") {
 		t.Fatalf("empty packages still ran apt:\n%s", dockerfile)
+	}
+	if strings.Contains(dockerfile, "ln -sf") || strings.Contains(dockerfile, "/etc/profile.d/") {
+		t.Fatalf("a toolchain already under /usr/local/bin needs no link or profile entry:\n%s", dockerfile)
+	}
+}
+
+func TestRepoImageHashIncludesGeneratedLayerRecipe(t *testing.T) {
+	cfg, err := ParseRepoConfig([]byte(repoSetupManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := repoImageHashWithRecipe("1", "base", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := repoImageHashWithRecipe("2", "base", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("different generated-layer recipes produced the same tag hash %q", first)
 	}
 }
 
