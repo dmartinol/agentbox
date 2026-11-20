@@ -891,7 +891,9 @@ look like human-in-the-loop prompts: Codex runs with
   verified.
 - Attach and Stop: Ready, Working, Waiting for input.
 - Delete: refuses those three unless `--discard`; Creating records still use the
-  existing sync and diff gates.
+  existing sync and diff gates. Cleanup is idempotent: a worktree or branch that
+  was already removed out of band is treated as clean instead of blocking
+  removal of the run record.
 - Sync runs when a run reaches Completed.
 
 ## Diff and sync

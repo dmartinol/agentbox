@@ -701,6 +701,79 @@ func sandboxNotFound(err error) bool {
 		strings.Contains(message, "not found")
 }
 
+// removeRunWorktree removes the run's worktree. Delete must be repeatable:
+// when the worktree is no longer registered with the source repository
+// (removed out of band, or by an earlier partially completed delete), git
+// refuses with "is not a working tree" and the run record could never be
+// deleted. Clear the stale metadata and drop any leftover directory
+// directly so deletion still completes.
+func (a *App) removeRunWorktree(ctx context.Context, r Run) error {
+	_, err := a.git(ctx, r.Source, "worktree", "remove", "--force", r.Worktree)
+	if err == nil {
+		return nil
+	}
+	if !worktreeAlreadyGone(err) {
+		return err
+	}
+	if _, err := a.git(ctx, r.Source, "worktree", "prune"); err != nil {
+		return err
+	}
+	return removeLeftoverWorktree(r)
+}
+
+// removeRunBranch removes the run's branch, treating an already-deleted
+// branch as success so a repeated delete cannot get stuck on it either.
+func (a *App) removeRunBranch(ctx context.Context, r Run) error {
+	_, err := a.git(ctx, r.Source, "branch", "-D", r.Branch)
+	if err == nil || branchAlreadyGone(err) {
+		return nil
+	}
+	return err
+}
+
+// worktreeAlreadyGone reports whether a failed worktree removal means the
+// worktree is no longer registered with its repository.
+func worktreeAlreadyGone(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "is not a working tree") ||
+		strings.Contains(message, "does not exist")
+}
+
+// branchAlreadyGone reports whether a failed branch deletion means the
+// branch no longer exists.
+func branchAlreadyGone(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "branch") && strings.Contains(message, "not found")
+}
+
+// removeLeftoverWorktree deletes a worktree directory that git no longer
+// tracks. Only a path that still looks like a linked worktree of the run's
+// source repository is removed, so an unrelated directory recorded in a run
+// file is never deleted.
+func removeLeftoverWorktree(r Run) error {
+	link := filepath.Join(r.Worktree, ".git")
+	info, err := os.Lstat(link)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	// A .git directory is a main checkout, never a linked worktree.
+	if info.IsDir() {
+		return nil
+	}
+	// Linked worktrees point back at their repository through a "gitdir:" file.
+	body, err := os.ReadFile(link)
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(strings.TrimSpace(string(body)), "gitdir: "+filepath.Join(r.Source, ".git")) {
+		return nil
+	}
+	return os.RemoveAll(r.Worktree)
+}
+
 func (a *App) Delete(ctx context.Context, id string, discard bool) error {
 	r, err := a.Store.LoadRun(id)
 	if err != nil {
@@ -729,10 +802,10 @@ func (a *App) Delete(ctx context.Context, id string, discard bool) error {
 		}
 	}
 	if r.Isolated() {
-		if _, err := a.git(ctx, r.Source, "worktree", "remove", "--force", r.Worktree); err != nil {
+		if err := a.removeRunWorktree(ctx, r); err != nil {
 			return fmt.Errorf("sandbox removed but worktree cleanup failed: %w", err)
 		}
-		if _, err := a.git(ctx, r.Source, "branch", "-D", r.Branch); err != nil {
+		if err := a.removeRunBranch(ctx, r); err != nil {
 			return fmt.Errorf("sandbox removed but branch cleanup failed: %w", err)
 		}
 	}
