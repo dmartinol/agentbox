@@ -347,6 +347,15 @@ manifest into the two reusable artifacts runs consume:
    labels so repository images never depend on label inheritance. Images
    built before the base label existed derive the same value from their
    agent, version, and recipe labels.
+
+   OpenShell replaces the process environment when it starts a sandbox, so
+   the Dockerfile `PATH` is not reliable inside agent shells. The build also
+   links each toolchain binary into `/usr/local/bin` (always on `PATH`) and
+   writes `/etc/profile.d/agentbox-toolchains.sh` for toolchains whose
+   directory holds helper binaries. Binary-scoped network policy still
+   matches the manifest's declared `bin` path because OpenShell resolves the
+   link target.
+
 2. **A policy fragment** at `$AGENTBOX_HOME/policies/repo-<repo>.yaml`,
    shared by every checkout of the repository: the `DefaultPolicy` baseline
    (filesystem, process, hard Landlock requirement) with each `hosts` entry

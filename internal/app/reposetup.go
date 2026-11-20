@@ -360,11 +360,16 @@ func repoImageTag(repo, agent, hash string) string {
 }
 
 func repoImageHash(base string, cfg RepoConfig) (string, error) {
+	return repoImageHashWithRecipe(repoImageRecipe, base, cfg)
+}
+
+func repoImageHashWithRecipe(recipe, base string, cfg RepoConfig) (string, error) {
 	input := struct {
+		Recipe string           `yaml:"recipe"`
 		Base   string           `yaml:"base"`
 		Image  RepoImageSection `yaml:"image"`
 		Verify []string         `yaml:"verify"`
-	}{base, cfg.Image, cfg.Verify}
+	}{recipe, base, cfg.Image, cfg.Verify}
 	b, err := yaml.Marshal(input)
 	if err != nil {
 		return "", err
@@ -409,6 +414,10 @@ func repoKey(repo string) string {
 	return key
 }
 
+// repoImageRecipe invalidates repository image tags when the generated
+// layer changes without a manifest change.
+const repoImageRecipe = "1"
+
 // repoImageDockerfile renders the repository layer: packages and pinned
 // toolchains installed as root, then every verify command run as the
 // sandbox user so an unusable toolchain fails the build, not the run.
@@ -431,6 +440,24 @@ func repoImageDockerfile(base string, cfg RepoConfig) string {
 			b.WriteString(" && install -Dm755 " + archive + " " + tc.Bin)
 		}
 		b.WriteString("\n")
+	}
+	// OpenShell replaces the process PATH at runtime, so the Dockerfile ENV
+	// does not survive into agent shells. Link every toolchain binary into
+	// /usr/local/bin, which is on PATH for login and non-login shells alike,
+	// and keep a profile.d entry for toolchains whose directory holds helper
+	// binaries. OpenShell resolves the link target for binary-scoped policy,
+	// so the manifest's declared binary path still matches.
+	var toolchainDirs []string
+	for _, tc := range cfg.Image.Toolchains {
+		dir := filepath.Dir(tc.Bin)
+		if dir == "/usr/local/bin" {
+			continue
+		}
+		fmt.Fprintf(&b, "RUN ln -sf %s /usr/local/bin/%s\n", tc.Bin, filepath.Base(tc.Bin))
+		toolchainDirs = append(toolchainDirs, dir)
+	}
+	if len(toolchainDirs) > 0 {
+		fmt.Fprintf(&b, "RUN printf 'export PATH=\"%s:$PATH\"\\n' > /etc/profile.d/agentbox-toolchains.sh\n", strings.Join(toolchainDirs, ":"))
 	}
 	b.WriteString("USER sandbox\n")
 	for _, cmd := range cfg.Verify {
