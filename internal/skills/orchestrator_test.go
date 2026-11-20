@@ -247,7 +247,7 @@ func TestOrchestratorSkillAgentBoxVerifyAndReviewUsePRHead(t *testing.T) {
 		"For verify and review, never dispatch with `--project`",
 		"registered project's current checkout, whose HEAD may not be the pull request head",
 		"Create one fresh detached worktree per stage at the full head SHA and pass it with `--source`",
-		"HEAD_SHA=$(gh pr view PR --json headRefOid --jq .headRefOid)",
+		"HEAD_SHA=$(gh api repos/OWNER/REPO/pulls/PR --jq .head.sha)",
 		`git -C REPO worktree add --detach VERIFY_WORKTREE "$HEAD_SHA"`,
 		`git -C REPO worktree add --detach REVIEW_WORKTREE "$HEAD_SHA"`,
 		"agentbox agent start --profile PROFILE --source VERIFY_WORKTREE --gateway GATEWAY",
@@ -266,7 +266,7 @@ func TestOrchestratorSkillOrcaVerifyAndReviewUsePRHead(t *testing.T) {
 	wantAll(t, body,
 		"For verify and review, start each stage in its own fresh child worktree pinned to the full pull request head SHA",
 		"Never reuse the implementer's worktree or the project checkout, whose HEAD may not be the pull request head",
-		`HEAD_SHA=$(gh pr view PR --json headRefOid --jq .headRefOid)`,
+		`HEAD_SHA=$(gh api repos/OWNER/REPO/pulls/PR --jq .head.sha)`,
 		`--worktree new-child --base-branch "$HEAD_SHA"`,
 		"--name ISSUE-verify --agent AGENT --model MODEL --effort EFFORT",
 		"--name ISSUE-review --agent AGENT --model MODEL --effort EFFORT",
@@ -329,7 +329,7 @@ func TestOrchestratorSkillStageForgeMatrix(t *testing.T) {
 		"| implement (host) | Orca child worktree or harness host worker | yes | yes, only `orchestrator/<issue>-<slug>` | yes, with `pr.md` | no | no | no |",
 		"| fix (sandbox) | fixer |",
 		"| fix (host) | fixer | yes | yes, only the existing pull request branch | no |",
-		"| verify | fresh worker | no | no | no | no; it returns gates and observations |",
+		"| verify | fresh worker | no | no | no | no; it returns the artifact the orchestrator posts as `stage:verify` |",
 		"| review | fresh worker | no | no | no | no; it returns the verdict artifact |",
 		"| merge / close | orchestrator | no | no | no | yes | yes | yes |",
 		"| retro | tracker-blind worker | no | no | no | no | no | no |",
@@ -543,11 +543,12 @@ func TestOrchestratorSkillTemplates(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
 		"## Templates",
-		"The skill ships six templates and installs them beside `SKILL.md`",
+		"The skill ships seven templates and installs them beside `SKILL.md`",
 		"| `issue.md` |",
 		"| `pr.md` |",
 		"| `verdict.md` |",
 		"| `state.md` |",
+		"| `plan.md` |",
 		"| `review-task.md` |",
 		"| `verify-task.md` |",
 		"Resolve a template from the first source that defines it",
@@ -693,7 +694,7 @@ func TestOrchestratorSkillStateSchema(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
 		"<!-- orchestrator-state -->",
-		"schema: 2",
+		"schema: 3",
 		"workflow_id:",
 		"orchestrator: {runtime:",
 		"stages:",
@@ -714,7 +715,7 @@ func TestOrchestratorSkillStateSchema(t *testing.T) {
 // provenance.
 func TestOrchestratorTemplateFiles(t *testing.T) {
 	files := Files("agentbox-orchestrator")
-	wantNames := []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md", "review-task.md", "verify-task.md"}
+	wantNames := []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md", "plan.md", "review-task.md", "verify-task.md"}
 	if len(files) != len(wantNames) {
 		t.Fatalf("files = %v", files)
 	}
@@ -738,8 +739,9 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 	headings := map[string][]string{
 		"issue.md":       {"## At a glance", "## Summary", "## Current behavior", "## Proposed design", "<summary>Design detail", "## Acceptance criteria", "## Test plan", "## Risks", "## Out of scope", "## Related"},
 		"pr.md":          {"## At a glance", "## What changed", "## Reviewer guide", "<summary>Full change list", "## Evidence", "**Independent checks**", "Closes #<issue>", "## AGENTS.md check", "## Risks", "## Follow-ups", "## Provenance"},
-		"verdict.md":     {"## Verdict", "## Severity bar", "## Review scope", "## Findings", "## Evidence at commit", "## Required changes", "## Follow-ups", "## Provenance"},
-		"state.md":       {"<!-- orchestrator-state -->", "schema: 2", "workflow_id:", "configuration:", "selection_sources:", "findings:", "review_cycles_max:"},
+		"verdict.md":     {"## Verdict", "## Severity bar", "## Review scope", "## Independence", "## Findings", "## Evidence at commit", "## Required changes", "## Follow-ups", "## Provenance"},
+		"state.md":       {"<!-- orchestrator-state -->", "schema: 3", "workflow_id:", "configuration:", "selection_sources:", "selection_note:", "findings:", "review_cycles_max:", "tests_added:", "diff_stat:"},
+		"plan.md":        {"## Plan at a glance", "<details>", "<summary>Full plan", "## Acceptance criteria", "## Implementation slices", "## Gate list", "## Task spec for the implementer", "## Risks", "## Out of scope", "## Provenance"},
 		"review-task.md": {"## Role", "## Scope", "## Severity bar", "## Checklist", "## Output", "## Provenance"},
 		"verify-task.md": {"## Role", "## Scope", "## Output", "## Provenance"},
 	}
@@ -748,6 +750,7 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 		"pr.md":          "**" + testFooterIcon + " Implemented by AgentBox (<agent>)** · reviewed [<short-sha>]",
 		"verdict.md":     "**" + testFooterIcon + " Reviewed [<short-sha>]",
 		"state.md":       "**" + testFooterIcon + " State maintained by AgentBox orchestrator 9.9.9** ·",
+		"plan.md":        "**" + testFooterIcon + " Planned by AgentBox orchestrator (<agent>)** · base [<short-sha>]",
 		"review-task.md": "**" + testFooterIcon + " Reviewed [<short-sha>]",
 		"verify-task.md": "**" + testFooterIcon + " Verified [<short-sha>]",
 	}
@@ -911,7 +914,7 @@ func TestOrchestratorSkillInstallsAndLists(t *testing.T) {
 	if body := mustRead(t, canonical); InstalledVersion(body) != "1.0.0" {
 		t.Fatalf("orchestrator version = %s", InstalledVersion(body))
 	}
-	for _, template := range []string{"issue.md", "pr.md", "verdict.md", "state.md", "review-task.md", "verify-task.md"} {
+	for _, template := range []string{"issue.md", "pr.md", "verdict.md", "state.md", "plan.md", "review-task.md", "verify-task.md"} {
 		if _, err := os.Stat(filepath.Join(dir, template)); err != nil {
 			t.Fatalf("%s is not installed beside SKILL.md: %v", template, err)
 		}
@@ -938,7 +941,7 @@ func TestOrchestratorSkillInstallsAndLists(t *testing.T) {
 		if stateOf(t, statuses, "agentbox-orchestrator", "agents").State != "current" {
 			t.Fatal("orchestrator not current after install")
 		}
-		if len(status.Files) != 6 {
+		if len(status.Files) != 7 {
 			t.Fatalf("template statuses = %+v", status.Files)
 		}
 		for _, file := range status.Files {
@@ -1060,5 +1063,264 @@ func TestOrchestratorSkillDocumentsRoleAssignment(t *testing.T) {
 		"opencode run --agent agentbox-verifier",
 		"Codex dispatches the role as a subagent from a top-level session",
 		"Never add a launcher agent whose only job is to start a stage role and relay its result",
+	)
+}
+
+// TestOrchestratorSkillForgeReadsUseGHAPI keeps every documented forge read on
+// the REST path that works in this repository, and keeps the deprecation note
+// that explains why.
+func TestOrchestratorSkillForgeReadsUseGHAPI(t *testing.T) {
+	docs := []string{rawSkill(t, "agentbox-orchestrator")}
+	for _, file := range Files("agentbox-orchestrator") {
+		raw, err := embedded.ReadFile(file.Source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		docs = append(docs, string(raw))
+	}
+	for _, body := range docs {
+		for _, banned := range []string{"gh pr view ", "gh issue view "} {
+			if strings.Contains(body, banned) {
+				t.Fatalf("documentation uses %q, which fails in this repository", banned)
+			}
+		}
+	}
+	wantAll(t, collapsed(t),
+		"Forge reads use the REST API through `gh api`",
+		"which is deprecated and fails in this repository",
+		`gh api "repos/$OWNER/$REPO/issues/$ISSUE"`,
+		`gh api --paginate "repos/$OWNER/$REPO/issues/$ISSUE/comments"`,
+		`gh api "repos/$OWNER/$REPO/pulls/$PR" --jq .head.sha`,
+		`gh api repos/<owner>/<repo>/pulls/<pr> --jq .head.sha`,
+	)
+}
+
+// TestOrchestratorSkillNormalizeBeforePush pins the squash step, its identity,
+// and the head check verify and review must report.
+func TestOrchestratorSkillNormalizeBeforePush(t *testing.T) {
+	wantAll(t, collapsed(t),
+		"#### Normalize the branch before push",
+		"one empty `AgentBox starting snapshot` commit",
+		`git -C RUN_WORKTREE reset --soft "$BASE_SHA"`,
+		`-c user.email="agentbox@local.invalid"`,
+		`commit -C "$WRITER_SHA"`,
+		"Push only `orchestrator/<issue>-<slug>`",
+		"Record `synced_commit` as the worker's commit before the squash",
+		"Verify and review must each report `git diff <reviewed-sha>..HEAD --stat` as empty",
+	)
+}
+
+// TestOrchestratorSkillFixerRecipeStartsAtPRHead keeps the fixer on the pull
+// request head instead of the project's default branch.
+func TestOrchestratorSkillFixerRecipeStartsAtPRHead(t *testing.T) {
+	wantAll(t, collapsed(t),
+		"#### Fixer launch",
+		"`agentbox agent start --project PROJECT` checks out the registered project's current branch",
+		"would silently lose the implementation",
+		`git -C REPO worktree add --detach FIX_WORKTREE "$HEAD_SHA"`,
+		"agentbox agent start --profile PROFILE --source FIX_WORKTREE --gateway GATEWAY",
+	)
+}
+
+// TestOrchestratorSkillDeleteAndCleanupRecipes pins the working delete command
+// and the cleanup order used at close.
+func TestOrchestratorSkillDeleteAndCleanupRecipes(t *testing.T) {
+	wantAll(t, collapsed(t),
+		"### Cleanup after the final report",
+		"`--discard` is a flag of `agentbox agent delete` and must come before the run id",
+		"agentbox agent delete --discard RUN_ID",
+		"1. delete every recorded run, while its worktree mapping still exists;",
+		"2. remove the run and stage worktrees",
+		"3. `git worktree prune`;",
+		"4. delete the local branch, then the remote",
+		"Never delete a branch whose commit SHA is not recorded",
+	)
+}
+
+// TestOrchestratorStateTemplateExpressesSelectionAndIterations covers the
+// schema 3 fields a run needs to record a manual selection and a writer
+// iteration without reconstructing them later.
+func TestOrchestratorStateTemplateExpressesSelectionAndIterations(t *testing.T) {
+	content, err := EmbeddedFile("agentbox-orchestrator", "state.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flat := strings.Join(strings.Fields(string(content)), " ")
+	wantAll(t, flat,
+		"schema: 3",
+		"selection_note:",
+		"iteration: 1",
+		"dispatch: <split|combined>",
+		"started: <RFC3339>",
+		"ended: <RFC3339>",
+		"synced_commit: <full-sha>",
+		"artifact: <comment-url>",
+		"tests_added:",
+		"diff_stat:",
+		"Every dispatch appends a `stages[]` entry; never overwrite the previous one",
+		"`iteration` counts dispatches of the same stage from 1",
+		"the only source of a footer duration",
+		"Adoption rule: the state record wins",
+	)
+	wantAll(t, collapsed(t),
+		"**Workflow identity adoption.** The state record wins over every other copy of the identity",
+		"post one supersession note on the issue that names both identities",
+		"update the body marker in place",
+		"Schema 3 adds `selection_note`",
+		"#### Reproduce a running worker's selection",
+		"agentbox agent list --json",
+		"copied from running agent run-84b3cbf16f23",
+	)
+}
+
+// TestOrchestratorSkillWorkflowAdoptionStatedOnce keeps the adoption rule in
+// one place and referenced from triage and the tracker adapter.
+func TestOrchestratorSkillWorkflowAdoptionStatedOnce(t *testing.T) {
+	body := rawSkill(t, "agentbox-orchestrator")
+	if got := strings.Count(body, "**Workflow identity adoption.**"); got != 1 {
+		t.Fatalf("adoption rule is stated %d times, want exactly one", got)
+	}
+	wantAll(t, collapsed(t),
+		"On resume, adopt the recorded identity before anything else",
+		"**Workflow identity adoption** describes",
+		"adopt the recorded workflow identity before using it, as **Workflow identity adoption** requires",
+	)
+}
+
+// TestOrchestratorPlanTemplateScanLayer pins the five-row scan layer and the
+// collapsed detail of the plan comment.
+func TestOrchestratorPlanTemplateScanLayer(t *testing.T) {
+	content, err := EmbeddedFile("agentbox-orchestrator", "plan.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(content)
+	lines := strings.Split(body, "\n")
+	start := -1
+	for i, line := range lines {
+		if line == "## Plan at a glance" {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		t.Fatal("plan.md has no scan layer")
+	}
+	var rows int
+	inTable := false
+	for _, line := range lines[start+1:] {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "|") {
+			if inTable {
+				break
+			}
+			if trimmed == "" || trimmed == "## Plan at a glance" {
+				continue
+			}
+			continue
+		}
+		inTable = true
+		if strings.HasPrefix(trimmed, "| ---") || strings.HasPrefix(trimmed, "| Field | Value |") {
+			continue
+		}
+		rows++
+	}
+	if rows < 1 || rows > 5 {
+		t.Fatalf("plan scan layer has %d rows, want 1..5", rows)
+	}
+	flat := strings.Join(strings.Fields(body), " ")
+	wantAll(t, flat,
+		"| What |",
+		"| Why |",
+		"| Size |",
+		"| Gates |",
+		"| Risks |",
+		"<summary>Full plan</summary>",
+		"## Gate list",
+		"A raw `npm` command inside the sandbox can fail with `EACCES`",
+		"| Full | `make test` |",
+	)
+}
+
+// TestOrchestratorVerdictTemplateStatesIndependence keeps the independence
+// basis on the face of the verdict, not only in the footer.
+func TestOrchestratorVerdictTemplateStatesIndependence(t *testing.T) {
+	content, err := EmbeddedFile("agentbox-orchestrator", "verdict.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flat := strings.Join(strings.Fields(string(content)), " ")
+	wantAll(t, flat,
+		"## Independence",
+		"not only in the footer",
+		"same agent and model as the implementer",
+		"session and worktree isolation do not make the review independent",
+		"Head check: `git diff <reviewed-sha>..HEAD --stat` is empty",
+	)
+}
+
+// TestOrchestratorSkillCombinedTriageAndPlan covers the opt-in fast path and
+// the guarantees it cannot skip.
+func TestOrchestratorSkillCombinedTriageAndPlan(t *testing.T) {
+	wantAll(t, collapsed(t),
+		"**Optional combined dispatch.**",
+		"triage and plan may run as one worker dispatch",
+		"Record both stages with the same `started` and `ended` values",
+		"`dispatch: combined`",
+		"the plan still needs its scan layer, gate list, and implementer task spec",
+		"Ambiguous issues keep the split.",
+	)
+}
+
+// TestOrchestratorSkillPrePushDiffReviewAndGitProbe covers the orchestrator
+// diff-review checklist and the real-git probe shared by verify and review.
+func TestOrchestratorSkillPrePushDiffReviewAndGitProbe(t *testing.T) {
+	wantAll(t, collapsed(t),
+		"### Pre-push diff review (orchestrator)",
+		"| Allowed files |",
+		"| Secrets |",
+		"| Fake vs real tests |",
+		"| `dist` reproducibility |",
+		"| Document accuracy |",
+		"| Acceptance criterion → test |",
+		"| Host-side focused run |",
+		"A failing answer is fixed before push",
+		"### Real-git probe (git-derived behavior)",
+		"| up-to-date | local branch equals its upstream |",
+		"| behind | local branch behind its upstream |",
+		"| diverged | local and upstream each have unique commits |",
+		"| detached | HEAD is not on a branch |",
+		"| unborn | repository has no commit yet |",
+		"| non-repository | the path is not inside a git worktree |",
+	)
+	for _, role := range []string{"agentbox-verifier", "agentbox-reviewer"} {
+		instructions, err := RoleByName(role)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantAll(t, strings.Join(strings.Fields(instructions.Instructions), " "),
+			"git diff <reviewed-sha>..HEAD --stat",
+			"non-repository",
+			"unborn",
+		)
+	}
+}
+
+// TestOrchestratorRetroChecksExistingWork keeps retro from proposing what is
+// already at head.
+func TestOrchestratorRetroChecksExistingWork(t *testing.T) {
+	wantAll(t, collapsed(t),
+		"the diff stat, and the tests added by the change",
+		"must not already exist at head",
+		"Retro checks the record's `tests_added` and `diff_stat`",
+	)
+	retro, err := RoleByName("agentbox-retro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAll(t, strings.Join(strings.Fields(retro.Instructions), " "),
+		"tests_added",
+		"diff stat",
+		"not already present at head",
 	)
 }

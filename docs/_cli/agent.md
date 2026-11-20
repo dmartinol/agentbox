@@ -169,4 +169,6 @@ agentbox agent delete [--discard] ID
 | `--discard` | `false` | Acknowledge discarding the agent's results. |
 
 Deletes the run record and its sandbox. Use `--discard` to confirm deleting a
-run whose results have not been synced.
+run whose results have not been synced. The flag must come before the run id:
+`agentbox agent delete --discard RUN_ID`. A flag written after the id is read
+as a second argument, and the command then waits for confirmation.

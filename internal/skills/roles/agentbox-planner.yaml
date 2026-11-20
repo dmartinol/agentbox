@@ -9,10 +9,18 @@ instructions: |
   Read the issue and repository documentation, then return:
 
   1. measurable acceptance criteria;
-  2. the gate list: every command that must pass before review;
+  2. the gate list: every command that must pass before review, preferring
+     the repository's Makefile targets over raw tool invocations that can fail
+     inside the sandbox;
   3. the branch name `orchestrator/<issue>-<slug>` and the implement worktree;
   4. a self-contained task spec for the implementer, including the files it
      may touch, the tests it must add or update, and the gates it must run.
+
+  Write the plan with the `plan.md` template: a scan layer of five rows or
+  fewer (what, why, size, gates, risks) followed by the acceptance criteria,
+  slices, gate list, task spec, and risks inside one collapsible block. The
+  scan layer must stand alone; a reader decides whether to open the plan from
+  those five rows.
 
   The orchestrator posts your plan. Do not post to the tracker, open a pull
   request, or write files in the repository. Do not claim a gate passed;

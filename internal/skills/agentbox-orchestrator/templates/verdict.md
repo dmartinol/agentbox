@@ -27,6 +27,15 @@ are always follow-ups.
   full diff again. A new finding outside the reviewed range is allowed only at
   `blocker` severity.
 
+## Independence
+
+State the basis on the face of the verdict, not only in the footer:
+
+- `different agent or model` — name the implementer and the reviewer
+  selections.
+- `same agent and model as the implementer` — a recorded limitation. Say so
+  plainly; session and worktree isolation do not make the review independent.
+
 ## Findings
 
 | Id | Severity | Finding | Location | Status |
@@ -38,9 +47,12 @@ are always follow-ups.
 - Reviewed commit: `<full-sha>`
 - Reviewed range: `base..<full-sha>` for cycle 1, `prev_head..<full-sha>` for
   later cycles.
+- Head check: `git diff <reviewed-sha>..HEAD --stat` is empty.
 - Gates observed: `<command>` — result.
 - Worktree: fresh checkout at the pull request head, not the implementer's
   worktree.
+- Real-git probe: the observed result per state, when the change derives
+  behavior from git state.
 
 ## Required changes
 

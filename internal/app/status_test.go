@@ -299,4 +299,7 @@ func TestStopRefusesTerminalStatuses(t *testing.T) {
 	if err := app.Stop(ctx, run.ID); err == nil || !strings.Contains(err.Error(), "stop applies to") {
 		t.Fatalf("completed run stop = %v", err)
 	}
+	if err := app.Stop(ctx, run.ID); err == nil || !strings.Contains(err.Error(), "agentbox agent delete --discard "+run.ID) {
+		t.Fatalf("stop guidance does not put --discard before the run id: %v", err)
+	}
 }
