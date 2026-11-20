@@ -695,9 +695,13 @@ artifact so the line never depends on emoji rendering:
   `worker`, `worker_id`, `model`, `commit`, and `pr`. Never shorten a footer by
   dropping a marker field, and use `null` only where a value genuinely does not
   exist yet.
-- The visible footer never repeats the full model id; name the agent instead.
-  It prints the skill version once, in the state footer, and shows a dirty
-  build as `(dirty build)` rather than a bare `-dirty` suffix.
+- Never print a full registry model id in visible text, whether that is a
+  footer, an evidence table, or narrative prose. Use the short name from the
+  close rule, such as `codex/DeepSeek-V4.1`, and add the effort when the
+  runtime recorded one, as in `codex/GLM5.3/high`. The full id belongs only in
+  the marker and in the state ledger.
+- The footer prints the skill version once, in the state footer, and shows a
+  dirty build as `(dirty build)` rather than a bare `-dirty` suffix.
 - Link every commit, issue, and pull request. Label the commit so a reader
   knows which one it is: `base`, `reviewed`, or `merged`.
 - Fill `reviewed` or `merged` only after that check happened at that commit.
