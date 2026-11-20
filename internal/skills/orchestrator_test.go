@@ -494,7 +494,7 @@ func TestOrchestratorSkillProvenance(t *testing.T) {
 		"\"commit\":\"0123456789abcdef0123456789abcdef01234567\"",
 		"\"pr\":42",
 		"and exactly one visible footer",
-		"**" + testFooterIcon + " Reviewed [0123456](https://github.com/owner/name/commit/0123456789abcdef0123456789abcdef01234567) by AgentBox reviewer (codex)** · approve · 0 findings · independence: different model · [#42](https://github.com/owner/name/pull/42) · took 16m 48s",
+		"**"+testFooterIcon+" Reviewed [0123456](https://github.com/owner/name/commit/0123456789abcdef0123456789abcdef01234567) by AgentBox reviewer (codex)** · approve · 0 findings · independence: different model · [#42](https://github.com/owner/name/pull/42) · took 16m 48s",
 		"In the table below, `<icon>` is the literal mark",
 		"| Triage issue body |",
 		"| Plan comment |",
