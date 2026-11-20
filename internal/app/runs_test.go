@@ -62,6 +62,97 @@ func TestDeleteProtectsActiveAndReviewableRunData(t *testing.T) {
 	}
 }
 
+// newDeleteRunner fakes a sandbox that is already gone while running git
+// against the real repositories, as a repeated delete would encounter.
+func newDeleteRunner() *fakeRunner {
+	runner := &fakeRunner{}
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "git" {
+			return (OSRunner{}).Output(context.Background(), "git", call.args...)
+		}
+		if call.name == "openshell" && containsCommand(call.args, "sandbox", "get") {
+			return nil, errors.New("sandbox not found")
+		}
+		return nil, nil
+	}
+	return runner
+}
+
+func TestDeleteToleratesWorktreeRemovedOutOfBand(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		leftoverDir bool
+	}{
+		{name: "directory gone"},
+		{name: "leftover directory", leftoverDir: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app, run, _ := createSyncFixture(t)
+			// Simulate cleanup that happened outside AgentBox: worktree and
+			// branch are gone but the run record still references them.
+			cmd(t, run.Source, "git", "worktree", "remove", "--force", run.Worktree)
+			cmd(t, run.Source, "git", "branch", "-D", run.Branch)
+			if tc.leftoverDir {
+				// Simulate a stale worktree directory that git no longer
+				// tracks, e.g. after the source repository was re-cloned.
+				if err := os.MkdirAll(run.Worktree, 0700); err != nil {
+					t.Fatal(err)
+				}
+				gitdir := filepath.Join(run.Source, ".git", "worktrees", run.ID)
+				link := "gitdir: " + gitdir + "\n"
+				if err := os.WriteFile(filepath.Join(run.Worktree, ".git"), []byte(link), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(run.Worktree, "leftover.txt"), []byte("stale\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			run.Status = StatusStopped
+			if err := app.Store.SaveRun(run); err != nil {
+				t.Fatal(err)
+			}
+			app.Runner = newDeleteRunner()
+			if err := app.Delete(context.Background(), run.ID, true); err != nil {
+				t.Fatalf("delete got stuck on removed worktree: %v", err)
+			}
+			if _, err := app.Store.LoadRun(run.ID); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("run record still present: %v", err)
+			}
+			if _, err := os.Stat(run.Worktree); !os.IsNotExist(err) {
+				t.Fatalf("worktree directory still present: %v", err)
+			}
+			if branches := cmd(t, run.Source, "git", "branch", "--list", run.Branch); strings.TrimSpace(branches) != "" {
+				t.Fatalf("branch still present: %s", branches)
+			}
+		})
+	}
+}
+
+func TestDeleteKeepsUnrelatedDirectoryAtRecordedWorktreePath(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	cmd(t, run.Source, "git", "worktree", "remove", "--force", run.Worktree)
+	cmd(t, run.Source, "git", "branch", "-D", run.Branch)
+	// An unrelated directory at the recorded path must not be destroyed.
+	notes := filepath.Join(run.Worktree, "notes.txt")
+	if err := os.MkdirAll(run.Worktree, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(notes, []byte("user data\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run.Status = StatusStopped
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	app.Runner = newDeleteRunner()
+	if err := app.Delete(context.Background(), run.ID, true); err != nil {
+		t.Fatalf("delete got stuck on unrelated directory: %v", err)
+	}
+	if _, err := os.Stat(notes); err != nil {
+		t.Fatalf("unrelated directory was removed: %v", err)
+	}
+}
+
 func TestStopRetainsSandboxWhenSyncRefusesLocalConflict(t *testing.T) {
 	app, run, _ := createSyncFixture(t)
 	if err := os.WriteFile(filepath.Join(run.Worktree, "tracked.txt"), []byte("local edit during run\n"), 0600); err != nil {
