@@ -53,7 +53,7 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 | --- | --- | --- | --- |
 | Providers | Name, type, credential-env name, usage count | Full credential names, full usage lists, edit/delete | Compact card: identity plus inline metadata; actions beneath |
 | Profiles | Name, agent, mode, model, provider | Expandable model, edit/delete; deprecated legacy-policy selector | Compact card: identity plus inline metadata; actions beneath |
-| Projects | Name, isolation | Expandable Git root; repository-details disclosure with manifest, fragment, host-rule, worker-image, and warning status; edit/delete | Compact card: identity plus inline metadata; repository status wraps in readable text |
+| Projects | Name, checkout state, isolation | Expandable Git root; repository-details disclosure with checkout state and reason, the local-refs/no-fetch basis, and manifest, fragment, host-rule, worker-image, and warning status; edit/delete | Compact card: identity plus inline metadata; checkout and repository status wrap in readable text |
 | Images | Kind badge (`FOUNDATIONAL` or `PROJECT <name>`), reference, agent, version, recipe, platform | Expandable reference, repository provenance disclosure (manifest digest, base image), delete; registry matches; repository setup (project, agents, validation plan, streamed build) | Compact card: identity plus inline metadata; actions beneath; provenance disclosure and setup form wrap with their actions |
 | Gateways | Name, status, type | Expandable endpoint, inspect payload, remove | Compact card; toolbar wraps |
 | MCP Tools | Name, agent, server names | Expandable server list, edit/delete | Compact card; explanatory panel below |

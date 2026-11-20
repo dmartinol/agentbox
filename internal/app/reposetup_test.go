@@ -63,17 +63,30 @@ func newRepoSetupEnv(t *testing.T, manifest string) *repoSetupEnv {
 
 func (e *repoSetupEnv) output(call recordedCommand) ([]byte, error) {
 	if call.name == "git" {
-		if len(call.args) >= 3 && call.args[0] == "-C" && call.args[2] == "rev-parse" {
-			if msg, failed := e.gitFail["rev-parse"]; failed {
-				return nil, errors.New(msg)
+		if len(call.args) >= 4 && call.args[0] == "-C" {
+			switch call.args[2] {
+			case "rev-parse":
+				if msg, failed := e.gitFail["rev-parse"]; failed {
+					return nil, errors.New(msg)
+				}
+				switch call.args[3] {
+				case "--show-toplevel":
+					return []byte(e.toplevel + "\n"), nil
+				case "--abbrev-ref":
+					return []byte("origin/main\n"), nil
+				case "--verify":
+					return []byte("abc123\n"), nil
+				}
+			case "rev-list":
+				return []byte("0\t22\n"), nil
+			case "symbolic-ref":
+				return []byte("main\n"), nil
+			case "remote":
+				if msg, failed := e.gitFail["remote"]; failed {
+					return nil, errors.New(msg)
+				}
+				return []byte("git@github.com:owner/repo.git\n"), nil
 			}
-			return []byte(e.toplevel + "\n"), nil
-		}
-		if len(call.args) >= 3 && call.args[0] == "-C" && call.args[2] == "remote" {
-			if msg, failed := e.gitFail["remote"]; failed {
-				return nil, errors.New(msg)
-			}
-			return []byte("git@github.com:owner/repo.git\n"), nil
 		}
 		return nil, fmt.Errorf("unexpected git call: %#v", call)
 	}
@@ -480,7 +493,7 @@ func TestRepoSetupActionableErrors(t *testing.T) {
 	// Missing manifest.
 	env.toplevel = t.TempDir()
 	_, err := app.RepoSetupWithOutput(context.Background(), RepoSetupOptions{Dry: true}, nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "no repository manifest") || !errors.Is(err, os.ErrNotExist) {
+	if err == nil || !strings.Contains(err.Error(), "no repository manifest") || !strings.Contains(err.Error(), "22 behind") || !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing manifest error = %v", err)
 	}
 	env.toplevel = env.root

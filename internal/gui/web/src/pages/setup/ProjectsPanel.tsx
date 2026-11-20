@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
-import type { Project } from '../../types';
+import type { Project, ProjectCheckout } from '../../types';
 import { Alert } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
 import { ActionButton } from '../../components/ui/action';
@@ -15,50 +15,91 @@ import { Disclosure } from '../../components/ui/disclosure';
 
 const emptyProject: Project = { version: 1, name: '', root: '', worktree: true };
 
+function checkoutText(checkout?: ProjectCheckout): string {
+  if (!checkout) return 'unknown';
+  switch (checkout.state) {
+    case 'up-to-date':
+      return 'up to date';
+    case 'behind':
+      return `${checkout.behind} behind`;
+    case 'ahead':
+      return `${checkout.ahead} ahead`;
+    case 'diverged':
+      return `${checkout.ahead} ahead, ${checkout.behind} behind`;
+    case 'no-upstream':
+      return 'no upstream';
+    default:
+      return 'unknown';
+  }
+}
+
+function ProjectCheckoutRow({ checkout }: { checkout?: ProjectCheckout }) {
+  return (
+    <>
+      <dt className="text-muted">Checkout</dt>
+      <dd className="min-w-0 break-words">
+        {checkoutText(checkout)}
+        {checkout?.reason ? <span className="block text-xs text-muted">{checkout.reason}</span> : null}
+        <span className="block text-xs text-muted">Derived from local remote-tracking refs; no fetch.</span>
+      </dd>
+    </>
+  );
+}
+
 function ProjectRepositoryDetails({ project }: { project: Project }) {
   const status = project.repo_status;
-  if (!status) {
-    return <p className="text-sm text-muted">Repository status unavailable.</p>;
-  }
   return (
     <div className="space-y-2 text-sm">
-      <p className="break-words text-xs text-muted">Read-only · edit .agentbox/config.yaml or run agentbox repo setup</p>
+      {status ? <p className="break-words text-xs text-muted">Read-only · edit .agentbox/config.yaml or run agentbox repo setup</p> : null}
       <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-2 gap-y-1">
-        <dt className="text-muted">Manifest</dt>
-        <dd className="min-w-0">{status.manifest_present ? 'present' : 'absent'} · <span className="break-all">{status.manifest_path}</span>{status.manifest_digest ? ` · ${status.manifest_digest}` : ''}</dd>
-        <dt className="text-muted">Fragment</dt>
-        <dd className="min-w-0">{status.fragment_status}{status.fragment_path ? ' · ' : ''}{status.fragment_path ? <span className="break-all">{status.fragment_path}</span> : null}{status.fragment_digest ? ` · ${status.fragment_digest}` : ''}</dd>
+        <ProjectCheckoutRow checkout={project.checkout} />
+        {status ? (
+          <>
+            <dt className="text-muted">Manifest</dt>
+            <dd className="min-w-0">{status.manifest_present ? 'present' : 'absent'} · <span className="break-all">{status.manifest_path}</span>{status.manifest_digest ? ` · ${status.manifest_digest}` : ''}</dd>
+            <dt className="text-muted">Fragment</dt>
+            <dd className="min-w-0">{status.fragment_status}{status.fragment_path ? ' · ' : ''}{status.fragment_path ? <span className="break-all">{status.fragment_path}</span> : null}{status.fragment_digest ? ` · ${status.fragment_digest}` : ''}</dd>
+          </>
+        ) : null}
       </dl>
-      <div>
-        <div className="text-xs font-semibold uppercase tracking-wide text-muted">Manifest host rules</div>
-        {status.host_rules?.length ? (
-          <ul className="mt-1 space-y-1">
-            {status.host_rules.map((rule) => (
-              <li key={`${rule.host}:${rule.port}`} className="break-all font-mono text-xs">
-                {rule.host}:{rule.port} — {rule.binaries.join(', ')}
-              </li>
-            ))}
-          </ul>
-        ) : <p className="mt-1 text-xs text-muted">None</p>}
-      </div>
-      <div>
-        <div className="text-xs font-semibold uppercase tracking-wide text-muted">Worker images</div>
-        <ul className="mt-1 space-y-1">
-          {status.worker_images.map((image) => (
-            <li key={image.agent} className="break-all text-xs">
-              {image.agent}: {image.status}{image.reference ? ` · ${image.reference}` : ''}
-            </li>
-          ))}
-        </ul>
-      </div>
-      {status.warnings?.length ? (
+      {status ? (
+        <>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted">Manifest host rules</div>
+            {status.host_rules?.length ? (
+              <ul className="mt-1 space-y-1">
+                {status.host_rules.map((rule) => (
+                  <li key={`${rule.host}:${rule.port}`} className="break-all font-mono text-xs">
+                    {rule.host}:{rule.port} — {rule.binaries.join(', ')}
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="mt-1 text-xs text-muted">None</p>}
+          </div>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted">Worker images</div>
+            <ul className="mt-1 space-y-1">
+              {status.worker_images.map((image) => (
+                <li key={image.agent} className="break-all text-xs">
+                  {image.agent}: {image.status}{image.reference ? ` · ${image.reference}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+          {status.warnings?.length ? (
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted">Warnings</div>
+              <ul className="mt-1 list-disc space-y-1 pl-4 text-xs">
+                {status.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+              </ul>
+            </div>
+          ) : null}
+        </>
+      ) : (
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted">Warnings</div>
-          <ul className="mt-1 list-disc space-y-1 pl-4 text-xs">
-            {status.warnings.map((warning) => <li key={warning}>{warning}</li>)}
-          </ul>
+          <p className="text-sm text-muted">Repository status unavailable.</p>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -125,7 +166,7 @@ export function ProjectsPanel({ onChanged }: { onChanged?: () => void }) {
         <EmptyState title="No projects" description="Register a Git repository before starting agents." />
       ) : (
         <Table>
-          <THead><TR><TH className="w-[18%]">Name</TH><TH>Root</TH><TH className="w-[12%]">Isolation</TH><TH className="w-[8%]">Action</TH></TR></THead>
+          <THead><TR><TH className="w-[18%]">Name</TH><TH>Root</TH><TH className="w-[12%]">Checkout</TH><TH className="w-[12%]">Isolation</TH><TH className="w-[8%]">Action</TH></TR></THead>
           <TBody>
             {projects.map((project) => (
               <TR key={project.name}>
@@ -138,6 +179,7 @@ export function ProjectsPanel({ onChanged }: { onChanged?: () => void }) {
                     </Disclosure>
                   </div>
                 </TD>
+                <TD label="Checkout" className="break-words">{checkoutText(project.checkout)}</TD>
                 <TD label="Isolation">{project.worktree === false ? 'direct' : 'worktree'}</TD>
                 <TD label="Actions">
                   <div className="flex flex-wrap gap-1">

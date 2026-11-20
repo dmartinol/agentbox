@@ -11,7 +11,7 @@ import { McpPanel } from '../src/pages/setup/McpPanel';
 import { SkillsPanel } from '../src/pages/setup/SkillsPanel';
 import { mcps, overview, providers, runs, skillEntries, skillStatus } from './fixtures';
 import { formatSyncTimestamp } from '../src/lib/text';
-import type { Run } from '../src/types';
+import type { ProjectCheckout, Run } from '../src/types';
 
 const xtermHooks = vi.hoisted(() => ({
   resize: undefined as undefined | ((size: { cols: number; rows: number }) => void)
@@ -446,6 +446,54 @@ describe('destructive row actions', () => {
     const row = (await screen.findAllByText(rowText))[0].closest('tr');
     if (!row) throw new Error(`${rowText} row missing`);
     expect(within(row).getByRole('button', { name: /^(Delete|Remove)$/ })).toHaveClass('text-danger');
+  });
+});
+
+describe('project checkout state', () => {
+  const baseProject = { version: 1, name: 'demo', root: '/repo', worktree: true, manifest: true };
+  const checkoutCases: Array<[string, ProjectCheckout]> = [
+    ['up to date', { state: 'up-to-date', behind: 0, ahead: 0 }],
+    ['22 behind', { state: 'behind', behind: 22, ahead: 0 }],
+    ['3 ahead', { state: 'ahead', behind: 0, ahead: 3 }],
+    ['2 ahead, 5 behind', { state: 'diverged', behind: 5, ahead: 2 }],
+    ['no upstream', { state: 'no-upstream', behind: 0, ahead: 0 }],
+    ['unknown', { state: 'unknown', behind: 0, ahead: 0 }]
+  ];
+
+  it.each(checkoutCases)('renders checkout state "%s" in its own table cell', async (label, checkout) => {
+    mockRoutes({ ...defaultRoutes(), 'GET /api/projects': [{ ...baseProject, checkout }] });
+    render(<ProjectsPanel />);
+    const row = (await screen.findByText('demo')).closest('tr');
+    if (!row) throw new Error('project row missing');
+    const cell = within(row).getAllByRole('cell').find((candidate) => candidate.getAttribute('data-label') === 'Checkout');
+    if (!cell) throw new Error('checkout cell missing');
+    expect(cell).toHaveTextContent(label);
+    expect(cell).not.toHaveClass('truncate');
+    const headers = within(row.closest('table') as HTMLTableElement).getAllByRole('columnheader').map((header) => header.textContent);
+    expect(headers.indexOf('Checkout')).toBeGreaterThanOrEqual(0);
+    expect(headers.indexOf('Checkout')).toBeLessThan(headers.indexOf('Isolation'));
+  });
+
+  it('reveals the checkout reason and local-ref basis without repository status', async () => {
+    const user = userEvent.setup();
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/projects': [{ ...baseProject, checkout: { state: 'unknown', behind: 0, ahead: 0, reason: 'rev-list failed' } }]
+    });
+    render(<ProjectsPanel />);
+    const row = (await screen.findByText('demo')).closest('tr');
+    if (!row) throw new Error('project row missing');
+    await user.click(within(row).getByText('Repository details'));
+    expect(within(row).getByText('rev-list failed')).toBeInTheDocument();
+    expect(within(row).getByText('Derived from local remote-tracking refs; no fetch.')).toBeInTheDocument();
+    expect(within(row).getByText('Repository status unavailable.')).toBeInTheDocument();
+  });
+
+  it('keeps the no-projects empty state', async () => {
+    mockRoutes({ ...defaultRoutes(), 'GET /api/projects': [] });
+    render(<ProjectsPanel />);
+    expect(await screen.findByText('No projects')).toBeInTheDocument();
+    expect(screen.getByText('Register a Git repository before starting agents.')).toBeInTheDocument();
   });
 });
 
@@ -911,13 +959,14 @@ describe('repository setup', () => {
   it('shows actionable validation errors next to the action', async () => {
     mockRoutes({
       ...defaultRoutes(),
-      'POST /api/repos/setup': { mockStatus: 500, body: { error: 'no repository manifest at /repo/.agentbox/config.yaml; author .agentbox/config.yaml first and commit it' } }
+      'POST /api/repos/setup': { mockStatus: 500, body: { error: 'no repository manifest at /repo/.agentbox/config.yaml; checkout is 22 behind (derived from local remote-tracking refs; no fetch). If the manifest is already committed upstream, update this checkout first; otherwise author .agentbox/config.yaml first and commit it' } }
     });
     const user = userEvent.setup();
     await openImagesTab(user);
     await user.click(await screen.findByRole('button', { name: 'Set up repository' }));
     expect(await screen.findByText('Repository setup failed')).toBeInTheDocument();
     expect(screen.getByText(/no repository manifest at \/repo\/\.agentbox\/config\.yaml/)).toBeInTheDocument();
+    expect(screen.getByText(/checkout is 22 behind/)).toBeInTheDocument();
   });
 });
 
