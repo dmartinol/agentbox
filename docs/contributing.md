@@ -44,6 +44,18 @@ make race
 The test suite uses temporary repositories and fake command runners by
 default. It does not require a live OpenShell gateway.
 
+### Transient sandbox network failures
+
+Inside an OpenShell 0.1.4 sandbox, a large npm install can fail once with
+`EACCES` against a `198.18.0.x` address. The sandbox log shows
+`transparent_tcp_mapping_denied` and `transparent TCP mapping is expired`:
+the supervisor's transparent DNS mapping expires while npm keeps reusing the
+mapped address. Go module downloads retry this internally; `npm ci` does not.
+
+`make web-install` retries `npm ci` in a fresh process up to three times, and
+the new process re-resolves the registry host. A retry normally recovers. If
+all three attempts fail, keep the sandbox log lines above in the report.
+
 ## GUI changes
 
 Run the frontend checks and rebuild its embedded assets:
