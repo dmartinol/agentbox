@@ -11,7 +11,8 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
   on narrow screens the same panel becomes a bottom sheet with an explicit close
   button. Do not create a second detail implementation. Opening the output
   drawer on a narrow screen dismisses the detail sheet instead of stacking two
-  overlays.
+  overlays. Full configuration opens as a read-only modal from the panel, so
+  Fleet keeps one sidebar and no new route.
 - **Expandable value**: long paths, IDs, references, and lists shorten in the
   middle and reveal their full value inline. Every value has a copy control and
   remains selectable.
@@ -40,7 +41,8 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 | Fleet toolbar | Search, project filter, Needs You count, refresh, New agent | — | Wrapping rows; search and filter span the width |
 | Project group | Project name, counts, Workspace entry | Agent rows | Wrapping header badges and actions |
 | Agent row | Name, type, operational status, derived sync state, branch, primary action | Details button opens the detail panel | Name plus type/status/sync on one line; sync state keeps its text and glyph; actions beneath; branch in the detail panel |
-| Agent detail panel | Identity, operational status, project | Sync state with last-sync time and explanation; image source, base image, repository, manifest digest, and drift warnings; **Policy provenance** disclosure with a pre-#79 fallback; **Runtime host rules** disclosure; Open, Manage, and destructive action groups; expandable metadata | Bottom sheet with close control; same grouped actions |
+| Agent detail panel | Identity, operational status, project, harness, running model, profile, image | Image-source qualifier and drift warnings; Attach, Logs, Diff, Policy, and Configuration; Sync and Stop; sync state with last-sync time and explanation | Bottom sheet with close control; same grouped actions |
+| Agent configuration | — | Read-only New agent field grid (project, profile, gateway, name, MCP, skills, image, model, approval); identifiers and repository disclosure; runtime host rules disclosure; Copy agent and Delete agent in the footer | Single-column form; footer actions wrap |
 | Workspace | Project, agent tabs, shell tabs | Terminal or cached log tail | Horizontally scrollable tabs; terminal fills the surface |
 | New agent | Project, profile, gateway, name, MCP, skills, prompt | Resolved image/model/provider/approval disclosure; image select defaults to the project's latest repository image with a profile-image opt-out; optional overrides | Single-column form; the image select spans the row and actions wrap |
 | Logs / diff / policy drawer | Title and task status; structured **Network denials** above raw output | Denial host, port, binary, and reason with **Add host**; Add-host dialog shows the manifest entry, run-policy diff, optional persist, and manifest/fragment diffs; run policy shows textual provenance before the YAML | Full-width drawer; denial cards and dialog fields wrap and scroll |
