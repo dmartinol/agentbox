@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 540" role="img" aria-labelledby="title desc">
+<title id="title">OpenShell images for supported coding harnesses</title>
+<desc id="desc">Choose Codex, Claude Code, or OpenCode. AgentBox builds a revisioned image for that harness, then runs it inside an OpenShell sandbox backed by Podman. Profiles provide model and provider configuration separately.</desc>
+<defs>
+  <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1 L11 6 L1 11 Z" fill="#63748b"/></marker>
+  <style>
+    text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .title { font-size: 30px; font-weight: 750; fill: #17233b; }
+    .label { font-size: 14px; font-weight: 750; letter-spacing: 1px; fill: #63748b; }
+    .heading { font-size: 23px; font-weight: 700; fill: #17233b; }
+    .body { font-size: 17px; fill: #526681; }
+    .code { font-size: 14px; font-weight: 650; fill: #234e8d; }
+  </style>
+</defs>
+<rect width="1440" height="540" rx="26" fill="#f7f9fc"/>
+<text class="title" x="52" y="64">A purpose-built OpenShell image for each harness</text>
+
+<rect x="52" y="105" width="390" height="312" rx="22" fill="#ffffff" stroke="#d7dfeb" stroke-width="2"/>
+<text class="label" x="78" y="143">1 · CHOOSE A HARNESS</text>
+<rect x="78" y="165" width="338" height="58" rx="14" fill="#f7f9fc" stroke="#e1e7f0"/>
+<circle cx="106" cy="194" r="12" fill="#192d4d"/><text x="106" y="199" text-anchor="middle" font-size="11" font-weight="800" fill="#ffffff">C</text>
+<text class="heading" x="132" y="202">Codex</text>
+<rect x="78" y="237" width="338" height="58" rx="14" fill="#f7f9fc" stroke="#e1e7f0"/>
+<circle cx="106" cy="266" r="12" fill="#b46c46"/><text x="106" y="271" text-anchor="middle" font-size="11" font-weight="800" fill="#ffffff">C</text>
+<text class="heading" x="132" y="274">Claude Code</text>
+<rect x="78" y="309" width="338" height="58" rx="14" fill="#f7f9fc" stroke="#e1e7f0"/>
+<circle cx="106" cy="338" r="12" fill="#5c67b7"/><text x="106" y="343" text-anchor="middle" font-size="11" font-weight="800" fill="#ffffff">O</text>
+<text class="heading" x="132" y="346">OpenCode</text>
+
+<path d="M442 261 H520" fill="none" stroke="#63748b" stroke-width="4" marker-end="url(#arrow)"/>
+
+<rect x="530" y="105" width="390" height="312" rx="22" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
+<text class="label" x="558" y="143">2 · BUILD THE IMAGE</text>
+<rect x="558" y="169" width="334" height="111" rx="16" fill="#ffffff" stroke="#b6cef5" stroke-width="2"/>
+<path d="M586 197 h42 l13 14 h38 v40 h-93 z" fill="#d8e6fb" stroke="#7ba1d7" stroke-width="2"/>
+<path d="M600 225 h54" stroke="#3869b2" stroke-width="4" stroke-linecap="round"/>
+<path d="M600 238 h40" stroke="#6e8fbf" stroke-width="4" stroke-linecap="round"/>
+<text class="heading" x="697" y="213">Agent runtime</text>
+<text class="body" x="697" y="243" font-size="15">Versioned · pinned base image</text>
+<text class="body" x="558" y="315">One reusable image per harness version.</text>
+<text class="code" x="558" y="353">agentbox image build codex</text>
+<text class="body" x="558" y="387">Model credentials stay in provider/profile setup.</text>
+
+<path d="M920 261 H998" fill="none" stroke="#63748b" stroke-width="4" marker-end="url(#arrow)"/>
+
+<rect x="1008" y="105" width="380" height="312" rx="22" fill="#ffffff" stroke="#d7dfeb" stroke-width="2"/>
+<text class="label" x="1036" y="143">3 · RUN IT ISOLATED</text>
+<rect x="1036" y="169" width="324" height="111" rx="16" fill="#edf5f0" stroke="#c2dacf" stroke-width="2"/>
+<path d="M1060 198 l44 -17 44 17 v48 l-44 18 -44 -18 z" fill="#ffffff" stroke="#4c8863" stroke-width="2"/>
+<path d="M1060 198 l44 18 44 -18 M1104 216 v48" fill="none" stroke="#4c8863" stroke-width="2"/>
+<text class="heading" x="1170" y="213">OpenShell</text>
+<text class="body" x="1170" y="243">Podman-backed sandbox</text>
+<text class="body" x="1036" y="315">Repo copy · scoped network policy</text>
+<text class="body" x="1036" y="353">Separate worktree; sync for host review</text>
+<text class="code" x="1036" y="387">agentbox agent start …</text>
+
+<text x="52" y="478" font-size="16" fill="#526681">Harness images provide the coding runtime. Profiles supply the selected model and provider configuration.</text>
+</svg>

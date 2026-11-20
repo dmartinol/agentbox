@@ -1,63 +1,118 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 1080" role="img" aria-labelledby="title desc">
-<title id="title">Agentic development lifecycle with AgentBox workers</title>
-<desc id="desc">Triage, plan, implement, verify, pull request and CI, independent review, merge and close, and retrospective. AgentBox workers run in OpenShell sandboxes; restricted roles use their configured runtime. The host controller coordinates and performs forge operations sandbox workers cannot. Blocking findings trigger fixes and renewed verification and review.</desc>
-<rect width="1440" height="1080" fill="#f7f9fc"/>
-<text x="62" y="74" font-family="DejaVu Sans, sans-serif" font-size="39" fill="#17233b" font-weight="700">Your repository. A task. A reviewed change.</text>
-<text x="62" y="122" font-family="DejaVu Sans, sans-serif" font-size="26" fill="#526681" font-weight="400">Orchestrated ADLC with AgentBox workers</text>
-<rect x="62" y="150" width="668" height="54" rx="12" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
-<text x="80" y="181" font-family="DejaVu Sans, sans-serif" font-size="21" fill="#1d4f97" font-weight="400">BLUE  AgentBox worker: OpenShell sandbox</text>
-<rect x="758" y="150" width="620" height="54" rx="12" fill="#edf5f0" stroke="#c2dacf" stroke-width="2"/>
-<text x="778" y="181" font-family="DejaVu Sans, sans-serif" font-size="21" fill="#28593e" font-weight="400">GREEN  Host operations / restricted role</text>
-<rect x="62" y="250" width="404" height="162" rx="20" fill="#edf5f0" stroke="#c2dacf" stroke-width="2"/>
-<text x="82" y="296" font-family="DejaVu Sans, sans-serif" font-size="26" fill="#17233b" font-weight="700">1  Triage</text>
-<text x="82" y="343" font-family="DejaVu Sans, sans-serif" font-size="23" fill="#17233b" font-weight="400">Scope the issue</text>
-<text x="82" y="384" font-family="DejaVu Sans, sans-serif" font-size="17" fill="#526681" font-weight="400">Tracker-blind worker; runtime selected</text>
-<rect x="518" y="250" width="404" height="162" rx="20" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
-<text x="538" y="296" font-family="DejaVu Sans, sans-serif" font-size="26" fill="#17233b" font-weight="700">2  Plan</text>
-<text x="538" y="343" font-family="DejaVu Sans, sans-serif" font-size="23" fill="#17233b" font-weight="400">Agree acceptance criteria</text>
-<text x="538" y="384" font-family="DejaVu Sans, sans-serif" font-size="17" fill="#526681" font-weight="400">Separate planning worker</text>
-<rect x="974" y="250" width="404" height="162" rx="20" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
-<text x="994" y="296" font-family="DejaVu Sans, sans-serif" font-size="26" fill="#17233b" font-weight="700">3  Implement</text>
-<text x="994" y="343" font-family="DejaVu Sans, sans-serif" font-size="23" fill="#17233b" font-weight="400">Change code and tests</text>
-<text x="994" y="384" font-family="DejaVu Sans, sans-serif" font-size="17" fill="#526681" font-weight="400">One writer per task</text>
-<rect x="974" y="500" width="404" height="162" rx="20" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
-<text x="994" y="546" font-family="DejaVu Sans, sans-serif" font-size="26" fill="#17233b" font-weight="700">4  Verify</text>
-<text x="994" y="593" font-family="DejaVu Sans, sans-serif" font-size="23" fill="#17233b" font-weight="400">Rerun agreed checks</text>
-<text x="994" y="634" font-family="DejaVu Sans, sans-serif" font-size="17" fill="#526681" font-weight="400">Fresh worktree at candidate head</text>
-<rect x="518" y="500" width="404" height="162" rx="20" fill="#edf5f0" stroke="#c2dacf" stroke-width="2"/>
-<text x="538" y="546" font-family="DejaVu Sans, sans-serif" font-size="26" fill="#17233b" font-weight="700">5  Pull request + CI</text>
-<text x="538" y="593" font-family="DejaVu Sans, sans-serif" font-size="23" fill="#17233b" font-weight="400">Publish change and evidence</text>
-<text x="538" y="634" font-family="DejaVu Sans, sans-serif" font-size="17" fill="#526681" font-weight="400">Host publishes sandbox work</text>
-<rect x="62" y="500" width="404" height="162" rx="20" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
-<text x="82" y="546" font-family="DejaVu Sans, sans-serif" font-size="26" fill="#17233b" font-weight="700">6  Independent review</text>
-<text x="82" y="593" font-family="DejaVu Sans, sans-serif" font-size="23" fill="#17233b" font-weight="400">Evaluate the same commit</text>
-<text x="82" y="634" font-family="DejaVu Sans, sans-serif" font-size="17" fill="#526681" font-weight="400">Separate review worker</text>
-<rect x="62" y="750" width="404" height="162" rx="20" fill="#edf5f0" stroke="#c2dacf" stroke-width="2"/>
-<text x="82" y="796" font-family="DejaVu Sans, sans-serif" font-size="26" fill="#17233b" font-weight="700">7  Merge + close</text>
-<text x="82" y="843" font-family="DejaVu Sans, sans-serif" font-size="23" fill="#17233b" font-weight="400">Integrate when gates pass</text>
-<text x="82" y="884" font-family="DejaVu Sans, sans-serif" font-size="17" fill="#526681" font-weight="400">Controller / host forge operations</text>
-<rect x="518" y="750" width="404" height="162" rx="20" fill="#edf5f0" stroke="#c2dacf" stroke-width="2"/>
-<text x="538" y="796" font-family="DejaVu Sans, sans-serif" font-size="26" fill="#17233b" font-weight="700">8  Retrospective</text>
-<text x="538" y="843" font-family="DejaVu Sans, sans-serif" font-size="23" fill="#17233b" font-weight="400">Propose useful follow-ups</text>
-<text x="538" y="884" font-family="DejaVu Sans, sans-serif" font-size="17" fill="#526681" font-weight="400">Restricted worker; after implementation</text>
-<polyline points="466,331 518,331" fill="none" stroke="#687994" stroke-width="4"/>
-<polygon points="518,331 505,323 505,339" fill="#687994"/>
-<polyline points="922,331 974,331" fill="none" stroke="#687994" stroke-width="4"/>
-<polygon points="974,331 961,323 961,339" fill="#687994"/>
-<polyline points="1176,412 1176,500" fill="none" stroke="#687994" stroke-width="4"/>
-<polygon points="1176,500 1168,487 1184,487" fill="#687994"/>
-<polyline points="974,581 922,581" fill="none" stroke="#687994" stroke-width="4"/>
-<polygon points="922,581 935,573 935,589" fill="#687994"/>
-<polyline points="518,581 466,581" fill="none" stroke="#687994" stroke-width="4"/>
-<polygon points="466,581 479,573 479,589" fill="#687994"/>
-<polyline points="264,662 264,750" fill="none" stroke="#687994" stroke-width="4"/>
-<polygon points="264,750 256,737 272,737" fill="#687994"/>
-<polyline points="466,831 518,831" fill="none" stroke="#687994" stroke-width="4"/>
-<polygon points="518,831 505,823 505,839" fill="#687994"/>
-<rect x="974" y="750" width="404" height="162" rx="20" fill="#fff7e7" stroke="#ead4a6" stroke-width="2"/>
-<text x="994" y="795" font-family="DejaVu Sans, sans-serif" font-size="25" fill="#7f5318" font-weight="700">Changes required?</text>
-<text x="994" y="836" font-family="DejaVu Sans, sans-serif" font-size="22" fill="#7f5318" font-weight="400">Fix → verify → CI → review</text>
-<text x="994" y="878" font-family="DejaVu Sans, sans-serif" font-size="20" fill="#7f5318" font-weight="400">Repeat before merge.</text>
-<text x="62" y="982" font-family="DejaVu Sans, sans-serif" font-size="25" fill="#17233b" font-weight="700">Merge requires verification and review at the same head commit.</text>
-<text x="62" y="1026" font-family="DejaVu Sans, sans-serif" font-size="22" fill="#526681" font-weight="400">Worker stages use their configured runtime. The host controller coordinates and handles forge operations.</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1160" role="img" aria-labelledby="title desc">
+<title id="title">Agentic development lifecycle with a review and fix loop</title>
+<desc id="desc">Triage, plan, implement, verify, pull request and CI, then independent review. If changes are required, a fixer updates the change and sends it through verification, CI, and review again. Otherwise, the controller merges and closes the issue, then a restricted retrospective worker proposes follow-ups. Blue marks AgentBox OpenShell workers, green marks host and forge operations, and violet marks restricted workers whose runtime is selected separately.</desc>
+<defs>
+  <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+    <path d="M1 1 L11 6 L1 11 Z" fill="#63748b"/>
+  </marker>
+  <marker id="arrow-blue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+    <path d="M1 1 L11 6 L1 11 Z" fill="#3869b2"/>
+  </marker>
+  <style>
+    text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .title { font-size: 40px; font-weight: 750; fill: #17233b; }
+    .subtitle { font-size: 22px; fill: #526681; }
+    .legend { font-size: 17px; font-weight: 650; }
+    .stage { font-size: 23px; font-weight: 720; fill: #17233b; }
+    .body { font-size: 19px; fill: #24344d; }
+    .meta { font-size: 15px; fill: #526681; }
+    .connector { fill: none; stroke: #63748b; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+    .loop { fill: none; stroke: #3869b2; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-blue); }
+    .branch { font-size: 16px; font-weight: 700; fill: #526681; }
+    .loop-label { font-size: 16px; font-weight: 700; fill: #28599b; }
+  </style>
+</defs>
+<rect width="1600" height="1160" fill="#f7f9fc"/>
+<text class="title" x="60" y="68">Your repository. A task. A reviewed change.</text>
+<text class="subtitle" x="60" y="108">Orchestrated ADLC · separate workers, explicit gates, review at a fixed commit</text>
+
+<!-- Legend separates execution runtime from worker permissions. -->
+<rect x="60" y="132" width="450" height="48" rx="12" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
+<circle cx="84" cy="156" r="7" fill="#3869b2"/>
+<text class="legend" x="102" y="162" fill="#234e8d">AgentBox runtime · OpenShell sandbox</text>
+<rect x="530" y="132" width="430" height="48" rx="12" fill="#edf5f0" stroke="#c2dacf" stroke-width="2"/>
+<circle cx="554" cy="156" r="7" fill="#3c7653"/>
+<text class="legend" x="572" y="162" fill="#28593e">Host controller · forge operation</text>
+<rect x="980" y="132" width="560" height="48" rx="12" fill="#f2edff" stroke="#d1c3f2" stroke-width="2"/>
+<circle cx="1004" cy="156" r="7" fill="#7653a6"/>
+<text class="legend" x="1022" y="162" fill="#5d4384">Restricted worker · runtime selected separately</text>
+
+<!-- Main stages: left to right, then right to left. -->
+<g>
+  <rect x="60" y="220" width="340" height="150" rx="18" fill="#f2edff" stroke="#d1c3f2" stroke-width="2"/>
+  <text class="stage" x="82" y="260">1 · Triage</text>
+  <text class="body" x="82" y="300">Scope the issue</text>
+  <text class="meta" x="82" y="338">Restricted worker · no tracker access</text>
+</g>
+<g>
+  <rect x="440" y="220" width="340" height="150" rx="18" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
+  <text class="stage" x="462" y="260">2 · Plan</text>
+  <text class="body" x="462" y="300">Agree acceptance criteria</text>
+  <text class="meta" x="462" y="338">Separate planning worker</text>
+</g>
+<g>
+  <rect x="820" y="220" width="340" height="150" rx="18" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
+  <text class="stage" x="842" y="260">3 · Implement</text>
+  <text class="body" x="842" y="300">Change code and tests</text>
+  <text class="meta" x="842" y="338">One writer per task</text>
+</g>
+<g>
+  <rect x="1200" y="460" width="340" height="150" rx="18" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
+  <text class="stage" x="1222" y="500">4 · Verify</text>
+  <text class="body" x="1222" y="540">Rerun agreed checks</text>
+  <text class="meta" x="1222" y="578">Fresh worktree at candidate head</text>
+</g>
+<g>
+  <rect x="820" y="460" width="340" height="150" rx="18" fill="#edf5f0" stroke="#c2dacf" stroke-width="2"/>
+  <text class="stage" x="842" y="500">5 · Pull request + CI</text>
+  <text class="body" x="842" y="540">Publish change and evidence</text>
+  <text class="meta" x="842" y="578">Host publishes; CI runs in the forge</text>
+</g>
+<g>
+  <rect x="440" y="460" width="340" height="150" rx="18" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
+  <text class="stage" x="462" y="500">6 · Independent review</text>
+  <text class="body" x="462" y="540">Evaluate the same commit</text>
+  <text class="meta" x="462" y="578">Separate review worker</text>
+</g>
+
+<!-- Decision and terminal outcomes. -->
+<polygon points="230,725 400,825 230,925 60,825" fill="#fff7e7" stroke="#d9ad55" stroke-width="3"/>
+<text x="230" y="818" text-anchor="middle" font-size="19" font-weight="750" fill="#7f5318">Changes</text>
+<text x="230" y="844" text-anchor="middle" font-size="19" font-weight="750" fill="#7f5318">required?</text>
+<g>
+  <rect x="440" y="750" width="340" height="150" rx="18" fill="#edf5f0" stroke="#c2dacf" stroke-width="2"/>
+  <text class="stage" x="462" y="790">7 · Merge + close</text>
+  <text class="body" x="462" y="830">Integrate when gates pass</text>
+  <text class="meta" x="462" y="868">Host controller / forge operation</text>
+</g>
+<g>
+  <rect x="820" y="750" width="340" height="150" rx="18" fill="#f2edff" stroke="#d1c3f2" stroke-width="2"/>
+  <text class="stage" x="842" y="790">8 · Retrospective</text>
+  <text class="body" x="842" y="830">Propose useful follow-ups</text>
+  <text class="meta" x="842" y="868">Restricted worker · post-terminal</text>
+</g>
+<g>
+  <rect x="1200" y="750" width="340" height="150" rx="18" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
+  <text class="stage" x="1222" y="790">Fix · accepted findings</text>
+  <text class="body" x="1222" y="830">Address blocking findings</text>
+  <text class="meta" x="1222" y="868">Fixer worker · then rerun gates</text>
+</g>
+
+<!-- Main path arrows. -->
+<path class="connector" d="M400 295 H440"/>
+<path class="connector" d="M780 295 H820"/>
+<path class="connector" d="M1160 295 H1178 V435 H1370 V460"/>
+<path class="connector" d="M1200 535 H1160"/>
+<path class="connector" d="M820 535 H780"/>
+<path class="connector" d="M440 535 H420 V680 H230 V725"/>
+<path class="connector" d="M400 825 H440"/>
+<text class="branch" x="410" y="808">No</text>
+<path class="connector" d="M780 825 H820"/>
+<path class="loop" d="M230 925 V990 H1370 V920"/>
+<text class="loop-label" x="555" y="978">Yes · fix, then repeat Verify → CI → Review</text>
+<path class="loop" d="M1370 750 V610"/>
+<text class="loop-label" x="1390" y="690">Re-run gates</text>
+
+<rect x="60" y="1040" width="1480" height="62" rx="14" fill="#eef2f8"/>
+<text x="82" y="1078" font-size="18" font-weight="650" fill="#24344d">Merge requires verification and independent review at the same head commit. Retrospective is a worker role; its runtime is configured separately.</text>
 </svg>

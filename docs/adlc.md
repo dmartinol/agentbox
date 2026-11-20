@@ -61,7 +61,7 @@ coding assistant, rather than a built-in AgentBox scheduling service. Stage
 work runs in separate workers using their configured runtimes; the host
 controller coordinates and owns merge and close.
 
-![Orchestrated ADLC with separate worker stages and host-side coordination.]({{ '/assets/adlc.svg' | relative_url }})
+![Orchestrated ADLC with a review decision, merge path, and fix loop through verification, CI, and review.]({{ '/assets/adlc.svg' | relative_url }})
 
 | Stage | Result |
 | --- | --- |
@@ -71,7 +71,7 @@ controller coordinates and owns merge and close.
 | Verify | Fresh execution of the agreed checks at the candidate commit. |
 | Pull request and CI | A reviewable change with checks and recorded evidence. |
 | Independent review | A separate review of the change at the recorded commit. |
-| Fix, when needed | Accepted blocking findings addressed, followed by verification and review again. |
+| Fix, when needed | Accepted blocking findings addressed, followed by fresh verification, CI, and independent review. The diagram shows this loop. |
 | Merge and close | Integration after the gates pass at the same recorded head commit. |
 | Retrospective | Optional follow-up proposals from the workflow record after the terminal outcome; the skill dispatches this when implementation was reached. |
 
@@ -85,7 +85,7 @@ to the candidate/PR head. A changed head requires renewed evidence before merge.
 | --- | --- |
 | Workflow coordination | Host coding-assistant session. The controller validates worker results and owns merge and close. |
 | Any stage selected with runtime `agentbox` | A separate OpenShell-backed AgentBox run. Sandbox commits are local; the host controller performs forge writes the worker cannot. |
-| Triage and retrospective | Restricted workers receive a supplied snapshot and have no shell or tracker access. Their isolation still follows the selected runtime. |
+| Triage and retrospective | Restricted worker roles receive a supplied snapshot and have no shell or tracker access. Their runtime is configured separately; sandbox isolation follows that runtime. |
 | Workers selected with runtime `orca` or `harness` | The selected runtime's environment; OpenShell isolation is not implied. |
 | Pull request and CI | A capable host implementer can open the pull request. Otherwise, the controller syncs and pushes the sandbox commit, then opens it; CI runs in the host forge. |
 

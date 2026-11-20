@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 700" role="img" aria-labelledby="title desc">
+<title id="title">Project configuration builds the repository image and network policy</title>
+<desc id="desc">Repository and CI evidence informs the reviewed AgentBox project manifest. Running repo setup builds a repository image and network policy from the declared packages, toolchains, verification commands, and exact hosts. When a run is denied a host, the user can add it to the run policy and optionally persist it in project configuration.</desc>
+<defs>
+  <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1 L11 6 L1 11 Z" fill="#63748b"/></marker>
+  <marker id="arrow-blue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1 L11 6 L1 11 Z" fill="#3869b2"/></marker>
+  <style>
+    text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .title { font-size: 30px; font-weight: 750; fill: #17233b; }
+    .label { font-size: 14px; font-weight: 750; letter-spacing: 1px; fill: #63748b; }
+    .heading { font-size: 21px; font-weight: 720; fill: #17233b; }
+    .body { font-size: 16px; fill: #526681; }
+    .small { font-size: 14px; fill: #526681; }
+    .connector { fill: none; stroke: #63748b; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+    .loop { fill: none; stroke: #3869b2; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-blue); }
+  </style>
+</defs>
+<rect width="1440" height="700" rx="26" fill="#f7f9fc"/>
+<text class="title" x="52" y="62">Fit the sandbox to the repository</text>
+<text class="body" x="52" y="94">Review project requirements once; reuse the prepared image and policy on future runs.</text>
+
+<!-- Inputs and project manifest. -->
+<rect x="52" y="132" width="285" height="188" rx="20" fill="#ffffff" stroke="#d7dfeb" stroke-width="2"/>
+<text class="label" x="76" y="168">REPOSITORY EVIDENCE</text>
+<text class="heading" x="76" y="210">Source + CI</text>
+<text class="body" x="76" y="246">Build files · dependency files</text>
+<text class="body" x="76" y="274">CI workflows · setup scripts</text>
+<text class="small" x="76" y="300">Assistant derives a proposed config</text>
+
+<path class="connector" d="M337 226 H384"/>
+
+<rect x="396" y="132" width="410" height="188" rx="20" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
+<text class="label" x="422" y="168">REVIEWED PROJECT CONFIGURATION</text>
+<text class="heading" x="422" y="210">.agentbox/config.yaml</text>
+<text class="body" x="422" y="246">Packages · pinned toolchains · checks</text>
+<text class="body" x="422" y="274">Exact network hosts and binaries</text>
+<text class="small" x="422" y="300">Commit it with the repository</text>
+
+<path class="connector" d="M806 226 H853"/>
+
+<rect x="865" y="132" width="235" height="188" rx="20" fill="#ffffff" stroke="#d7dfeb" stroke-width="2"/>
+<text class="label" x="889" y="168">PREPARE</text>
+<text class="heading" x="889" y="210">repo setup</text>
+<text class="body" x="889" y="246">Validate requirements</text>
+<text class="body" x="889" y="274">Build reusable artifacts</text>
+<text class="small" x="889" y="300">Dry run available</text>
+
+<path class="connector" d="M1100 226 H1144 V362 H360 V390"/>
+<path class="connector" d="M1144 362 H1080 V390"/>
+
+<!-- Reusable outputs. -->
+<rect x="190" y="402" width="340" height="120" rx="18" fill="#edf5f0" stroke="#c2dacf" stroke-width="2"/>
+<circle cx="224" cy="438" r="15" fill="#4c8863"/>
+<path d="M217 438 h14 M224 431 v14" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+<text class="heading" x="252" y="443">Repository image</text>
+<text class="body" x="216" y="478">One per selected harness, layered on its base</text>
+<text class="small" x="216" y="502">Packages + toolchains + setup checks</text>
+
+<rect x="910" y="402" width="340" height="120" rx="18" fill="#fff7e7" stroke="#ead4a6" stroke-width="2"/>
+<circle cx="944" cy="438" r="15" fill="#bf8730"/>
+<path d="M936 438 h16 M944 430 v16" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+<text class="heading" x="972" y="443">Network policy</text>
+<text class="body" x="936" y="478">Rules generated from declared hosts</text>
+<text class="small" x="936" y="502">Scoped to port and executable</text>
+
+<!-- Runtime feedback path. -->
+<rect x="52" y="566" width="280" height="86" rx="16" fill="#ffffff" stroke="#d7dfeb" stroke-width="2"/>
+<text class="heading" x="76" y="602">Run hits a blocked host</text>
+<text class="small" x="76" y="630">Denial shows host, port, executable</text>
+
+<path class="loop" d="M332 609 H374"/>
+
+<rect x="386" y="566" width="300" height="86" rx="16" fill="#eaf1ff" stroke="#b6cef5" stroke-width="2"/>
+<text class="heading" x="410" y="602">Add host to this run</text>
+<text class="small" x="410" y="630">Preview the scoped policy change</text>
+
+<path class="loop" d="M686 609 H728"/>
+
+<rect x="740" y="566" width="440" height="86" rx="16" fill="#ffffff" stroke="#b6cef5" stroke-width="2"/>
+<text class="heading" x="764" y="602">Optionally save for future runs</text>
+<text class="small" x="764" y="630">Persist the same exact host rule in project configuration</text>
+
+<path class="loop" d="M960 566 V548 H602 V320"/>
+
+<text x="52" y="680" font-size="14" fill="#63748b">AgentBox builds from declared project configuration; host access is added explicitly after a surfaced denial.</text>
+</svg>
