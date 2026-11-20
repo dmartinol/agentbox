@@ -366,6 +366,8 @@ describe('fleet shell', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByText('active-run'));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
     await user.click(screen.getByRole('button', { name: 'Delete agent' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     await user.keyboard('{Escape}');
@@ -376,8 +378,12 @@ describe('fleet shell', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByText('active-run'));
-    expect(await screen.findByText('Agent type')).toBeInTheDocument();
-    const metadata = screen.getByText('Agent type').closest('dl');
+    expect(await screen.findByText('Harness')).toBeInTheDocument();
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Configuration' });
+    await user.click(within(dialog).getByText('Identifiers and repository'));
+    const metadata = within(dialog).getByText('Identifiers and repository').closest('details');
     expect(metadata).not.toBeNull();
     expect(within(metadata as HTMLElement).getByText('agentbox/demo/active-run')).toBeInTheDocument();
   });
@@ -525,10 +531,16 @@ describe('repository image provenance', () => {
     await user.click(await screen.findByText('active-run'));
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
     expect(within(panel).getByText('Repository image')).toBeInTheDocument();
-    expect(within(panel).getByText('localhost/openshell:codex-1.0.0-r3')).toBeInTheDocument();
-    expect(within(panel).getByText('sha256:manifest-a')).toBeInTheDocument();
-    expect(within(panel).getByText('github.com/example/demo')).toBeInTheDocument();
     expect(within(panel).getByText(/out of date with the manifest/)).toBeInTheDocument();
+
+    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
+    const config = await screen.findByRole('dialog', { name: 'Configuration' });
+    expect(within(config).getByLabelText(/^Image$/)).toHaveValue('localhost/openshell:repo-github-com-example-demo-codex-22222222');
+    await user.click(within(config).getByText('Identifiers and repository'));
+    expect(within(config).getByText('localhost/openshell:codex-1.0.0-r3')).toBeInTheDocument();
+    expect(within(config).getByText('sha256:manifest-a')).toBeInTheDocument();
+    expect(within(config).getByText('github.com/example/demo')).toBeInTheDocument();
+    await user.click(within(config).getByRole('button', { name: 'Done' }));
 
     await user.click(within(panel).getByRole('button', { name: 'View policy' }));
     expect(await screen.findByText(/Repository fragment: \/state\/policies\/repo-github-com-example-demo\.yaml/)).toBeInTheDocument();
@@ -549,7 +561,10 @@ describe('repository image provenance', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByText('active-run'));
-    await user.click(screen.getByRole('button', { name: 'Copy agent' }));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
+    const config = await screen.findByRole('dialog', { name: 'Configuration' });
+    await user.click(within(config).getByRole('button', { name: 'Copy agent' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByLabelText(/^Profile/)).toHaveValue('codex-alt');
   });
@@ -591,15 +606,14 @@ describe('run policy provenance', () => {
     render(<App />);
     await user.click(await screen.findByText('active-run'));
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
-    await user.click(within(panel).getByText('Policy provenance'));
-    const provenanceDetails = within(panel).getByText('Policy provenance').closest('details');
-    if (!provenanceDetails) throw new Error('policy provenance details missing');
-    expect(within(provenanceDetails).getByText('_provider_openai')).toBeInTheDocument();
-    expect(within(provenanceDetails).getByText('api.openai.com:443')).toBeInTheDocument();
-    expect(within(provenanceDetails).getByText('sha256:manifest-a')).toBeInTheDocument();
-    expect(within(provenanceDetails).getByText((_, node) => node?.tagName === 'DD' && node.textContent === '2')).toBeInTheDocument();
-    expect(within(provenanceDetails).getByText('/tmp/legacy-codex.yaml (network rules only)')).toBeInTheDocument();
-    expect(within(provenanceDetails).getByText('/state/policies/repo-demo.yaml · sha256:fragment-a')).toBeInTheDocument();
+    expect(within(panel).queryByText('Policy provenance')).toBeNull();
+    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
+    const config = await screen.findByRole('dialog', { name: 'Configuration' });
+    await user.click(within(config).getByText('Runtime host rules (2)'));
+    expect(within(config).getByText('proxy.golang.org:443')).toBeInTheDocument();
+    expect(within(config).getByText(/Rule runtime-proxy-golang-org-443/)).toBeInTheDocument();
+    expect(within(config).getByText(/persisted in the manifest/)).toBeInTheDocument();
+    await user.click(within(config).getByRole('button', { name: 'Done' }));
     await user.click(within(panel).getByRole('button', { name: 'View policy' }));
     expect(await screen.findByText(/Policy provenance: derived/)).toBeInTheDocument();
     expect(screen.getByText(/Provider rule: _provider_openai/)).toBeInTheDocument();
@@ -633,11 +647,7 @@ describe('run policy provenance', () => {
     render(<App />);
     await user.click(await screen.findByText('active-run'));
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
-    await user.click(within(panel).getByText('Policy provenance'));
-    const provenanceDetails = within(panel).getByText('Policy provenance').closest('details');
-    if (!provenanceDetails) throw new Error('policy provenance details missing');
-    expect(within(provenanceDetails).getByText('No repository manifest')).toBeInTheDocument();
-    expect(within(provenanceDetails).getByText('None')).toBeInTheDocument();
+    expect(within(panel).queryByText('Policy provenance')).toBeNull();
     await user.click(within(panel).getByRole('button', { name: 'View policy' }));
     expect(await screen.findByText(/Repository manifest: No repository manifest/)).toBeInTheDocument();
     expect(screen.getByText(/Runtime-added hosts: 0/)).toBeInTheDocument();
@@ -653,8 +663,7 @@ describe('run policy provenance', () => {
     render(<App />);
     await user.click(await screen.findByText('active-run'));
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
-    await user.click(within(panel).getByText('Policy provenance'));
-    expect(within(panel).getByText('Not recorded (pre-#79 run)')).toBeInTheDocument();
+    expect(within(panel).queryByText('Policy provenance')).toBeNull();
     await user.click(within(panel).getByRole('button', { name: 'View policy' }));
     expect(await screen.findByText(/Policy provenance: Not recorded \(pre-#79 run\)/)).toBeInTheDocument();
   });
@@ -963,7 +972,8 @@ describe('fleet actions', () => {
     expect(screen.getByRole('button', { name: 'Starting' })).toBeDisabled();
     resolveStart(runs[0]);
     expect(await screen.findByText('Agent active-run started')).toBeInTheDocument();
-    expect(await screen.findByText('Agent type')).toBeInTheDocument();
+    expect(await screen.findByText('Harness')).toBeInTheDocument();
+    expect(await screen.findByText('Model')).toBeInTheDocument();
   });
 
   it('selects a started agent so its details stay visible', async () => {
@@ -974,21 +984,24 @@ describe('fleet actions', () => {
     });
     const user = userEvent.setup();
     render(<App />);
-    expect(screen.queryByText('Agent type')).toBeNull();
+    expect(screen.queryByText('Harness')).toBeNull();
     await user.click(screen.getByRole('button', { name: 'New agent' }));
     await user.click(await screen.findByRole('button', { name: 'Start' }));
     resolveStart(runs[0]);
-    const sidebar = await screen.findByText('Agent type');
+    const sidebar = await screen.findByText('Harness');
     const metadata = sidebar.closest('dl');
     if (!metadata) throw new Error('agent metadata missing');
-    await waitFor(() => expect(within(metadata).getByText('agentbox/demo/active-run')).toBeInTheDocument());
+    expect(within(metadata).getByText('model-x')).toBeInTheDocument();
   });
 
   it('prefills a new agent from a copied run', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByText('active-run'));
-    await user.click(screen.getByRole('button', { name: 'Copy agent' }));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
+    const config = await screen.findByRole('dialog', { name: 'Configuration' });
+    await user.click(within(config).getByRole('button', { name: 'Copy agent' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Copy active-run')).toBeInTheDocument();
     expect(within(dialog).getByLabelText(/^Project/)).toHaveValue('demo');
@@ -1006,7 +1019,10 @@ describe('fleet actions', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByText('active-run'));
-    await user.click(screen.getByRole('button', { name: 'Copy agent' }));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
+    const config = await screen.findByRole('dialog', { name: 'Configuration' });
+    await user.click(within(config).getByRole('button', { name: 'Copy agent' }));
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }));
     await user.click(screen.getByRole('button', { name: 'New agent' }));
     const dialog = await screen.findByRole('dialog');
@@ -1070,7 +1086,10 @@ describe('fleet actions', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByText('idle-run'));
-    await user.click(screen.getByRole('button', { name: 'Copy agent' }));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
+    const config = await screen.findByRole('dialog', { name: 'Configuration' });
+    await user.click(within(config).getByRole('button', { name: 'Copy agent' }));
     const dialog = await screen.findByRole('dialog');
 
     expect(within(dialog).getByLabelText(/^Approval/)).toHaveValue('prompted');
@@ -1088,6 +1107,8 @@ describe('fleet actions', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByText('active-run'));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
     await user.click(screen.getByRole('button', { name: 'Delete agent' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText('Delete active-run')).toBeInTheDocument();
@@ -1107,10 +1128,12 @@ describe('fleet actions', () => {
     const row = (await screen.findByText('active-run')).closest('tr');
     if (!row) throw new Error('agent row missing');
     await user.click(await screen.findByText('active-run'));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
     await user.click(screen.getByRole('button', { name: 'Delete agent' }));
     await user.click(screen.getByRole('button', { name: 'Delete' }));
     expect(within(row).getByText('Deleting', { selector: 'span' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Deleting agent' })).toBeDisabled();
+    expect(screen.queryByRole('dialog', { name: 'Configuration' })).toBeNull();
     resolveDelete({ deleted: true });
     expect(await screen.findByText('Agent deleted')).toBeInTheDocument();
   });
@@ -1669,6 +1692,62 @@ describe('readable fleet layout', () => {
     expect(within(panel).getByRole('heading', { name: 'Manage' })).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Copy Image for active-run' })).toBeInTheDocument();
     expect(within(panel).getAllByText('Show full').length).toBeGreaterThan(0);
+  });
+
+  it('leads the agent panel with harness and running model', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within((await screen.findByText('active-run')).closest('tr') as HTMLElement).getByRole('button', { name: 'Details for active-run' }));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    expect(within(panel).getByText('Harness')).toBeInTheDocument();
+    expect(within(panel).getByText('codex')).toBeInTheDocument();
+    expect(within(panel).getByText('Model')).toBeInTheDocument();
+    expect(within(panel).getByText('model-x')).toBeInTheDocument();
+    expect(within(panel).getByText('running a tool')).toBeInTheDocument();
+    expect(within(panel).queryByText('Policy provenance')).toBeNull();
+    expect(within(panel).queryByText('Runtime host rules (0)')).toBeNull();
+    expect(within(panel).queryByText('Branch')).toBeNull();
+    expect(within(panel).queryByText('Worktree')).toBeNull();
+  });
+
+  it('opens a read-only configuration view for the moved metadata', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within((await screen.findByText('active-run')).closest('tr') as HTMLElement).getByRole('button', { name: 'Details for active-run' }));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Configuration' });
+    expect(within(dialog).getByLabelText(/^Project$/)).toHaveValue('demo');
+    expect(within(dialog).getByLabelText(/^Profile$/)).toHaveValue('codex-default');
+    expect(within(dialog).getByLabelText(/^Gateway$/)).toHaveValue('openshell');
+    expect(within(dialog).getByLabelText(/^Agent name$/)).toHaveValue('active-run');
+    expect(within(dialog).getByLabelText(/^MCP tools$/)).toHaveValue('codex-work');
+    expect(within(dialog).getByLabelText(/^Skills$/)).toHaveValue('codex-skills');
+    expect(within(dialog).getByLabelText(/^Model$/)).toHaveValue('model-x');
+    expect(within(dialog).getByLabelText(/^Approval$/)).toHaveValue('unattended — no permission prompts');
+    expect(within(dialog).getByLabelText(/^Image$/)).toHaveValue('localhost/openshell:codex-1.0.0-r3');
+    expect(within(dialog).queryByRole('button', { name: /^save/i })).toBeNull();
+
+    await user.click(within(dialog).getByText('Identifiers and repository'));
+    expect(within(dialog).getByText('run-active')).toBeInTheDocument();
+    expect(within(dialog).getByText('/trees/demo/active-run')).toBeInTheDocument();
+    expect(within(dialog).getByText('agentbox/demo/active-run')).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('dialog', { name: 'Configuration' })).toBeNull();
+  });
+
+  it('closes the configuration view with Escape and restores focus', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within((await screen.findByText('active-run')).closest('tr') as HTMLElement).getByRole('button', { name: 'Details for active-run' }));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    const trigger = within(panel).getByRole('button', { name: 'Configuration' });
+    await user.click(trigger);
+    expect(await screen.findByRole('dialog', { name: 'Configuration' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Configuration' })).toBeNull());
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it('renders every sync state with text and a glyph in Fleet rows', async () => {

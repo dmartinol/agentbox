@@ -63,25 +63,81 @@ function policyProvenanceLines(run: Run): string[] {
   return lines;
 }
 
-function RunPolicyProvenance({ run }: { run: Run }) {
-  const provenance = run.policy_provenance;
-  if (!provenance) {
-    return <p className="text-sm text-muted">Not recorded (pre-#79 run)</p>;
-  }
+function AgentConfiguration({ run }: { run: Run }) {
+  const identifiers = [
+    ['ID', run.id],
+    ['Harness', run.agent],
+    ['Branch', run.branch],
+    ['Sandbox', run.sandbox],
+    ['Worktree', run.worktree],
+    ['Mode', run.mode],
+    ['Image source', imageSourceLabel(run.image_source)],
+    ...(run.base_image && run.base_image !== run.image ? [['Base image', run.base_image]] : []),
+    ...(run.image_repo ? [['Repository', run.image_repo]] : []),
+    ...(run.manifest_digest ? [['Manifest digest', run.manifest_digest]] : []),
+    ...(run.policy_fragment ? [['Policy fragment', `${run.policy_fragment}${run.policy_fragment_digest ? ` (${run.policy_fragment_digest})` : ''}`]] : [])
+  ] as [string, string][];
   return (
-    <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-sm">
-      <dt className="text-muted">Source</dt><dd className="min-w-0 break-words">{provenance.source}</dd>
-      <dt className="text-muted">Gateway</dt><dd className="min-w-0 break-words">{provenance.gateway}</dd>
-      <dt className="text-muted">Provider</dt><dd className="min-w-0 break-words">{provenance.provider}</dd>
-      <dt className="text-muted">Mode</dt><dd className="min-w-0 break-words">{provenance.mode}</dd>
-      <dt className="text-muted">Host</dt><dd className="min-w-0 break-words">{provenance.host}:{provenance.port}</dd>
-      <dt className="text-muted">Provider rule</dt><dd className="min-w-0 break-words">{provenance.rule}</dd>
-      <dt className="text-muted">Agent binary</dt><dd className="min-w-0 break-words">{provenance.agent_binary}</dd>
-      <dt className="text-muted">Manifest</dt><dd className="min-w-0 break-words">{run.manifest_digest || 'No repository manifest'}</dd>
-      <dt className="text-muted">Runtime hosts</dt><dd className="min-w-0 break-words">{run.runtime_hosts?.length ?? 0}</dd>
-      {provenance.legacy_path ? <><dt className="text-muted">Legacy base</dt><dd className="min-w-0 break-words">{provenance.legacy_path} (network rules only)</dd></> : null}
-      <dt className="text-muted">Fragment</dt><dd className="min-w-0 break-words">{run.policy_fragment ? <>{run.policy_fragment}{run.policy_fragment_digest ? ` · ${run.policy_fragment_digest}` : ''}</> : 'None'}</dd>
-    </dl>
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Project" htmlFor="agent-project">
+          <Input id="agent-project" readOnly value={run.project || 'Unassigned'} />
+        </Field>
+        <Field label="Profile" htmlFor="agent-profile">
+          <Input id="agent-profile" readOnly value={run.profile || '—'} />
+        </Field>
+        <Field label="Gateway" htmlFor="agent-gateway">
+          <Input id="agent-gateway" readOnly value={run.gateway} />
+        </Field>
+        <Field label="Agent name" htmlFor="agent-name">
+          <Input id="agent-name" readOnly value={run.name || '—'} />
+        </Field>
+        <Field label="MCP tools" htmlFor="agent-mcp">
+          <Input id="agent-mcp" readOnly value={run.mcp || 'None'} />
+        </Field>
+        <Field label="Skills" htmlFor="agent-skills">
+          <Input id="agent-skills" readOnly value={run.skills || 'None'} />
+        </Field>
+        <Field label="Image" htmlFor="agent-image" className="sm:col-span-2">
+          <Input id="agent-image" readOnly value={run.image} />
+        </Field>
+        <Field label="Model" htmlFor="agent-model">
+          <Input id="agent-model" readOnly value={run.model || '—'} />
+        </Field>
+        <Field label="Approval" htmlFor="agent-approval">
+          <Input id="agent-approval" readOnly value={approvalLabel(run.approval)} />
+        </Field>
+      </div>
+
+      <Disclosure summary="Identifiers and repository">
+        <dl className="grid gap-1.5 text-sm sm:grid-cols-2">
+          {identifiers.map(([label, value]) => (
+            <div key={label} className="grid min-w-0 grid-cols-[7rem_minmax(0,1fr)] items-start gap-2">
+              <dt className="text-muted">{label}</dt>
+              <dd className="min-w-0 text-foreground">
+                <ExpandableValue value={value} label={`${label} for ${run.name || run.id}`} max={34} />
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </Disclosure>
+
+      {run.runtime_hosts?.length ? (
+        <Disclosure summary={`Runtime host rules (${run.runtime_hosts.length})`}>
+          <ul className="space-y-2 text-sm">
+            {run.runtime_hosts.map((host) => (
+              <li key={`${host.host}:${host.port}:${host.binary}:${host.rule}`} className="space-y-0.5">
+                <div className="break-all font-mono text-xs">{host.host}:{host.port}</div>
+                <div className="break-all font-mono text-xs text-muted">{host.binary}</div>
+                <div className="text-xs text-muted">
+                  Rule {host.rule} · {host.source === 'run+manifest' ? 'persisted in the manifest' : 'this run only'}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Disclosure>
+      ) : null}
+    </div>
   );
 }
 
@@ -133,6 +189,8 @@ export function FleetView({
   const [pending, setPending] = useState<Record<string, AgentAction>>({});
   const [deleteTarget, setDeleteTarget] = useState<Run>();
   const [copySource, setCopySource] = useState<Run>();
+  const [configRunId, setConfigRunId] = useState<string>();
+  const configTrigger = useRef<HTMLButtonElement>(null);
 
   const load = async () => {
     try {
@@ -162,6 +220,7 @@ export function FleetView({
   }, [overview]);
 
   const agents = overview?.runs ?? [];
+  const configRun = configRunId ? agents.find((agent) => agent.id === configRunId) : undefined;
   const projects = useMemo(() => {
     const names = new Set([...agents.map((agent) => agent.project || 'Unassigned'), ...(overview?.projects ?? []).map((project) => project.name)]);
     return [allProjects, ...Array.from(names).sort()];
@@ -390,6 +449,11 @@ export function FleetView({
   const closeStart = () => {
     setStartOpen(false);
     setCopySource(undefined);
+  };
+
+  const closeConfiguration = (restoreFocus = true) => {
+    setConfigRunId(undefined);
+    if (restoreFocus) window.setTimeout(() => configTrigger.current?.focus(), 0);
   };
 
   const startAgent = async () => {
@@ -648,6 +712,9 @@ export function FleetView({
                 <div className="min-w-0">
                   <div className="text-sm font-semibold [overflow-wrap:anywhere]">{selected.name || selected.id}</div>
                   <div className="text-sm text-muted">{selected.project || 'Unassigned'} · {selected.agent}</div>
+                  {selected.status_detail ? (
+                    <div className="text-xs text-muted [overflow-wrap:anywhere]">{selected.status_detail}</div>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <StatusBadge status={inFlightStatus(selected)} />
@@ -659,49 +726,22 @@ export function FleetView({
 
               <dl className="space-y-1.5 rounded-lg border border-border bg-surface/50 p-2.5 text-sm">
                 {([
-                  ['ID', selected.id, 18],
-                  ['Agent type', selected.agent, 18],
-                  ...(selected.profile ? [['Profile', selected.profile, 18] as const] : []),
-                  ['Branch', selected.branch, 18],
-                  ['Sandbox', selected.sandbox, 18],
-                  ['Image', selected.image, 18],
-                  ...(selected.image_source ? [['Image source', imageSourceLabel(selected.image_source), 24] as const] : []),
-                  ...(selected.base_image && selected.base_image !== selected.image ? [['Base image', selected.base_image, 18] as const] : []),
-                  ...(selected.image_repo ? [['Repository', selected.image_repo, 22] as const] : []),
-                  ...(selected.manifest_digest ? [['Manifest digest', selected.manifest_digest, 18] as const] : []),
-                  ['Mode', selected.mode, 18],
-                  ['Approval', approvalLabel(selected.approval), 18],
-                  ['Worktree', selected.worktree, 18],
-                  ...(selected.status_detail ? [['Detail', selected.status_detail, 40] as const] : [])
+                  ['Harness', selected.agent, 24],
+                  ['Model', selected.model || '—', 24],
+                  ...(selected.profile ? [['Profile', selected.profile, 24] as const] : []),
+                  ['Image', selected.image, 24]
                 ] as const).map(([label, value, max]) => (
                   <div key={label} className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-start gap-2">
                     <dt className="text-muted">{label}</dt>
                     <dd className="min-w-0 text-foreground">
                       <ExpandableValue value={value} label={`${label} for ${selected.name || selected.id}`} max={max} />
+                      {label === 'Image' && selected.image_source ? (
+                        <div className="text-xs text-muted">{imageSourceLabel(selected.image_source)}</div>
+                      ) : null}
                     </dd>
                   </div>
                 ))}
               </dl>
-
-              <Disclosure summary="Policy provenance">
-                <RunPolicyProvenance run={selected} />
-              </Disclosure>
-
-              {selected.runtime_hosts?.length ? (
-                <Disclosure summary={`Runtime host rules (${selected.runtime_hosts.length})`}>
-                  <ul className="space-y-2 text-sm">
-                    {selected.runtime_hosts.map((host) => (
-                      <li key={`${host.host}:${host.port}:${host.binary}:${host.rule}`} className="space-y-0.5">
-                        <div className="break-all font-mono text-xs">{host.host}:{host.port}</div>
-                        <div className="break-all font-mono text-xs text-muted">{host.binary}</div>
-                        <div className="text-xs text-muted">
-                          Rule {host.rule} · {host.source === 'run+manifest' ? 'persisted in the manifest' : 'this run only'}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </Disclosure>
-              ) : null}
 
               {selected.image_warnings?.length ? (
                 <Alert variant="warning" title="Image warnings">
@@ -710,19 +750,6 @@ export function FleetView({
                   </ul>
                 </Alert>
               ) : null}
-
-              <section aria-label="Sync" className="space-y-1.5 rounded-lg border border-border p-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Sync</h3>
-                <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-sm">
-                  <dt className="text-muted">Sync state</dt>
-                  <dd><SyncStateBadge state={selected.sync_state} /></dd>
-                  <dt className="text-muted">Last sync</dt>
-                  <dd className="min-w-0 text-foreground">{formatSyncTimestamp(selected.last_successful_sync_at)}</dd>
-                </dl>
-                {syncStateExplanation(selected.sync_state) ? (
-                  <p className="text-xs text-muted">{syncStateExplanation(selected.sync_state)}</p>
-                ) : null}
-              </section>
 
               <section aria-label="Open agent" className="space-y-1.5 rounded-lg border border-border p-2">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Open</h3>
@@ -737,45 +764,47 @@ export function FleetView({
                   <Button variant="outline" onClick={() => void openDetail(selected, 'logs')}>View logs</Button>
                   <Button variant="outline" onClick={() => void openDetail(selected, 'diff')}>View diff</Button>
                   <Button variant="outline" onClick={() => void openDetail(selected, 'policy')}>View policy</Button>
+                  <Button ref={configTrigger} variant="outline" className="col-span-2" onClick={() => setConfigRunId(selected.id)}>Configuration</Button>
                 </div>
+                {canAttachRun(selected.status) ? null : (
+                  <p className="text-xs text-muted">Attach needs a running sandbox; this agent is {statusLabel(inFlightStatus(selected)).toLowerCase()}.</p>
+                )}
               </section>
 
               <section aria-label="Manage agent" className="space-y-1.5 rounded-lg border border-border p-2">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Manage</h3>
-                <div className="grid gap-1.5">
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <Button
-                      variant="outline"
-                      loading={pending[selected.id] === 'sync'}
-                      disabled={Boolean(pending[selected.id])}
-                      onClick={() => void runAgentAction(selected, 'sync', () => api.syncRun(selected.id), `Sync requested for ${selected.name || selected.id}`)}
-                    >
-                      {pending[selected.id] === 'sync' ? 'Syncing…' : 'Sync'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      loading={pending[selected.id] === 'stop'}
-                      disabled={Boolean(pending[selected.id]) || !canStopRun(selected.status)}
-                      onClick={() => void runAgentAction(selected, 'stop', () => api.stopRun(selected.id), `Stop requested for ${selected.name || selected.id}`)}
-                    >
-                      {pending[selected.id] === 'stop' ? 'Stopping' : 'Stop'}
-                    </Button>
-                  </div>
-                  <Button variant="outline" onClick={() => copyAgent(selected)}>Copy agent</Button>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Button
+                    variant="outline"
+                    loading={pending[selected.id] === 'sync'}
+                    disabled={Boolean(pending[selected.id])}
+                    onClick={() => void runAgentAction(selected, 'sync', () => api.syncRun(selected.id), `Sync requested for ${selected.name || selected.id}`)}
+                  >
+                    {pending[selected.id] === 'sync' ? 'Syncing…' : 'Sync'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    loading={pending[selected.id] === 'stop'}
+                    disabled={Boolean(pending[selected.id]) || !canStopRun(selected.status)}
+                    onClick={() => void runAgentAction(selected, 'stop', () => api.stopRun(selected.id), `Stop requested for ${selected.name || selected.id}`)}
+                  >
+                    {pending[selected.id] === 'stop' ? 'Stopping' : 'Stop'}
+                  </Button>
                 </div>
               </section>
 
-              <div className="border-t border-border pt-2">
-                <Button
-                  variant="danger"
-                  className="w-full"
-                  loading={pending[selected.id] === 'delete'}
-                  disabled={Boolean(pending[selected.id])}
-                  onClick={() => setDeleteTarget(selected)}
-                >
-                  {pending[selected.id] === 'delete' ? 'Deleting agent' : 'Delete agent'}
-                </Button>
-              </div>
+              <section aria-label="Sync" className="space-y-1.5 rounded-lg border border-border p-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Sync</h3>
+                <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-sm">
+                  <dt className="text-muted">Sync state</dt>
+                  <dd><SyncStateBadge state={selected.sync_state} /></dd>
+                  <dt className="text-muted">Last sync</dt>
+                  <dd className="min-w-0 text-foreground">{formatSyncTimestamp(selected.last_successful_sync_at)}</dd>
+                </dl>
+                {syncStateExplanation(selected.sync_state) ? (
+                  <p className="text-xs text-muted">{syncStateExplanation(selected.sync_state)}</p>
+                ) : null}
+              </section>
             </div>
           ) : (
             <EmptyState title="No agent selected" description="Select an agent to inspect metadata, logs, diff, and policy." />
@@ -948,6 +977,44 @@ export function FleetView({
             </>
           ) : null}
         </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(configRun)}
+        onOpenChange={(open) => {
+          if (!open) closeConfiguration();
+        }}
+        title="Configuration"
+        description={configRun
+          ? `Read-only configuration recorded for ${configRun.name || configRun.id}.`
+          : 'Read-only configuration for the selected agent.'}
+        footer={configRun ? (
+          <>
+            <Button
+              variant="danger"
+              className="mr-auto"
+              loading={pending[configRun.id] === 'delete'}
+              disabled={Boolean(pending[configRun.id])}
+              onClick={() => {
+                const target = configRun;
+                closeConfiguration(false);
+                setDeleteTarget(target);
+              }}
+            >
+              {pending[configRun.id] === 'delete' ? 'Deleting agent' : 'Delete agent'}
+            </Button>
+            <Button variant="ghost" onClick={() => closeConfiguration()}>Done</Button>
+            <Button onClick={() => {
+              const target = configRun;
+              closeConfiguration(false);
+              copyAgent(target);
+            }}>
+              Copy agent
+            </Button>
+          </>
+        ) : null}
+      >
+        {configRun ? <AgentConfiguration run={configRun} /> : null}
       </Modal>
 
       <ConfirmDialog
