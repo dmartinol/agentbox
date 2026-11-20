@@ -781,6 +781,22 @@ func TestUpdateRefreshesStaleAndProtectsModifiedTemplates(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator")
+	// Simulate a template written by an older release: the installed copy is
+	// byte-identical to what the manifest recorded, but it is no longer what
+	// this binary ships.
+	root := filepath.Join(home, ".agents", "skills")
+	stale := []byte("stale triage template\n")
+	issuePath := filepath.Join(dir, "issue.md")
+	if err := os.WriteFile(issuePath, stale, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := loadManifest(root)
+	record := manifest.Skills["agentbox-orchestrator"]
+	record.setFile(ManifestEntry{Name: "issue.md", SHA256: hashHex(stale), Path: issuePath})
+	manifest.Skills["agentbox-orchestrator"] = record
+	if err := saveManifest(root, manifest); err != nil {
+		t.Fatal(err)
+	}
 	results, err := Update(Options{All: true, Version: "2.0.0", Home: home})
 	if err != nil {
 		t.Fatal(err)
@@ -794,7 +810,7 @@ func TestUpdateRefreshesStaleAndProtectsModifiedTemplates(t *testing.T) {
 	if !refreshed {
 		t.Fatalf("stale template was not refreshed: %+v", actionsOf(results, "agentbox-orchestrator"))
 	}
-	if body := string(mustRead(t, filepath.Join(dir, "issue.md"))); !strings.Contains(body, "agentbox-orchestrator 2.0.0") {
+	if body := string(mustRead(t, issuePath)); !strings.Contains(body, "Triaged by AgentBox") {
 		t.Fatalf("template footer was not refreshed: %s", body)
 	}
 

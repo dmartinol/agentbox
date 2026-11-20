@@ -165,13 +165,11 @@ func TestDoctorRecommendsInstallForStaleTemplateWithoutCanonicalSkill(t *testing
 	if found.OK || !strings.Contains(found.Detail, "stale: ") {
 		t.Fatalf("stale template check = %+v", found)
 	}
+	// Only version-bearing files go stale from a version bump. The state footer
+	// is the one template that prints the skill version; the other templates
+	// change only when their content changes.
 	templates := []string{
-		filepath.Join(dir, "issue.md"),
-		filepath.Join(dir, "pr.md"),
-		filepath.Join(dir, "verdict.md"),
 		filepath.Join(dir, "state.md"),
-		filepath.Join(dir, "review-task.md"),
-		filepath.Join(dir, "verify-task.md"),
 	}
 	expected := "stale: " + strings.Join(templates, ", ") + "; run `agentbox skills install`"
 	if !strings.Contains(found.Detail, expected) {

@@ -651,22 +651,73 @@ verdict carries exactly one machine-readable marker:
 <!-- orchestrator-workflow: {"workflow":"orchestrator-owner-name-35-a1b2c3","issue":35,"stage":"review","worker":"orca","worker_id":"worker-7","model":"model-id","commit":"0123456789abcdef0123456789abcdef01234567","pr":42} -->
 ```
 
-and exactly one visible footer:
+and exactly one visible footer. Separate it from the body with a `---` rule on
+its own line, with a blank line above and below; this applies to comment
+bodies, the pull request description, and the issue body alike. The footer is
+one compact line for a human reader: the AgentBox mark opens it, the leading
+clause is bold, then only the facts that line needs. It carries no model id
+and, except for the state footer, no version.
 
 ```text
-Orchestrated by agentbox-orchestrator {{VERSION}} · workflow orchestrator-owner-name-35-a1b2c3 · stage review · worker orca/codex · model model-id · commit 0123456789abcdef0123456789abcdef01234567
+---
+
+**<img src="https://raw.githubusercontent.com/dmartinol/agentbox/main/docs/assets/agentbox-icon.svg" width="14" height="14" align="absmiddle" alt="AgentBox"> Reviewed [0123456](https://github.com/owner/name/commit/0123456789abcdef0123456789abcdef01234567) by AgentBox reviewer (codex)** · approve · 0 findings · independence: different model · [#42](https://github.com/owner/name/pull/42) · took 16m 48s
 ```
 
-- Include the stage, worker, model, and commit in every marker and footer, and
-  the pull request number whenever it is known. Use `null` or
-  `not-applicable` only where a value genuinely does not exist yet.
+In the table below, `<icon>` is the literal mark, kept identical in every
+artifact so the line never depends on emoji rendering:
+
+`<img src="https://raw.githubusercontent.com/dmartinol/agentbox/main/docs/assets/agentbox-icon.svg" width="14" height="14" align="absmiddle" alt="AgentBox">`
+
+| Artifact | Visible footer |
+| --- | --- |
+| Triage issue body | `**<icon> Triaged by AgentBox (<agent>)** · workflow <workflow-id> · [#<issue>](<repo-url>/issues/<issue>) · took <duration>` |
+| Plan comment | `**<icon> Planned by AgentBox orchestrator (<agent>)** · base [<short-sha>](<repo-url>/commit/<full-sha>) · [#<issue>](<repo-url>/issues/<issue>) · took <duration>` |
+| State comment | `**<icon> State maintained by AgentBox orchestrator <version>** · [#<issue>](<repo-url>/issues/<issue>) · workflow <workflow-id> · elapsed <duration>` |
+| Pull request body | `**<icon> Implemented by AgentBox (<agent>)** · reviewed [<short-sha>](<repo-url>/commit/<full-sha>) · [#<pr>](<repo-url>/pull/<pr>) closes [#<issue>](<repo-url>/issues/<issue>) · took <duration>` |
+| Verify artifact | `**<icon> Verified [<short-sha>](<repo-url>/commit/<full-sha>) by AgentBox verifier (<agent>)** · gates <result> · [#<pr>](<repo-url>/pull/<pr>) · took <duration>` |
+| Review verdict | `**<icon> Reviewed [<short-sha>](<repo-url>/commit/<full-sha>) by AgentBox reviewer (<agent>)** · <verdict> · <n> findings · independence: <basis> · [#<pr>](<repo-url>/pull/<pr>) · took <duration>` |
+| Close comment | `**<icon> Closed by AgentBox orchestrator (<agent>)** · reviewed [<short-sha>](<repo-url>/commit/<full-sha>) · merged [<short-sha>](<repo-url>/commit/<full-sha>) · [#<issue>](<repo-url>/issues/<issue>) via [#<pr>](<repo-url>/pull/<pr>) · total <duration>` |
+| Retro comment | `**<icon> Retro reviewed by AgentBox retro (<agent>)** · workflow <workflow-id> · [#<issue>](<repo-url>/issues/<issue>) · took <duration>` |
+
+- Precede the footer with `---` on its own line. A footer that runs straight
+  into the description reads as body text.
+- Start the line with the AgentBox mark and bold the clause up to the first
+  `·`. Keep the rest plain so the facts stay scannable.
+- End with `took <duration>` on a stage artifact, or `elapsed <duration>` on
+  the state comment. Write it the way a human reads it: `45s`, `2m 17s`,
+  `1h 04m 56s` — two-digit seconds once minutes appear, two-digit minutes once
+  hours appear. Measure a stage from dispatch to artifact post, and the state
+  comment from the first workflow artifact to the latest one.
+- Omit the duration segment rather than guess when the stage start is not
+  recorded; never invent a timing.
+- The marker keeps the full machine-readable record: `workflow`, `stage`,
+  `worker`, `worker_id`, `model`, `commit`, and `pr`. Never shorten a footer by
+  dropping a marker field, and use `null` only where a value genuinely does not
+  exist yet.
+- Never print a full registry model id in visible text, whether that is a
+  footer, an evidence table, or narrative prose. Use the short name from the
+  close rule, such as `codex/DeepSeek-V4.1`, and add the effort when the
+  runtime recorded one, as in `codex/GLM5.3/high`. The full id belongs only in
+  the marker and in the state ledger.
+- The footer prints the skill version once, in the state footer, and shows a
+  dirty build as `(dirty build)` rather than a bare `-dirty` suffix.
+- Link every commit, issue, and pull request. Label the commit so a reader
+  knows which one it is: `base`, `reviewed`, or `merged`.
+- Fill `reviewed` or `merged` only after that check happened at that commit.
+  Until then, omit the segment rather than naming a commit that was not
+  reviewed or merged.
+- The review footer states the independence basis so a reader can judge the
+  verdict without opening the marker.
+- Post exactly one footer, as the last line of the artifact. Never repeat it in
+  the body or in a later comment.
 - The marker is the source of truth for resuming: read the orchestrator's own
   comments by marker to reconstruct the workflow instead of relying on prose.
 - Refuse a second verdict for the same `(workflow, stage, commit)`. If a
   matching verdict already exists, report it and stop that attempt rather than
   posting a duplicate.
-- Provenance never implies a human author. It names the stage, worker, model,
-  and commit the content applies to.
+- Provenance never implies a human author. It names the agent and the commit
+  the content applies to.
 - A bot account or GitHub App that gives platform-level identity is the
   documented deferred alternative. Until it exists, provenance is
   content-based and every action is attributed by marker and footer.
@@ -920,10 +971,23 @@ stage work runs inline.
    Any rebase or force-push after verification invalidates the evidence: rerun
    gates and review. Use the repository's merge strategy; prefer a merge
    commit when unspecified.
-9. **Close.** Confirm `Closes #<issue>` closed the issue, comment the outcome
-   with provenance, and remove all `orchestrator:*` labels. Capture the final
-   evidence and deliver the report before cleanup, then remove worktrees,
-   runs, and sessions unless the user asked to keep them.
+9. **Close.** Confirm `Closes #<issue>` closed the issue, then comment the
+   outcome with provenance. Lead with what shipped, and carry one evidence
+   table that keeps each result next to the facts a reader needs:
+   `Stage (agent/model) | Commit | Duration | Result`, one row per dispatched
+   stage plus CI and merge, with commit links and the measured duration. Fold
+   the agent and model into the stage cell as `<stage> (<agent>/<model>)`, use
+   the model's short name — its last path segment, never the full registry id —
+   and append the effort when the runtime recorded one, as in
+   `Triage (codex/GLM5.3/high)`. Cut the name after its family and dotted
+   version, and drop a trailing build or date suffix:
+   `rits/deepseek-ai/DeepSeek-V4.1-Flash-1017` becomes `DeepSeek-V4.1`. Keep
+   the marker's `unspecified` when the host orchestrator has no recorded model.
+   Put the whole-workflow time in the close
+   footer, and say how the durations were measured when two stages shared one
+   dispatch window. Then remove all `orchestrator:*` labels. Capture the final
+   evidence and deliver the report before cleanup, then remove worktrees, runs,
+   and sessions unless the user asked to keep them.
 10. **Retro.** After a terminal outcome, and only when the workflow reached
     implementation, dispatch `agentbox-retro` once with a sanitized record:
     stage outcomes, state transitions, gate results, review and fix cycles,

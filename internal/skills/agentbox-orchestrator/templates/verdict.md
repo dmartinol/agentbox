@@ -62,4 +62,6 @@ deferred finding or finding group and the created issue that tracks it:
 The reviewer returns this artifact to the orchestrator. The orchestrator posts
 it, so a review verdict always has one writer and one provenance path.
 
-Orchestrated by agentbox-orchestrator {{VERSION}} · workflow <workflow-id> · stage review · worker <runtime>/<agent> · model <model-id> · commit <full-sha>
+---
+
+**<img src="https://raw.githubusercontent.com/dmartinol/agentbox/main/docs/assets/agentbox-icon.svg" width="14" height="14" align="absmiddle" alt="AgentBox"> Reviewed [<short-sha>](<repo-url>/commit/<full-sha>) by AgentBox reviewer (<agent>)** · <verdict> · <n> findings · independence: <basis> · [#<pr>](<repo-url>/pull/<pr>) · took <duration>
