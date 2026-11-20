@@ -103,4 +103,6 @@ list below.
   checklist, Credential and configuration rules.
 - `docs/file.md` — what must be updated with the code.
 
-Orchestrated by agentbox-orchestrator {{VERSION}} · workflow <workflow-id> · stage triage · worker <runtime>/<agent> · model <model-id> · commit not-applicable
+---
+
+**<img src="https://raw.githubusercontent.com/dmartinol/agentbox/main/docs/assets/agentbox-icon.svg" width="14" height="14" align="absmiddle" alt="AgentBox"> Triaged by AgentBox (<agent>)** · workflow <workflow-id> · [#<issue>](<repo-url>/issues/<issue>) · took <duration>

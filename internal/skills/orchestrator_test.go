@@ -8,6 +8,10 @@ import (
 	"testing"
 )
 
+// testFooterIcon is the literal AgentBox mark every provenance footer opens
+// with, kept in one place so the assertions cannot drift from the templates.
+const testFooterIcon = `<img src="https://raw.githubusercontent.com/dmartinol/agentbox/main/docs/assets/agentbox-icon.svg" width="14" height="14" align="absmiddle" alt="AgentBox">`
+
 // rawSkill returns the unrendered embedded file so tests can assert on the
 // literal front matter syntax.
 func rawSkill(t *testing.T, name string) string {
@@ -490,12 +494,43 @@ func TestOrchestratorSkillProvenance(t *testing.T) {
 		"\"commit\":\"0123456789abcdef0123456789abcdef01234567\"",
 		"\"pr\":42",
 		"and exactly one visible footer",
-		"Orchestrated by agentbox-orchestrator 9.9.9 · workflow",
-		"· stage review · worker orca/codex · model model-id · commit 0123456789abcdef0123456789abcdef01234567",
-		"Include the stage, worker, model, and commit in every marker and footer",
+		"**" + testFooterIcon + " Reviewed [0123456](https://github.com/owner/name/commit/0123456789abcdef0123456789abcdef01234567) by AgentBox reviewer (codex)** · approve · 0 findings · independence: different model · [#42](https://github.com/owner/name/pull/42) · took 16m 48s",
+		"In the table below, `<icon>` is the literal mark",
+		"| Triage issue body |",
+		"| Plan comment |",
+		"| State comment |",
+		"| Pull request body |",
+		"| Verify artifact |",
+		"| Review verdict |",
+		"| Close comment |",
+		"| Retro comment |",
+		"Precede the footer with `---` on its own line.",
+		"Start the line with the AgentBox mark and bold the clause up to the first `·`.",
+		"End with `took <duration>` on a stage artifact",
+		"The marker keeps the full machine-readable record: `workflow`, `stage`,",
+		"The visible footer never repeats the full model id; name the agent instead.",
+		"Link every commit, issue, and pull request.",
+		"The review footer states the independence basis",
+		"Post exactly one footer, as the last line of the artifact.",
 		"Refuse a second verdict for the same `(workflow, stage, commit)`",
-		"Provenance never implies a human author",
+		"Provenance never implies a human author. It names the agent and the commit",
 		"A bot account or GitHub App that gives platform-level identity is the documented deferred alternative",
+	)
+}
+
+// TestOrchestratorSkillCloseEvidenceTable pins the close comment layout: the
+// stage and agent share one cell, the model is named by its short form, and
+// the measured duration sits next to the result it belongs to.
+func TestOrchestratorSkillCloseEvidenceTable(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"`Stage (agent/model) | Commit | Duration | Result`",
+		"Fold the agent and model into the stage cell as `<stage> (<agent>/<model>)`",
+		"use the model's short name — its last path segment, never the full registry id",
+		"append the effort when the runtime recorded one, as in `Triage (codex/GLM5.3/high)`",
+		"`rits/deepseek-ai/DeepSeek-V4.1-Flash-1017` becomes `DeepSeek-V4.1`",
+		"Keep the marker's `unspecified` when the host orchestrator has no recorded model",
+		"Put the whole-workflow time in the close footer",
 	)
 }
 
@@ -705,6 +740,14 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 		"review-task.md": {"## Role", "## Scope", "## Severity bar", "## Checklist", "## Output", "## Provenance"},
 		"verify-task.md": {"## Role", "## Scope", "## Output", "## Provenance"},
 	}
+	footers := map[string]string{
+		"issue.md":       "**" + testFooterIcon + " Triaged by AgentBox (<agent>)**",
+		"pr.md":          "**" + testFooterIcon + " Implemented by AgentBox (<agent>)** · reviewed [<short-sha>]",
+		"verdict.md":     "**" + testFooterIcon + " Reviewed [<short-sha>]",
+		"state.md":       "**" + testFooterIcon + " State maintained by AgentBox orchestrator 9.9.9** ·",
+		"review-task.md": "**" + testFooterIcon + " Reviewed [<short-sha>]",
+		"verify-task.md": "**" + testFooterIcon + " Verified [<short-sha>]",
+	}
 	for file, wants := range headings {
 		content, err := EmbeddedFile("agentbox-orchestrator", file, "9.9.9")
 		if err != nil {
@@ -714,12 +757,46 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 		if strings.Contains(body, VersionPlaceholder) {
 			t.Fatalf("%s still contains the version placeholder", file)
 		}
+		if strings.Contains(body, "Orchestrated by") {
+			t.Fatalf("%s still prints the retired orchestrator footer", file)
+		}
+		if strings.Count(body, testFooterIcon) != 1 {
+			t.Fatalf("%s has %d footers, want exactly one", file, strings.Count(body, testFooterIcon))
+		}
+		lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+		if last := lines[len(lines)-1]; !strings.HasPrefix(last, "**"+testFooterIcon) {
+			t.Fatalf("%s footer is not the last line: %q", file, last)
+		}
+		if len(lines) < 3 || lines[len(lines)-2] != "" || lines[len(lines)-3] != "---" {
+			t.Fatalf("%s footer lacks its --- separator: %q", file, lines[len(lines)-3:])
+		}
 		wantAll(t, body, wants...)
 		wantAll(t, body,
 			"<!-- orchestrator-workflow: {",
-			"Orchestrated by agentbox-orchestrator 9.9.9 · workflow",
+			footers[file],
 		)
 	}
+}
+
+// TestVersionDisplayRendersDirtyBuild covers the footer rule that a
+// git-describe dirty suffix reads as "(dirty build)" instead of "-dirty",
+// while a clean version is unchanged.
+func TestVersionDisplayRendersDirtyBuild(t *testing.T) {
+	dirty, err := EmbeddedFile("agentbox-orchestrator", "state.md", "v0.2-162-gf230faa-dirty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(dirty)
+	if strings.Contains(body, "-dirty") {
+		t.Fatalf("dirty state footer still prints -dirty: %s", body)
+	}
+	wantAll(t, body, "**"+testFooterIcon+" State maintained by AgentBox orchestrator v0.2-162-gf230faa (dirty build)** ·")
+
+	clean, err := EmbeddedFile("agentbox-orchestrator", "state.md", "v0.3.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAll(t, string(clean), "**"+testFooterIcon+" State maintained by AgentBox orchestrator v0.3.0** ·")
 }
 
 // TestOrchestratorSkillStateRecordExampleIsClean enforces the sensitive-data

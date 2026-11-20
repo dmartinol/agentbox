@@ -272,6 +272,21 @@ func TestListReportsTemplateStates(t *testing.T) {
 		t.Fatal("SKILL.md row changed shape")
 	}
 
+	// Simulate a template written by an older release: stale is driven by
+	// content that matches the manifest record but not the embedded copy.
+	staleRoot := filepath.Join(home, ".agents", "skills")
+	stalePath := filepath.Join(staleRoot, "agentbox-orchestrator", "issue.md")
+	stale := []byte("stale triage template\n")
+	if err := os.WriteFile(stalePath, stale, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := loadManifest(staleRoot)
+	record := manifest.Skills["agentbox-orchestrator"]
+	record.setFile(ManifestEntry{Name: "issue.md", SHA256: hashHex(stale), Path: stalePath})
+	manifest.Skills["agentbox-orchestrator"] = record
+	if err := saveManifest(staleRoot, manifest); err != nil {
+		t.Fatal(err)
+	}
 	statuses, err = List(ListOptions{Version: "2.0.0", Home: home})
 	if err != nil {
 		t.Fatal(err)

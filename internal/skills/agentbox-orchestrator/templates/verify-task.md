@@ -34,4 +34,6 @@ observations:
 Return this artifact to the orchestrator. The orchestrator records the gate
 results and posts anything that must reach the tracker.
 
-Orchestrated by agentbox-orchestrator {{VERSION}} · workflow <workflow-id> · stage verify · worker <runtime>/<agent> · model <model-id> · commit <full-sha>
+---
+
+**<img src="https://raw.githubusercontent.com/dmartinol/agentbox/main/docs/assets/agentbox-icon.svg" width="14" height="14" align="absmiddle" alt="AgentBox"> Verified [<short-sha>](<repo-url>/commit/<full-sha>) by AgentBox verifier (<agent>)** · gates <result> · [#<pr>](<repo-url>/pull/<pr>) · took <duration>

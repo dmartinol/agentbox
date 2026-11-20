@@ -133,4 +133,6 @@ Record the effort the worker actually ran with. Use `not-applicable` when the
 selected runtime cannot apply a reasoning effort, such as an AgentBox worker;
 never record an effort that was requested but not applied.
 
-Orchestrated by agentbox-orchestrator {{VERSION}} · workflow <workflow-id> · stage state · worker orchestrator · model <model-id> · commit <full-sha>
+---
+
+**<img src="https://raw.githubusercontent.com/dmartinol/agentbox/main/docs/assets/agentbox-icon.svg" width="14" height="14" align="absmiddle" alt="AgentBox"> State maintained by AgentBox orchestrator {{VERSION_DISPLAY}}** · [#<issue>](<repo-url>/issues/<issue>) · workflow <workflow-id> · elapsed <duration>

@@ -24,6 +24,11 @@ import (
 // compared against the binary that wrote them.
 const VersionPlaceholder = "{{VERSION}}"
 
+// VersionDisplayPlaceholder is replaced with a human-readable version for a
+// visible footer. A git-describe "-dirty" suffix renders as "(dirty build)" so
+// the footer never prints a bare build-state suffix.
+const VersionDisplayPlaceholder = "{{VERSION_DISPLAY}}"
+
 //go:embed agentbox-cli/SKILL.md agentbox-api/SKILL.md agentbox-orchestrator/SKILL.md agentbox-orchestrator/templates/issue.md agentbox-orchestrator/templates/pr.md agentbox-orchestrator/templates/verdict.md agentbox-orchestrator/templates/state.md agentbox-orchestrator/templates/review-task.md agentbox-orchestrator/templates/verify-task.md
 var embedded embed.FS
 
@@ -182,7 +187,17 @@ func fileNames(name string) []string {
 }
 
 func render(raw []byte, version string) []byte {
-	return bytes.ReplaceAll(raw, []byte(VersionPlaceholder), []byte(effectiveVersion(version)))
+	v := effectiveVersion(version)
+	out := bytes.ReplaceAll(raw, []byte(VersionDisplayPlaceholder), []byte(displayVersion(v)))
+	return bytes.ReplaceAll(out, []byte(VersionPlaceholder), []byte(v))
+}
+
+// displayVersion renders a git-describe version for a visible footer.
+func displayVersion(version string) string {
+	if base, dirty := strings.CutSuffix(version, "-dirty"); dirty {
+		return base + " (dirty build)"
+	}
+	return version
 }
 
 // effectiveVersion defaults an empty version to dev, matching what render

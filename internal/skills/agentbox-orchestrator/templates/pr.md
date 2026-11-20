@@ -98,4 +98,6 @@ or by the orchestrator on its behalf, and it does not imply a human author.
 Template: `pr.md` beside the installed `SKILL.md`, or the repository's
 `.github/orchestrator/pr.md` override when present.
 
-Orchestrated by agentbox-orchestrator {{VERSION}} · workflow <workflow-id> · stage implement · worker <runtime>/<agent> · model <model-id> · commit <full-sha>
+---
+
+**<img src="https://raw.githubusercontent.com/dmartinol/agentbox/main/docs/assets/agentbox-icon.svg" width="14" height="14" align="absmiddle" alt="AgentBox"> Implemented by AgentBox (<agent>)** · reviewed [<short-sha>](<repo-url>/commit/<full-sha>) · [#<pr>](<repo-url>/pull/<pr>) closes [#<issue>](<repo-url>/issues/<issue>) · took <duration>
