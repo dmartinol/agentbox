@@ -63,7 +63,8 @@ agentbox project show [--json] NAME
 | `--json` | `false` | Print the project record as JSON. |
 
 Prints the project name, root, and isolation mode. The GUI's project list also
-shows read-only manifest, fragment, host-rule, and worker-image status.
+shows read-only checkout freshness derived from local remote-tracking refs (no
+fetch), plus read-only manifest, fragment, host-rule, and worker-image status.
 
 ## list
 {: #project-list }

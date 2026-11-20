@@ -115,7 +115,8 @@ func (a *App) RepoSetupWithOutput(ctx context.Context, opt RepoSetupOptions, std
 	cfg, err := LoadRepoConfig(repoRoot)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return result, fmt.Errorf("no repository manifest at %s; author .agentbox/config.yaml first (see the repository manifest section of docs/openshell-architecture.md) and commit it: %w", RepoConfigPath(repoRoot), err)
+			checkout := a.ProjectCheckout(ctx, repoRoot)
+			return result, fmt.Errorf("no repository manifest at %s; checkout is %s (derived from local remote-tracking refs; no fetch). If the manifest is already committed upstream, update this checkout first; otherwise author .agentbox/config.yaml first (see the repository manifest section of docs/openshell-architecture.md) and commit it: %w", RepoConfigPath(repoRoot), checkout.Summary(), err)
 		}
 		return result, err
 	}

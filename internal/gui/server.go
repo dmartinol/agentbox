@@ -723,6 +723,7 @@ type projectRecord struct {
 	Manifest   bool                   `json:"manifest"`
 	Repo       string                 `json:"repo,omitempty"`
 	RepoStatus *app.ProjectRepoStatus `json:"repo_status,omitempty"`
+	Checkout   app.ProjectCheckout    `json:"checkout"`
 }
 
 type profileRecord struct {
@@ -747,7 +748,8 @@ func (s *Server) projectsWithUsage(ctx context.Context) ([]projectRecord, error)
 			repo = ""
 		}
 		repoStatus := s.app.ProjectRepoStatus(ctx, project.Root)
-		records = append(records, projectRecord{Project: project, UsedBy: usage[project.Name], Manifest: app.RepoConfigPresent(project.Root), Repo: repo, RepoStatus: &repoStatus})
+		checkout := s.app.ProjectCheckout(ctx, project.Root)
+		records = append(records, projectRecord{Project: project, UsedBy: usage[project.Name], Manifest: app.RepoConfigPresent(project.Root), Repo: repo, RepoStatus: &repoStatus, Checkout: checkout})
 	}
 	return records, nil
 }

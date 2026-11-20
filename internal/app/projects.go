@@ -7,8 +7,148 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
+
+// Checkout states reported by ProjectCheckout. They describe only local
+// remote-tracking refs; deriving them never contacts a remote.
+const (
+	checkoutUpToDate   = "up-to-date"
+	checkoutBehind     = "behind"
+	checkoutAhead      = "ahead"
+	checkoutDiverged   = "diverged"
+	checkoutNoUpstream = "no-upstream"
+	checkoutUnknown    = "unknown"
+)
+
+// ProjectCheckout reports whether a checkout is behind or ahead of its
+// configured upstream. It is derived from local configuration and
+// remote-tracking refs only and is never persisted on the project record.
+type ProjectCheckout struct {
+	State  string `json:"state"`
+	Behind int    `json:"behind"`
+	Ahead  int    `json:"ahead"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// Summary renders the human-readable state used by the setup error and the
+// GUI. It intentionally carries the meaning without relying on color.
+func (c ProjectCheckout) Summary() string {
+	switch c.State {
+	case checkoutUpToDate:
+		return "up to date"
+	case checkoutBehind:
+		return fmt.Sprintf("%d behind", c.Behind)
+	case checkoutAhead:
+		return fmt.Sprintf("%d ahead", c.Ahead)
+	case checkoutDiverged:
+		return fmt.Sprintf("%d ahead, %d behind", c.Ahead, c.Behind)
+	case checkoutNoUpstream:
+		return "no upstream"
+	case checkoutUnknown:
+		if c.Reason != "" {
+			return fmt.Sprintf("unknown (%s)", c.Reason)
+		}
+		return "unknown"
+	default:
+		if c.Reason != "" {
+			return fmt.Sprintf("unknown (%s)", c.Reason)
+		}
+		return "unknown"
+	}
+}
+
+// ProjectCheckout derives checkout freshness from local refs. Any Git
+// failure is reported as an unknown state with a short reason rather than
+// an error, so one stale or unusual checkout cannot fail a project list.
+func (a *App) ProjectCheckout(ctx context.Context, root string) ProjectCheckout {
+	checkout := ProjectCheckout{State: checkoutUnknown}
+	if _, err := a.gitOutput(ctx, root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"); err != nil {
+		branch, branchErr := a.gitOutput(ctx, root, "symbolic-ref", "--quiet", "--short", "HEAD")
+		if branchErr != nil {
+			if _, headErr := a.gitOutput(ctx, root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"); headErr != nil {
+				checkout.Reason = shortCheckoutReason(headErr.Error())
+				return checkout
+			}
+			checkout.State = checkoutNoUpstream
+			checkout.Reason = "detached HEAD"
+			return checkout
+		}
+		branch = strings.TrimSpace(branch)
+		if _, headErr := a.gitOutput(ctx, root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"); headErr != nil {
+			checkout.Reason = fmt.Sprintf("branch %s has no commits", branch)
+			return checkout
+		}
+		upstream, upstreamErr := a.gitOutput(ctx, root, "for-each-ref", "--format=%(upstream)", "refs/heads/"+branch)
+		if upstreamErr != nil {
+			checkout.Reason = shortCheckoutReason(upstreamErr.Error())
+			return checkout
+		}
+		upstream = strings.TrimSpace(upstream)
+		if upstream != "" {
+			checkout.Reason = fmt.Sprintf("upstream %s is not available locally; fetch it", displayUpstreamRef(upstream))
+			return checkout
+		}
+		checkout.State = checkoutNoUpstream
+		return checkout
+	}
+	counts, err := a.gitOutput(ctx, root, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
+	if err != nil {
+		checkout.Reason = shortCheckoutReason(err.Error())
+		return checkout
+	}
+	ahead, behind, err := parseCheckoutCounts(counts)
+	if err != nil {
+		checkout.Reason = shortCheckoutReason(err.Error())
+		return checkout
+	}
+	checkout.Ahead = ahead
+	checkout.Behind = behind
+	switch {
+	case ahead == 0 && behind == 0:
+		checkout.State = checkoutUpToDate
+	case ahead == 0:
+		checkout.State = checkoutBehind
+	case behind == 0:
+		checkout.State = checkoutAhead
+	default:
+		checkout.State = checkoutDiverged
+	}
+	return checkout
+}
+
+func displayUpstreamRef(ref string) string {
+	ref = strings.TrimPrefix(ref, "refs/remotes/")
+	return strings.TrimPrefix(ref, "refs/heads/")
+}
+
+func parseCheckoutCounts(out string) (ahead, behind int, err error) {
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return 0, 0, fmt.Errorf("unexpected rev-list output %q", strings.TrimSpace(out))
+	}
+	ahead, err = strconv.Atoi(fields[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("unexpected rev-list output %q", strings.TrimSpace(out))
+	}
+	behind, err = strconv.Atoi(fields[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("unexpected rev-list output %q", strings.TrimSpace(out))
+	}
+	return ahead, behind, nil
+}
+
+func shortCheckoutReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if index := strings.IndexByte(reason, '\n'); index >= 0 {
+		reason = strings.TrimSpace(reason[:index])
+	}
+	if reason == "" {
+		return "git command failed"
+	}
+	return reason
+}
 
 func (a *App) ProjectUsage() (map[string][]string, error) {
 	usage := make(map[string][]string)

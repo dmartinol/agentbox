@@ -88,6 +88,15 @@ export interface RepoHostRule {
   binaries: string[];
 }
 
+export type CheckoutState = 'up-to-date' | 'behind' | 'ahead' | 'diverged' | 'no-upstream' | 'unknown';
+
+export interface ProjectCheckout {
+  state: CheckoutState;
+  behind: number;
+  ahead: number;
+  reason?: string;
+}
+
 export interface Project {
   version: number;
   name: string;
@@ -97,6 +106,7 @@ export interface Project {
   manifest?: boolean;
   repo?: string;
   repo_status?: ProjectRepoStatus;
+  checkout?: ProjectCheckout;
 }
 
 export interface Profile {

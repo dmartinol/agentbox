@@ -28,6 +28,9 @@ import (
 type guiRunner struct {
 	gitRoot         string
 	gitRemote       string
+	gitUpstream     string
+	gitCheckout     string
+	gitCheckoutErr  error
 	images          string
 	gateways        string
 	phases          map[string]string
@@ -45,6 +48,21 @@ func (r guiRunner) Output(_ context.Context, name string, args ...string) ([]byt
 	switch {
 	case name == "git" && containsCommand(args, "rev-parse", "--show-toplevel"):
 		return []byte(r.gitRoot), nil
+	case name == "git" && containsCommand(args, "rev-parse", "--abbrev-ref"):
+		if r.gitUpstream == "" {
+			return nil, fmt.Errorf("no upstream configured")
+		}
+		return []byte(r.gitUpstream + "\n"), nil
+	case name == "git" && containsCommand(args, "rev-list", "--left-right"):
+		if r.gitCheckoutErr != nil {
+			return nil, r.gitCheckoutErr
+		}
+		return []byte(r.gitCheckout), nil
+	case name == "git" && containsCommand(args, "for-each-ref", "--format=%(upstream)"):
+		if r.gitUpstream == "" {
+			return []byte{}, nil
+		}
+		return []byte("refs/remotes/" + r.gitUpstream + "\n"), nil
 	case name == "git" && containsCommand(args, "remote", "get-url"):
 		return []byte(r.gitRemote), nil
 	case name == "podman" && len(args) > 0 && args[0] == "images":
@@ -481,6 +499,45 @@ func TestProjectsEndpoint(t *testing.T) {
 	requestJSON(t, http.MethodGet, server.URL+"/api/projects", nil, &projects)
 	if len(projects) != 1 || projects[0].Name != "demo" {
 		t.Fatalf("projects = %#v", projects)
+	}
+}
+
+func TestProjectsEndpointReportsCheckout(t *testing.T) {
+	runner := testRunner()
+	runner.gitUpstream = "origin/main"
+	runner.gitCheckout = "0\t22\n"
+	server := newTestServerWithRunner(t, runner)
+	var projects []struct {
+		Name     string              `json:"name"`
+		Checkout app.ProjectCheckout `json:"checkout"`
+	}
+	response := requestJSON(t, http.MethodGet, server.URL+"/api/projects", nil, &projects)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", response.StatusCode)
+	}
+	if len(projects) != 1 || projects[0].Name != "demo" {
+		t.Fatalf("projects = %#v", projects)
+	}
+	checkout := projects[0].Checkout
+	if checkout.State != "behind" || checkout.Behind != 22 || checkout.Ahead != 0 {
+		t.Fatalf("checkout = %+v; want 22 behind", checkout)
+	}
+}
+
+func TestProjectsEndpointReportsUnknownCheckout(t *testing.T) {
+	runner := testRunner()
+	runner.gitUpstream = "origin/main"
+	runner.gitCheckoutErr = errors.New("fatal: bad revision")
+	server := newTestServerWithRunner(t, runner)
+	var projects []struct {
+		Checkout app.ProjectCheckout `json:"checkout"`
+	}
+	response := requestJSON(t, http.MethodGet, server.URL+"/api/projects", nil, &projects)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", response.StatusCode)
+	}
+	if len(projects) != 1 || projects[0].Checkout.State != "unknown" || projects[0].Checkout.Reason == "" {
+		t.Fatalf("checkout = %#v; want unknown with reason", projects)
 	}
 }
 
