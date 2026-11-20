@@ -1005,6 +1005,10 @@ func (r stopSyncRunner) Output(ctx context.Context, name string, args ...string)
 		// inspects after the stop report the sandbox as stopped.
 		r.phases[r.sandbox] = "stopped"
 		return nil, nil
+	case name == "openshell" && containsCommand(args, "sandbox", "exec") && r.phases[r.sandbox] == "stopped" && strings.Contains(strings.Join(args, " "), "pane_dead"):
+		// A stopped sandbox can reject the status probe. The stop response
+		// must still report the lifecycle state Stop just persisted.
+		return nil, errors.New("sandbox exec failed after stop")
 	default:
 		return r.guiRunner.Output(ctx, name, args...)
 	}
