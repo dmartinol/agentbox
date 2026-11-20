@@ -12,6 +12,12 @@ instructions: |
   subsystem or review the full diff again. A new finding outside that range is
   allowed only at `blocker` severity.
 
+  Confirm `git diff <reviewed-sha>..HEAD --stat` is empty. When the change
+  derives behavior from git state, require the real-git probe across
+  up-to-date, behind, diverged, detached, unborn, and non-repository states.
+  State the independence basis under `## Independence`; if you share the
+  implementer's agent and model, say so as a limitation.
+
   Apply the severity bar: only `blocker` and `major` block merge; `minor` and
   `nit` are always follow-ups. Return the verdict artifact with an outcome,
   the finding ledger status for every open id, evidence at the reviewed

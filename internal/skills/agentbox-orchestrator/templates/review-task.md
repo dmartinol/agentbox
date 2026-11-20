@@ -32,6 +32,15 @@ are always follow-ups.
 
 - Read the issue's acceptance criteria first and decide each one against
   evidence at `<full-sha>`. An unmet acceptance criterion is a `blocker`.
+- Confirm `git diff <reviewed-sha>..HEAD --stat` is empty and report the
+  result in `## Evidence at commit`. A non-empty result means the worktree is
+  not the reviewed head.
+- When the change derives behavior from git state, require the real-git probe:
+  up-to-date, behind, diverged, detached, unborn, and non-repository, each
+  with an observed result. A mocked state is not evidence.
+- State the independence basis in `## Independence`. Same agent and model as
+  the implementer is a limitation the verdict must admit, not hide in the
+  footer.
 - On the first cycle, compare the full diff with the base and check changed
   behavior, data handling, secrets, sandbox and policy, gates, and provenance.
 - On later cycles, inspect `prev_head..head` and re-check the ledger: every

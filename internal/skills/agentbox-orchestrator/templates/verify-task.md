@@ -1,4 +1,4 @@
-# Verify task: <repo>#<pr> at <full-sha>
+# Verify artifact: <repo>#<pr> at <full-sha>
 
 <!-- orchestrator-workflow: {"workflow":"<workflow-id>","issue":<issue>,"stage":"verify","worker":"<runtime>","worker_id":"<worker-id>","model":"<model-id>","commit":"<full-sha>","pr":<pr>} -->
 
@@ -6,7 +6,7 @@
 
 You are the verifier, not a reviewer. Rerun every gate on the pull request
 head and report the results. You do not edit, commit, push, merge, or post to
-the tracker.
+the tracker. Return this artifact to the orchestrator; it posts the comment.
 
 ## Scope
 
@@ -16,23 +16,47 @@ the tracker.
 - A verifier observation is advisory. Do not promote it into a requirement;
   only the reviewer classifies observations, and only at their real severity.
 
+## Preconditions
+
+Confirm these before running any gate, and record each result:
+
+- **Head check:** `git diff <reviewed-sha>..HEAD --stat` is empty. A non-empty
+  result means the worktree is not the pushed head; stop and report it.
+- **Fresh worktree:** the checkout is a detached worktree at `<full-sha>`, not
+  the implementer's worktree and not the project checkout.
+- **Real-git probe:** when the change derives behavior from git state, probe a
+  real repository and record the observed result for each state:
+  up-to-date, behind, diverged, detached, unborn, and non-repository. A mocked
+  test is not a substitute.
+
 ## Output
 
-Return exactly this shape:
+Return exactly this artifact, ready for the orchestrator to post:
 
 ```yaml
 commit: <full-sha>
+result: <pass|fail>
+head_check: <empty|non-empty>
 gates:
   - command: <command>
     result: <pass|fail|pending>
+git_probe:
+  up_to_date: <observed>
+  behind: <observed>
+  diverged: <observed>
+  detached: <observed>
+  unborn: <observed>
+  non_repository: <observed>
 observations:
   - <one line of advisory evidence>
 ```
 
 ## Provenance
 
-Return this artifact to the orchestrator. The orchestrator records the gate
-results and posts anything that must reach the tracker.
+The orchestrator posts this artifact as a `stage:verify` comment on the pull
+request with provenance and links it from the pull request's
+`Independent checks` row. It is evidence, not internal bookkeeping, so it must
+stand on its own outside the state comment.
 
 ---
 

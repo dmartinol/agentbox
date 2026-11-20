@@ -623,7 +623,7 @@ func (a *App) Stop(ctx context.Context, id string) error {
 		return err
 	}
 	if !r.Status.IsStoppable() {
-		return fmt.Errorf("run %s is %s; stop applies to Ready, Working, or Waiting for input (use `agentbox agent delete %s --discard` to discard it)", id, r.Status.Label(), id)
+		return fmt.Errorf("run %s is %s; stop applies to Ready, Working, or Waiting for input (use `agentbox agent delete --discard %s` to discard it)", id, r.Status.Label(), id)
 	}
 	if _, err := a.sandboxExec(ctx, r, "tmux", "send-keys", "-t", "agent", "C-c"); err != nil {
 		return err

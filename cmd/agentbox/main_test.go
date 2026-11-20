@@ -218,7 +218,7 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 		if status.Kind == "role" || status.Name != "agentbox-orchestrator" {
 			continue
 		}
-		if len(status.Files) != 6 {
+		if len(status.Files) != 7 {
 			t.Fatalf("orchestrator template statuses = %+v", status.Files)
 		}
 		for _, file := range status.Files {
@@ -253,7 +253,7 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 
 	// The orchestrator skill is packaged, installed, and shown like the others.
 	orchestratorDir := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator")
-	for _, file := range []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md", "review-task.md", "verify-task.md"} {
+	for _, file := range []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md", "plan.md", "review-task.md", "verify-task.md"} {
 		if _, err := os.Stat(filepath.Join(orchestratorDir, file)); err != nil {
 			t.Fatalf("%s was not installed: %v", file, err)
 		}
@@ -328,7 +328,7 @@ func TestSkillsInstallRefusesDifferingSkillFileWithoutForce(t *testing.T) {
 	if err := dispatch(context.Background(), a, []string{"skills", "install", "--dir", dir}); err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range []string{"issue.md", "pr.md", "verdict.md", "state.md", "review-task.md", "verify-task.md"} {
+	for _, file := range []string{"issue.md", "pr.md", "verdict.md", "state.md", "plan.md", "review-task.md", "verify-task.md"} {
 		if _, err := os.Stat(filepath.Join(dir, "agentbox-orchestrator", file)); err != nil {
 			t.Fatalf("--dir did not write %s: %v", file, err)
 		}

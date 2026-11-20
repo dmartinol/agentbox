@@ -221,7 +221,7 @@ func TestInstallDirOverrideWritesPlainCopies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"issue.md", "pr.md", "verdict.md", "state.md", "review-task.md", "verify-task.md"} {
+	for _, name := range []string{"issue.md", "pr.md", "verdict.md", "state.md", "plan.md", "review-task.md", "verify-task.md"} {
 		if _, err := os.Stat(filepath.Join(dir, "agentbox-orchestrator", name)); err != nil {
 			t.Fatalf("--dir did not write %s: %v", name, err)
 		}
@@ -754,7 +754,7 @@ func TestInstallWritesTemplatesAsSiblings(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(home, ".agents", "skills", "agentbox-orchestrator")
-	for _, name := range []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md", "review-task.md", "verify-task.md"} {
+	for _, name := range []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md", "plan.md", "review-task.md", "verify-task.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Fatalf("%s missing beside SKILL.md: %v", name, err)
 		}
@@ -1010,10 +1010,10 @@ func TestUpdateAddsTemplatesToLegacyManifestV1Install(t *testing.T) {
 			added++
 		}
 	}
-	if added != 6 {
+	if added != 7 {
 		t.Fatalf("installed template rows = %d: %s", added, actionsOf(results, "agentbox-orchestrator"))
 	}
-	for _, name := range []string{"issue.md", "pr.md", "verdict.md", "state.md", "review-task.md", "verify-task.md"} {
+	for _, name := range []string{"issue.md", "pr.md", "verdict.md", "state.md", "plan.md", "review-task.md", "verify-task.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Fatalf("%s was not added by update: %v", name, err)
 		}
@@ -1043,7 +1043,7 @@ func TestRemoveDeletesTemplatesAndKeepsForeignFiles(t *testing.T) {
 	if _, err := Remove(Options{Version: "1.0.0", Home: home}); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md", "review-task.md", "verify-task.md"} {
+	for _, name := range []string{"SKILL.md", "issue.md", "pr.md", "verdict.md", "state.md", "plan.md", "review-task.md", "verify-task.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
 			t.Fatalf("%s survived remove", name)
 		}
@@ -1096,7 +1096,7 @@ func TestRemoveKeepsUnrecordedTemplate(t *testing.T) {
 	if !reported {
 		t.Fatalf("unrecorded template was not reported as left alone: %+v", actionsOf(results, "agentbox-orchestrator"))
 	}
-	for _, name := range []string{"SKILL.md", "pr.md", "verdict.md", "state.md", "review-task.md", "verify-task.md"} {
+	for _, name := range []string{"SKILL.md", "pr.md", "verdict.md", "state.md", "plan.md", "review-task.md", "verify-task.md"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
 			t.Fatalf("%s survived remove", name)
 		}

@@ -167,7 +167,10 @@ agentbox agent delete RUN_ID      # requires a synced run and a clean review
 
 `sync` refuses to overwrite a worktree that changed since the last sync. Review
 the diff before merging. `delete` refuses active or unsynced runs unless you
-pass `--discard`; it removes the sandbox, worktree, and run branch.
+pass `--discard`; it removes the sandbox, worktree, and run branch. Put the
+flag before the run id — `agentbox agent delete --discard RUN_ID` — because a
+flag after the id is read as an extra argument and the command waits for
+confirmation.
 
 ## Manage images
 

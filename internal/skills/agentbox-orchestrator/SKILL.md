@@ -490,7 +490,7 @@ During triage:
 | plan | worker of the selected type | its own new worktree | none |
 | implement | worker of the selected type, branch `orchestrator/<issue>-<slug>` | its own new worktree | the `implement` row of the stage-aware forge matrix |
 | fix | worker of the selected type, existing issue branch | its own worktree at the current pull request head | the `fix` row of the stage-aware forge matrix |
-| verify | fresh worker | fresh detached worktree at the full pull request head SHA | none |
+| verify | fresh worker | fresh detached worktree at the full pull request head SHA | none; the orchestrator posts its `stage:verify` artifact |
 | review | fresh worker | fresh detached worktree at the full pull request head SHA | none; it returns a verdict artifact |
 | retro | fresh worker, tracker-blind | its own new worktree | none; it returns zero or more issue drafts |
 | merge / close | orchestrator | not applicable | orchestrator |
@@ -542,7 +542,7 @@ comments on the issue or pull request that carry the workflow marker.
 | implement (host) | Orca child worktree or harness host worker | yes | yes, only `orchestrator/<issue>-<slug>` | yes, with `pr.md` | no | no | no |
 | fix (sandbox) | fixer | yes, local only | no; the orchestrator syncs and pushes | no | no | no | no |
 | fix (host) | fixer | yes | yes, only the existing pull request branch | no | no | no | no |
-| verify | fresh worker | no | no | no | no; it returns gates and observations | no | no |
+| verify | fresh worker | no | no | no | no; it returns the artifact the orchestrator posts as `stage:verify` | no | no |
 | review | fresh worker | no | no | no | no; it returns the verdict artifact | no | no |
 | merge / close | orchestrator | no | no | no | yes | yes | yes |
 | retro | tracker-blind worker | no | no | no | no | no | no |
@@ -607,7 +607,7 @@ its contract returns a blocker instead of widening its own scope.
 | --- | --- | --- | --- | --- |
 | triage | `agentbox-triage` | issue title, body, labels, and relevant comments; repository scope and policy; duplicate-search results; preflight and environment checks | `decision`, `reason`, `evidence`, `questions`, and `risks` covering unresolved assumptions | no tracker or forge access, no shell, no writes; uses only the supplied snapshot |
 | fix | `agentbox-fixer` | current pull request head; relevant diff; acceptance criteria; accepted open `blocker` and `major` findings with stable ledger ids; required gates | addressed finding ids with evidence, full commit SHA and changed paths, gate results, unresolved findings, and blockers | own worktree only; no tracker access; no PR creation, merge, close, or verdict; a host push is limited to the existing pull request branch |
-| retro | `agentbox-retro` | sanitized workflow record: stage outcomes, state transitions, gate results, review and fix cycles, blockers, and relevant worker reports | zero or more drafts, each with `observation`, `evidence`, `impact` (user impact or recurrence risk), `context`, `acceptance_criteria`, and `related` | no tracker or forge access, no shell, no writes; post-terminal only; never infers a cross-run pattern from one workflow |
+| retro | `agentbox-retro` | sanitized workflow record: stage outcomes, state transitions, gate results, review and fix cycles, blockers, relevant worker reports, the diff stat, and the tests added | zero or more drafts, each with `observation`, `evidence`, `impact` (user impact or recurrence risk), `context`, `acceptance_criteria`, and `related`, and a statement that it is not already present at head | no tracker or forge access, no shell, no writes; post-terminal only; never infers a cross-run pattern from one workflow |
 
 Triage details:
 
@@ -639,6 +639,8 @@ Retro details:
 - Retro never blocks merge or close and never mutates the tracker. The
   orchestrator scope-checks and deduplicates every draft before creating any
   follow-up.
+- Retro checks the record's `tests_added` and `diff_stat` before proposing
+  anything: a proposal that already exists at head is discarded, not filed.
 
 ## Comment provenance
 
@@ -724,20 +726,22 @@ artifact so the line never depends on emoji rendering:
 
 ## Templates
 
-The skill ships six templates and installs them beside `SKILL.md`:
+The skill ships seven templates and installs them beside `SKILL.md`:
 
 | Template | Used for |
 | --- | --- |
 | `issue.md` | Normalized issue body: At a glance (epic, dependencies, roles, surface, risk, size), Summary, Current behavior, Proposed design, Acceptance criteria, Test plan, Risks, Out of scope, Related. |
 | `pr.md` | Pull request body: At a glance, What changed, Reviewer guide, collapsible Changes, Evidence with role-owned independent checks, `Closes #<issue>`, AGENTS.md check, Risks, Follow-ups, provenance. |
-| `verdict.md` | Review verdict: outcome, severity bar, review scope, findings with ids and status, evidence at commit, required changes, follow-ups, provenance. |
+| `plan.md` | Plan comment: five-row scan layer (what, why, size, gates, risks), collapsible acceptance criteria, slices, Makefile gate list, implementer task spec, risks, out of scope. |
+| `verdict.md` | Review verdict: outcome, severity bar, review scope, independence basis, findings with ids and status, evidence at commit, required changes, follow-ups, provenance. |
 | `state.md` | The state envelope and its schema. |
 | `review-task.md` | Reviewer mandate: role, delta scope, severity bar, checklist, output contract. |
-| `verify-task.md` | Verify mandate: role, gate-only scope, and the `gates` and `observations` output contract. |
+| `verify-task.md` | Verify artifact: role, gate-only scope, the empty-diff and real-git checks, and the `gates` and `observations` artifact the orchestrator posts. |
 
-Both body templates open with a scan layer a human can read without the diff.
-Keep file-level detail in the collapsible change list, and leave the marker,
-gate results, and `Closes #<issue>` line intact.
+The issue, plan, and pull request templates open with a scan layer a human can
+read without the diff. Keep file-level detail in the collapsible block or
+change list, and leave the marker, gate results, and `Closes #<issue>` line
+intact.
 
 Resolve a template from the first source that defines it:
 
@@ -795,7 +799,7 @@ loss, read this comment first and continue from the recorded state. The
 `state.md` template is the canonical shape.
 
 ```yaml
-schema: 2
+schema: 3
 workflow_id: orchestrator-owner-name-35-a1b2c3
 repo: owner/name
 issue: 35
@@ -808,6 +812,7 @@ configuration:
   scope: project
   project: agentbox
   sources: [default:standard, global, project:agentbox]
+  selection_note: ""
   selection_sources:
     orchestrator: project:agentbox
     triage: global.group:other
@@ -819,12 +824,14 @@ configuration:
     retro: global.group:other
 triage: {decision: ready, reason: <one sentence>}
 stages:
-  - {stage: triage, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-6, worktree: issue-35-triage, commit: not-applicable}
-  - {stage: implement, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-7, worktree: issue-35-implement, branch: orchestrator/35-example-slug, commit: <full-sha>, pr: 42}
-  - {stage: fix, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-8, worktree: issue-35-fix, branch: orchestrator/35-example-slug, commit: <full-sha>, pr: 42}
-  - {stage: verify, runtime: orca, agent: codex, model: <model-id>, effort: medium, worker_id: worker-9, worktree: issue-35-verify, commit: <full-sha>, pr: 42}
-  - {stage: review, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-10, worktree: issue-35-review, commit: <full-sha>, pr: 42}
-  - {stage: retro, runtime: orca, agent: codex, model: <model-id>, effort: medium, worker_id: worker-11, worktree: issue-35-retro, commit: not-applicable}
+  - {stage: triage, iteration: 1, dispatch: split, started: 2026-11-13T08:01:00Z, ended: 2026-11-13T08:06:00Z, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-6, worktree: issue-35-triage, commit: not-applicable}
+  - {stage: plan, iteration: 1, dispatch: split, started: 2026-11-13T08:07:00Z, ended: 2026-11-13T08:22:00Z, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-7, worktree: issue-35-plan, commit: <full-sha>}
+  - {stage: implement, iteration: 1, dispatch: split, started: 2026-11-13T08:23:00Z, ended: 2026-11-13T09:40:00Z, runtime: agentbox, agent: codex, model: <model-id>, effort: not-applicable, worker_id: run-84b3cbf16f23, worktree: issue-35-implement, branch: orchestrator/35-example-slug, synced_commit: <full-sha>, commit: <full-sha>, pr: 42}
+  - {stage: implement, iteration: 2, dispatch: split, started: 2026-11-13T09:45:00Z, ended: 2026-11-13T10:02:00Z, runtime: agentbox, agent: codex, model: <model-id>, effort: not-applicable, worker_id: run-1f2e3d4c5b6a, worktree: issue-35-implement-2, branch: orchestrator/35-example-slug, synced_commit: <full-sha>, commit: <full-sha>, pr: 42}
+  - {stage: fix, iteration: 1, dispatch: split, started: 2026-11-13T10:20:00Z, ended: 2026-11-13T10:48:00Z, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-8, worktree: issue-35-fix, branch: orchestrator/35-example-slug, commit: <full-sha>, pr: 42}
+  - {stage: verify, iteration: 1, dispatch: split, started: 2026-11-13T10:50:00Z, ended: 2026-11-13T11:03:00Z, runtime: orca, agent: codex, model: <model-id>, effort: medium, worker_id: worker-9, worktree: issue-35-verify, commit: <full-sha>, pr: 42, artifact: <comment-url>}
+  - {stage: review, iteration: 1, dispatch: split, started: 2026-11-13T11:05:00Z, ended: 2026-11-13T11:22:00Z, runtime: orca, agent: codex, model: <model-id>, effort: high, worker_id: worker-10, worktree: issue-35-review, commit: <full-sha>, pr: 42, artifact: <comment-url>}
+  - {stage: retro, iteration: 1, dispatch: split, started: 2026-11-13T11:30:00Z, ended: 2026-11-13T11:41:00Z, runtime: orca, agent: codex, model: <model-id>, effort: medium, worker_id: worker-11, worktree: issue-35-retro, commit: not-applicable}
 gates:
   - {command: make test, result: pending, commit: <full-sha>}
 findings:
@@ -832,7 +839,11 @@ findings:
   - {id: F2, severity: minor, location: internal/app/run.go:88, status: "deferred #52", opened_at: <full-sha>, closed_at: <full-sha>}
 review_cycles: 0
 review_cycles_max: 2
-retro: {proposals: 0, created: []}
+retro:
+  proposals: 0
+  created: []
+  tests_added: [TestExample]
+  diff_stat: "<n> files changed, <n> insertions(+), <n> deletions(-)"
 blocked_reason: ""
 updated: 2026-11-13T08:00:00Z
 ```
@@ -865,6 +876,47 @@ the checkout the stage ran in. Record both for every stage so the user can
 follow the run and a resumed orchestrator can find the same worker. A
 temporary log path is never the only recorded location.
 
+`configuration.selection_note` records how a worker selection was resolved
+when the registry did not supply it, such as a configuration copied from a
+running agent. Write the recipe and the source run id, for example
+`copied from running agent run-84b3cbf16f23: profile enmaas, agent codex,
+model <model-id>`. Leave it empty when every stage resolved from the registry.
+Never reconstruct the selection from memory at resume time when the note is
+present.
+
+Every dispatch appends a new `stages[]` entry and never overwrites the
+previous one:
+
+- `iteration` counts dispatches of the same stage, starting at 1. A
+  pre-pull-request correction run, a second `implement`, or a second `fix`
+  cycle is a new entry with the next number, so intermediate commits stay
+  traceable instead of living only in a terminal.
+- `started` and `ended` are the dispatch window in RFC3339. They are the
+  source of every `took` and `elapsed` duration in a footer; never estimate a
+  duration that is not recorded here.
+- `dispatch` is `split` or `combined`. A combined triage and plan dispatch
+  records both stages with the same `started` and `ended` values and
+  `dispatch: combined`.
+- `synced_commit` on a sandbox implement or fix stage records the commit the
+  worker returned before the squash, so the normalization step cannot hide
+  history. `commit` is the pushed, squashed commit.
+- `artifact` is the URL of the posted stage artifact, such as the verify
+  comment. Record it so the pull request's `Independent checks` table never
+  links into the state comment as a substitute for evidence.
+
+**Workflow identity adoption.** The state record wins over every other copy of
+the identity. When the issue body marker disagrees with it — a different
+workflow id, worker, or agent — reuse the recorded `workflow_id` and the
+recorded workers, post one supersession note on the issue that names both
+identities and the reason, and update the body marker in place. Never create a
+second workflow to "fix" the marker, never run the same stage under two ids,
+and never let the issue body override the record.
+
+Schema 3 adds `selection_note`, the per-dispatch stage fields, `artifact`, and
+the retro evidence fields. A schema 2 record stays readable: a missing field
+means `unrecorded`, not `0` or a default, and the next write upgrades the
+record to schema 3.
+
 ## Workflow gates
 
 Advance one gate at a time; record the result in the state record before
@@ -879,6 +931,9 @@ stage work runs inline.
    because the values are inherited. A prompt that asks to create or change
    the registry is handled by **Configuration authoring** and does not enter
    this gate. Create the `workflow_id` and write the state record.
+   On resume, adopt the recorded identity before anything else: the state
+   record wins, and a disagreeing issue body marker is superseded in place as
+   **Workflow identity adoption** describes.
    Gather a tracker-blind triage snapshot: issue title, body, labels, and
    relevant comments; repository scope and policy; relevant duplicate-search
    results; and environment sanity (`gh auth status`, `git`, and the selected
@@ -909,9 +964,23 @@ stage work runs inline.
    `orchestrator/<issue>-<slug>`, the implement worktree, and a
    self-contained task spec for the next worker. The orchestrator posts the
    plan with provenance; it does not write it.
+   Render the plan with `plan.md`: the posted comment opens with a scan layer
+   of five rows or fewer, and the artifact, slices, task spec, and risks are
+   collapsed under it. Prefer the repository's Makefile targets in the gate
+   list; a raw command that already fails in the sandbox is not a gate.
+   **Optional combined dispatch.** When the issue carries an accepted design
+   (a settled Decision or implementation section) and triage returned `ready`
+   with no open questions, triage and plan may run as one worker dispatch.
+   Record both stages with the same `started` and `ended` values and
+   `dispatch: combined`; the combined run still returns two artifacts, the
+   triage disposition and the plan, and the plan still needs its scan layer,
+   gate list, and implementer task spec. Ambiguous issues keep the split.
 3. **Implement.** Dispatch exactly one writer of the selected type in its own
    worktree with the task spec, as a visible Orca worker or terminal. The
-   orchestrator does not edit the branch while a writer owns it.
+   orchestrator does not edit the branch while a writer owns it. A sandbox
+   writer's branch is normalized before it is pushed — see **Normalize the
+   branch before push** — and every push passes the **Pre-push diff review**
+   checklist first.
 4. **Verify.** After the worker finishes and the branch head is known,
    dispatch a fresh verify worker in a fresh worktree checked out at the pull
    request head, as a visible Orca worker or terminal. It reruns every gate on
@@ -923,12 +992,23 @@ stage work runs inline.
    NOT forward a verifier observation to the reviewer as a requirement;
    observations enter the ledger only after the reviewer classifies them, and
    only at their real severity.
+   The verifier returns the `verify-task.md` artifact. Post it as a
+   `stage:verify` comment on the pull request with provenance, record its URL
+   in the verify stage entry as `artifact`, and link that comment from the
+   pull request's `Independent checks` row. A link into the state comment is
+   internal bookkeeping, not evidence.
+   The verifier reports `git diff <reviewed-sha>..HEAD --stat` as empty; a
+   non-empty result means it did not check out the pushed head. When the
+   change derives behavior from git state, it also runs the **Real-git probe**
+   below.
 5. **Pull request.** A capable host implementer may open it; otherwise the
    orchestrator pushes the sandbox result and opens it. Use a Conventional
    Commits title and the `pr.md` body: At a glance, What changed, Reviewer
    guide, Changes, Evidence (gate results and SHAs, including the verifier and
    reviewer rows), `Closes #<issue>`, AGENTS.md check, Risks, and the marker
-   and footer. Wait for checks to finish before review.
+   and footer. The verifier row links the posted `stage:verify` comment and
+   the reviewer row links the verdict, never the state comment. Wait for
+   checks to finish before review.
 6. **Independent review.** Dispatch a reviewer that is not the writer, in its
    own worktree at the pull request head, as a visible Orca worker or
    terminal, using the selection recorded for the first pass; later cycles
@@ -940,6 +1020,11 @@ stage work runs inline.
    - Cycle 1 reviews the full diff against the base; cycle N>1 reviews
      `prev_head..head`, the ledger status of every prior finding, and the
      gates, as defined in Stage ownership and isolation.
+   - The reviewer first confirms `git diff <reviewed-sha>..HEAD --stat` is
+     empty and reports that check in its evidence at commit. It states the
+     independence basis in the body under `## Independence`, not only in the
+     footer: same agent and model as the implementer is a recorded limitation,
+     never an implied independence.
    - Apply the severity bar: only `blocker` and `major` block merge. A
      `minor` or `nit` never blocks merge and is always a follow-up.
    - Accept `approve`, `approve-with-follow-ups`, `request-changes`, or
@@ -964,6 +1049,10 @@ stage work runs inline.
    and pushes a sandbox fixer's commit. Increment `review_cycles`, record the
    fix stage, then rerun gate 4 (verify) and gate 6 (review) on the new head.
    Deferred `minor` and `nit` findings are not fixer work.
+   Start the fixer at the pull request head with `--source`, never with
+   `--project`; see the **Fixer launch** recipe. Record the fix as a new
+   `stages[]` entry with the next `iteration`, and keep the addressed finding
+   ids in the result.
 8. **Merge.** The orchestrator verifies the head SHA matches the verified and
    reviewed commit, all checks are green, and branch protection is satisfied.
    Fill the pull request's `Independent checks` rows with the verifier gate
@@ -986,19 +1075,61 @@ stage work runs inline.
    Put the whole-workflow time in the close
    footer, and say how the durations were measured when two stages shared one
    dispatch window. Then remove all `orchestrator:*` labels. Capture the final
-   evidence and deliver the report before cleanup, then remove worktrees, runs,
-   and sessions unless the user asked to keep them.
+   evidence and deliver the report before cleanup, then clean up in the
+   recorded order — runs, source worktrees, `git worktree prune`, then local
+   and remote branches — unless the user asked to keep them.
 10. **Retro.** After a terminal outcome, and only when the workflow reached
     implementation, dispatch `agentbox-retro` once with a sanitized record:
     stage outcomes, state transitions, gate results, review and fix cycles,
-    blockers, and relevant worker reports. It is tracker-blind and returns
-    zero or more candidate follow-up issue definitions. Skip retro when triage
-    rejected the issue or preflight blocked it before any work started, and
-    never let retro delay or reopen merge and close. Deduplicate and
+    blockers, relevant worker reports, the diff stat, and the tests added by
+    the change. It is tracker-blind and returns zero or more candidate
+    follow-up issue definitions. Every proposal names what it would change and
+    must not already exist at head; the retro checks the recorded
+    `tests_added` names and the diff stat before proposing it. Skip retro when
+    triage rejected the issue or preflight blocked it before any work started,
+    and never let retro delay or reopen merge and close. Deduplicate and
     scope-check every proposal against open issues before creating anything;
     create accepted follow-ups only through the tracker adapter, with
     provenance. Retro never calls the tracker and never claims a cross-run
     pattern from one workflow.
+
+### Pre-push diff review (orchestrator)
+
+A worker's gates prove the tests it wrote pass. They do not prove the branch
+is what should be published. Before any push, the orchestrator reads the whole
+diff it is about to publish and records each answer in the state record:
+
+| Check | Question |
+| --- | --- |
+| Allowed files | Does every path belong to the task spec, the tests, or the documentation the change needs? |
+| Secrets | Does any added line contain a credential, token, private URL, or personal path? |
+| Fake vs real tests | Do the new tests exercise the real code path, or do they assert a stub the change added? |
+| `dist` reproducibility | For a GUI change, is the committed `internal/gui/web/dist` the build of the source in the same commit? |
+| Document accuracy | Does every changed sentence describe the code in this commit, including examples and counts? |
+| Acceptance criterion → test | Is every acceptance criterion mapped to a named test or an observed behavior at the pushed commit? |
+| Host-side focused run | Has the orchestrator run the focused gate on the host against the pushed commit? |
+
+A failing answer is fixed before push; it is not a note in the pull request.
+The checklist is the last gate before publication and applies to the
+implementer, a fixer, and a rebased branch equally.
+
+### Real-git probe (git-derived behavior)
+
+When a change derives behavior from git state, mocked tests are not enough.
+The verifier and reviewer probe a real repository in each state and record the
+observed result:
+
+| State | Probe |
+| --- | --- |
+| up-to-date | local branch equals its upstream |
+| behind | local branch behind its upstream |
+| diverged | local and upstream each have unique commits |
+| detached | HEAD is not on a branch |
+| unborn | repository has no commit yet |
+| non-repository | the path is not inside a git worktree |
+
+Record the outcome per state in the verify artifact and in the review
+evidence. A behavior with no real-git observation is an open `major` finding.
 
 ### Severity bar
 
@@ -1064,6 +1195,23 @@ from its worktree settings, so the generated branch follows
 the orchestrator pushes the synced result to the pull request branch
 `orchestrator/<issue>-<slug>`.
 
+#### Reproduce a running worker's selection
+
+When the user asks to reuse a running agent's configuration, read it from the
+CLI instead of reconstructing it from memory:
+
+```sh
+agentbox agent list --json \
+  | jq '.[] | select(.name == "AGENT_NAME")
+        | {id, profile, agent, model, gateway, approval}'
+```
+
+Start the stage with those exact values and write the result to
+`configuration.selection_note`, for example
+`copied from running agent run-84b3cbf16f23: profile enmaas, agent codex,
+model <model-id>`. A selection that cannot be honoured is a blocker, never a
+silent substitution.
+
 Poll `agentbox agent show RUN_ID --json` every 20–30 seconds with a per-task
 deadline. On completion or stall: `agentbox agent diff RUN_ID` and
 `agentbox agent logs RUN_ID` to review the changes and the outcome, then
@@ -1071,8 +1219,8 @@ deadline. On completion or stall: `agentbox agent diff RUN_ID` and
 orchestrator verifies the synced branch, pushes it from the host, opens the
 pull request, and keeps the run and its worktree until the stage evidence is
 captured and the final report is delivered. Honor an explicit request to keep
-the run; otherwise delete it with `agentbox agent delete RUN_ID` after the
-final report. Never reuse a run for a second task.
+the run; otherwise delete it with `agentbox agent delete --discard RUN_ID`
+after the final report. Never reuse a run for a second task.
 
 When a worker must be interrupted — a stall past its deadline or a user stop —
 use `agentbox agent stop RUN_ID`. Stop interrupts the agent, syncs the changes
@@ -1094,7 +1242,7 @@ head. Create one fresh detached worktree per stage at the full head SHA and
 pass it with `--source`:
 
 ```sh
-HEAD_SHA=$(gh pr view PR --json headRefOid --jq .headRefOid)
+HEAD_SHA=$(gh api repos/OWNER/REPO/pulls/PR --jq .head.sha)
 git -C REPO worktree add --detach VERIFY_WORKTREE "$HEAD_SHA"
 agentbox agent start --profile PROFILE --source VERIFY_WORKTREE --gateway GATEWAY \
   --name ISSUE-verify --model MODEL --prompt "<full verify task spec>" \
@@ -1109,6 +1257,49 @@ agentbox agent start --profile PROFILE --source REVIEW_WORKTREE --gateway GATEWA
 Record the same full SHA in each stage entry. Keep both worktrees until the
 verify and review evidence is captured and the final report is delivered;
 clean up afterwards unless the user asked to keep them.
+
+#### Fixer launch
+
+A fixer starts at the current pull request head, not at the project checkout.
+`agentbox agent start --project PROJECT` checks out the registered project's
+current branch — usually `main` — and would silently lose the implementation.
+Pass the head with `--source`:
+
+```sh
+HEAD_SHA=$(gh api repos/OWNER/REPO/pulls/PR --jq .head.sha)
+git -C REPO worktree add --detach FIX_WORKTREE "$HEAD_SHA"
+agentbox agent start --profile PROFILE --source FIX_WORKTREE --gateway GATEWAY \
+  --name ISSUE-fix --model MODEL --prompt "<full fix task spec>" \
+  --approval unattended
+```
+
+Record the fix worktree, the head SHA the fixer started from, and the commit it
+returned. A fix stage is a new `stages[]` entry with the next `iteration`.
+
+#### Normalize the branch before push
+
+An AgentBox run starts from its own worktree, which begins with one empty
+`AgentBox starting snapshot` commit. Publishing that snapshot makes verify and
+review HEAD one commit ahead of the reviewed SHA. Normalize before every push:
+
+```sh
+# 1. Confirm the snapshot and the writer commits on the run branch.
+git -C RUN_WORKTREE log --oneline "$BASE_SHA"..HEAD
+
+# 2. Squash them onto the base, keeping the writer's message and authorship,
+#    under the AgentBox identity.
+git -C RUN_WORKTREE reset --soft "$BASE_SHA"
+git -C RUN_WORKTREE -c user.name="AgentBox" -c user.email="agentbox@local.invalid" \
+  commit -C "$WRITER_SHA"
+
+# 3. Confirm the pushed branch is the squash and nothing else.
+git -C RUN_WORKTREE diff "$BASE_SHA"..HEAD --stat
+```
+
+Push only `orchestrator/<issue>-<slug>`; never push the run branch name.
+Record `synced_commit` as the worker's commit before the squash and `commit` as
+the squashed commit. Verify and review must each report
+`git diff <reviewed-sha>..HEAD --stat` as empty.
 
 ### Orca worker
 
@@ -1139,7 +1330,7 @@ to the full pull request head SHA. Never reuse the implementer's worktree or
 the project checkout, whose HEAD may not be the pull request head:
 
 ```sh
-HEAD_SHA=$(gh pr view PR --json headRefOid --jq .headRefOid)
+HEAD_SHA=$(gh api repos/OWNER/REPO/pulls/PR --jq .head.sha)
 orca orchestration worker-start --worktree new-child --base-branch "$HEAD_SHA" \
   --name ISSUE-verify --agent AGENT --model MODEL --effort EFFORT \
   --spec-file - --keep-open --json
@@ -1271,7 +1462,7 @@ inside that path; never run the worker in the implementer's worktree or the
 project checkout:
 
 ```sh
-HEAD_SHA=$(gh pr view PR --json headRefOid --jq .headRefOid)
+HEAD_SHA=$(gh api repos/OWNER/REPO/pulls/PR --jq .head.sha)
 git -C REPO worktree add --detach VERIFY_WORKTREE "$HEAD_SHA"
 orca orchestration worker-start --worktree path:VERIFY_WORKTREE --agent codex \
   --model MODEL --effort EFFORT --spec-file - --keep-open --json
@@ -1301,6 +1492,30 @@ the stage entries. Keep both worktrees until the verify and review evidence is
 captured and the final report is delivered; clean up afterwards unless the
 user asked to keep them.
 
+### Cleanup after the final report
+
+`--discard` is a flag of `agentbox agent delete` and must come before the run
+id; without it the command waits for confirmation and a non-interactive run
+stalls:
+
+```sh
+agentbox agent delete --discard RUN_ID
+```
+
+Clean up in this order, after the final report and only when the user did not
+ask to keep the evidence:
+
+1. delete every recorded run, while its worktree mapping still exists;
+2. remove the run and stage worktrees (`git worktree remove --force PATH`, or
+   the runtime's own worktree delete);
+3. `git worktree prune`;
+4. delete the local branch, then the remote
+   `orchestrator/<issue>-<slug>` branch.
+
+Never delete a branch whose commit SHA is not recorded in the state record,
+and never reorder the run deletion after worktree removal: a missing worktree
+leaves the run record behind until `#38` is fixed.
+
 ## Tracker adapter contract
 
 The core flow touches the tracker only through seven operations: read issue,
@@ -1309,9 +1524,26 @@ Adapters implement exactly these; the flow never invents tracker calls.
 
 ### GitHub adapter
 
+Forge reads use the REST API through `gh api`. `gh pr view` and
+`gh issue view` depend on the Projects-classic GraphQL path, which is
+deprecated and fails in this repository; a recipe that uses them stalls on the
+first read. Use this one canonical snippet and do not write a second variant:
+
+```sh
+OWNER=owner REPO=name ISSUE=35 PR=42
+
+# Read issue
+gh api "repos/$OWNER/$REPO/issues/$ISSUE"
+gh api --paginate "repos/$OWNER/$REPO/issues/$ISSUE/comments"
+
+# Read pull request head and checks
+gh api "repos/$OWNER/$REPO/pulls/$PR" --jq .head.sha
+gh pr checks "$PR"
+```
+
 | Operation | Command |
 | --- | --- |
-| Read issue | `gh issue view <number> --json number,title,body,labels,state,comments` |
+| Read issue | `gh api repos/<owner>/<repo>/issues/<number>`; comments with `gh api --paginate repos/<owner>/<repo>/issues/<number>/comments` |
 | List ready | `gh issue list --state open --label orchestrator:ready --json number,title` |
 | Create issue | `gh issue create --title "<title>" --body-file <spec>` |
 | Set labels | `gh issue edit <number> --add-label <new>` then `gh issue edit <number> --remove-label <old>` |
@@ -1319,9 +1551,12 @@ Adapters implement exactly these; the flow never invents tracker calls.
 | Link PR | `gh pr create --base <base> --head <branch> --title "<title>" --body-file <file>` with `Closes #<issue>` in the body |
 | Close | `gh issue close <number> --comment "<outcome>"` |
 
-Read the pushed head before review with `gh pr view <pr> --json headRefOid`,
-and find existing verdicts by searching comments for the
-`orchestrator-workflow:` marker before posting a new one.
+Read the pushed head before review with
+`gh api repos/<owner>/<repo>/pulls/<pr> --jq .head.sha`, and find existing
+verdicts by searching the issue and pull request comments for the
+`orchestrator-workflow:` marker before posting a new one. The read-issue
+result carries the body marker; adopt the recorded workflow identity before
+using it, as **Workflow identity adoption** requires.
 
 Create the labels before first use:
 
