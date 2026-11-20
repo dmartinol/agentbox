@@ -446,6 +446,18 @@ func (a *App) GetRun(ctx context.Context, id string) (Run, error) {
 	return a.inspectRunWithSync(ctx, r, true)
 }
 
+// GetRunWithSyncState returns one stored run with its derived sync state. It
+// deliberately skips the status inspect so callers that just changed lifecycle
+// state, such as Stop, can report that state without overwriting it.
+func (a *App) GetRunWithSyncState(ctx context.Context, id string) (Run, error) {
+	r, err := a.Store.LoadRun(id)
+	if err != nil {
+		return Run{}, err
+	}
+	r.SyncState = a.deriveSyncState(ctx, r, true)
+	return r, nil
+}
+
 func (a *App) requireDirectRunAvailable(ctx context.Context, root string) error {
 	runs, err := a.Store.ListRuns()
 	if err != nil {

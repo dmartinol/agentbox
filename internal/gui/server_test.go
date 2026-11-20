@@ -974,6 +974,122 @@ func TestRunEndpointsIncludeSyncState(t *testing.T) {
 	}
 }
 
+// stopSyncRunner scripts the answers the stop endpoint needs end to end. The
+// sandbox looks active until the gateway stops it, scripted git output
+// describes an unchanged worktree, and downloads materialize the empty export
+// artifacts a no-op sync applies.
+type stopSyncRunner struct {
+	guiRunner
+	sandbox string
+	head    string
+}
+
+func (r stopSyncRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
+	switch {
+	case name == "git" && containsCommand(args, "rev-parse", "HEAD"):
+		return []byte(r.head + "\n"), nil
+	case name == "git":
+		return []byte{}, nil
+	case name == "openshell" && containsCommand(args, "sandbox", "download"):
+		for index, arg := range args {
+			if arg == "download" && index+3 < len(args) {
+				if err := os.WriteFile(args[index+3], nil, 0600); err != nil {
+					return nil, err
+				}
+				return nil, nil
+			}
+		}
+		return nil, fmt.Errorf("download without a local path: %v", args)
+	case name == "openshell" && containsCommand(args, "sandbox", "stop"):
+		// The phases map is shared with the embedded guiRunner, so sandbox
+		// inspects after the stop report the sandbox as stopped.
+		r.phases[r.sandbox] = "stopped"
+		return nil, nil
+	case name == "openshell" && containsCommand(args, "sandbox", "exec") && r.phases[r.sandbox] == "stopped" && strings.Contains(strings.Join(args, " "), "pane_dead"):
+		// A stopped sandbox can reject the status probe. The stop response
+		// must still report the lifecycle state Stop just persisted.
+		return nil, errors.New("sandbox exec failed after stop")
+	default:
+		return r.guiRunner.Output(ctx, name, args...)
+	}
+}
+
+func TestStopEndpointReturnsDerivedSyncState(t *testing.T) {
+	head := "0123456789abcdef0123456789abcdef01234567"
+	runner := stopSyncRunner{guiRunner: testRunner(), sandbox: "sandbox-stoppable", head: head}
+	runner.phases["sandbox-stoppable"] = "running"
+	runner.probes["sandbox-stoppable"] = runner.probes["sandbox-active"]
+	runner.finishedMarkers["sandbox-stoppable"] = true
+
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	ap := &app.App{Store: store, Runner: runner}
+	run := app.Run{
+		ID: "run-stoppable", Name: "stoppable-run", Created: time.Now().UTC(),
+		Source: "/repo", Project: "demo", Worktree: "/trees/demo/stoppable-run",
+		WorktreeIsolated: true, Branch: "agentbox/demo/stoppable-run", Baseline: head,
+		LastSynced: head, Sandbox: "sandbox-stoppable", Gateway: "openshell",
+		Agent: "codex", Status: "working", Synced: true,
+	}
+	fingerprint, err := ap.WorktreeFingerprint(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Fingerprint = fingerprint
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(ap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	var body map[string]any
+	response := requestJSON(t, http.MethodPost, httpServer.URL+"/api/runs/run-stoppable/stop", nil, &body)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("stop status = %d; body = %#v", response.StatusCode, body)
+	}
+	syncState, ok := body["sync_state"].(string)
+	if !ok || syncState == "" {
+		t.Fatalf("stop response is missing a derived sync_state: %#v", body)
+	}
+	if body["status"] != string(app.StatusStopped) {
+		t.Fatalf("stop response status = %v; want %q", body["status"], app.StatusStopped)
+	}
+	if body["status_detail"] != "stopped by user" {
+		t.Fatalf("stop response status_detail = %v; want the stop-specific detail", body["status_detail"])
+	}
+	if body["synced"] != true {
+		t.Fatalf("stop response synced = %v; want true", body["synced"])
+	}
+	for _, key := range []string{"fingerprint", "last_synced", "synced_sandbox_fingerprint", "last_successful_sync_at"} {
+		if value, _ := body[key].(string); value == "" {
+			t.Fatalf("stop response is missing %q: %#v", key, body)
+		}
+	}
+	stored, err := store.LoadRun("run-stoppable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedJSON, err := json.Marshal(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var storedBody map[string]any
+	if err := json.Unmarshal(storedJSON, &storedBody); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"synced", "fingerprint", "last_synced", "last_successful_sync_at", "synced_sandbox_fingerprint"} {
+		if body[key] != storedBody[key] {
+			t.Fatalf("stop response changed %q: got %v, stored %v", key, body[key], storedBody[key])
+		}
+	}
+}
+
 const guiDenialLog = `[1795092202.467] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED /usr/bin/curl(0) -> example.com:443 [reason:transparent_tcp_policy_denied]
 `
 
