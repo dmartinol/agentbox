@@ -429,7 +429,7 @@ func (s *Server) stopRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	run, err := s.app.Store.LoadRun(r.PathValue("id"))
+	run, err := s.app.GetRun(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, err)
 		return
