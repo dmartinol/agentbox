@@ -134,9 +134,13 @@ agentbox agent show RUN_ID --json
 
 The run details identify the local worktree and branch. Review the synced
 changes there before integrating them into the main branch. Sync transfers
-results from the sandbox copy; it does not merge your main branch. Stop an
-active run with `agentbox agent stop RUN_ID` to sync and retain its work before
-the sandbox stops.
+results from the sandbox copy; it does not merge your main branch.
+
+When the agent CLI exits, the run stays resumable: `agentbox agent resume RUN_ID`
+continues the conversation, `agentbox agent sleep RUN_ID` syncs the work and
+stops the sandbox for later, and `agentbox agent finish RUN_ID` ends the run
+while keeping its record and transcript. `agentbox agent stop` is a deprecated
+alias for `sleep`.
 
 ## Next steps
 

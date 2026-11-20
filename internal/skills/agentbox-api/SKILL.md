@@ -64,13 +64,20 @@ The start payload accepts `profile`, `project`, `name`, `gateway`, `image`,
 back to the profile. `gateway` is required and must report the Podman driver.
 
 ```sh
-curl -fsS -X POST "$BASE/api/runs/RUN_ID/stop"
+curl -fsS -X POST "$BASE/api/runs/RUN_ID/sleep"          # sync, then stop the sandbox; run stays resumable
+curl -fsS -X POST "$BASE/api/runs/RUN_ID/sleep?force=true"  # interrupt a working agent first
+curl -fsS -X POST "$BASE/api/runs/RUN_ID/resume"         # start the sandbox or relaunch an exited agent
+curl -fsS -X POST "$BASE/api/runs/RUN_ID/finish"         # sync, end the session, record Completed
 curl -fsS -X POST "$BASE/api/runs/RUN_ID/sync"
 curl -fsS -X DELETE "$BASE/api/runs/RUN_ID"
 curl -fsS "$BASE/api/runs/RUN_ID/logs?tail=200"   # {"logs": "..."}
 curl -fsS "$BASE/api/runs/RUN_ID/diff"            # {"diff": "..."}
 curl -fsS "$BASE/api/runs/RUN_ID/policy"          # base, effective, global policy text
 ```
+
+`POST /api/runs/RUN_ID/stop` is the deprecated alias for `/sleep`. An agent
+CLI exit leaves the run `ready` with the detail `agent exited (code N); resume
+available`; it does not finish the run.
 
 `GET /api/runs/RUN_ID/attach` upgrades to a WebSocket for the live agent
 terminal. Prefer the CLI (`agentbox agent attach RUN_ID`) for interactive use.

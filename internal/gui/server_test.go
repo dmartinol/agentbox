@@ -1071,12 +1071,11 @@ func (r stopSyncRunner) Output(ctx context.Context, name string, args ...string)
 	}
 }
 
-func TestStopEndpointReturnsDerivedSyncState(t *testing.T) {
+func TestSleepEndpointReturnsDerivedSyncState(t *testing.T) {
 	head := "0123456789abcdef0123456789abcdef01234567"
 	runner := stopSyncRunner{guiRunner: testRunner(), sandbox: "sandbox-stoppable", head: head}
 	runner.phases["sandbox-stoppable"] = "running"
-	runner.probes["sandbox-stoppable"] = runner.probes["sandbox-active"]
-	runner.finishedMarkers["sandbox-stoppable"] = true
+	runner.probes["sandbox-stoppable"] = runner.probes["sandbox-idle"]
 
 	store := app.Store{Base: t.TempDir()}
 	if err := store.Ensure(); err != nil {
@@ -1088,7 +1087,7 @@ func TestStopEndpointReturnsDerivedSyncState(t *testing.T) {
 		Source: "/repo", Project: "demo", Worktree: "/trees/demo/stoppable-run",
 		WorktreeIsolated: true, Branch: "agentbox/demo/stoppable-run", Baseline: head,
 		LastSynced: head, Sandbox: "sandbox-stoppable", Gateway: "openshell",
-		Agent: "codex", Status: "working", Synced: true,
+		Agent: "codex", Status: "ready", Synced: true,
 	}
 	fingerprint, err := ap.WorktreeFingerprint(context.Background(), run)
 	if err != nil {
@@ -1106,22 +1105,22 @@ func TestStopEndpointReturnsDerivedSyncState(t *testing.T) {
 	t.Cleanup(httpServer.Close)
 
 	var body map[string]any
-	response := requestJSON(t, http.MethodPost, httpServer.URL+"/api/runs/run-stoppable/stop", nil, &body)
+	response := requestJSON(t, http.MethodPost, httpServer.URL+"/api/runs/run-stoppable/sleep", nil, &body)
 	if response.StatusCode != http.StatusOK {
-		t.Fatalf("stop status = %d; body = %#v", response.StatusCode, body)
+		t.Fatalf("sleep status = %d; body = %#v", response.StatusCode, body)
 	}
 	syncState, ok := body["sync_state"].(string)
 	if !ok || syncState == "" {
-		t.Fatalf("stop response is missing a derived sync_state: %#v", body)
+		t.Fatalf("sleep response is missing a derived sync_state: %#v", body)
 	}
 	if body["status"] != string(app.StatusStopped) {
-		t.Fatalf("stop response status = %v; want %q", body["status"], app.StatusStopped)
+		t.Fatalf("sleep response status = %v; want %q", body["status"], app.StatusStopped)
 	}
-	if body["status_detail"] != "stopped by user" {
-		t.Fatalf("stop response status_detail = %v; want the stop-specific detail", body["status_detail"])
+	if body["status_detail"] != "asleep; resume available" {
+		t.Fatalf("sleep response status_detail = %v; want the sleep-specific detail", body["status_detail"])
 	}
 	if body["synced"] != true {
-		t.Fatalf("stop response synced = %v; want true", body["synced"])
+		t.Fatalf("sleep response synced = %v; want true", body["synced"])
 	}
 	for _, key := range []string{"fingerprint", "last_synced", "synced_sandbox_fingerprint", "last_successful_sync_at"} {
 		if value, _ := body[key].(string); value == "" {

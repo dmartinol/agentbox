@@ -526,6 +526,74 @@ func TestUsageListsOrchestratorCommand(t *testing.T) {
 	}
 }
 
+func captureStderr(t *testing.T, action func() error) (string, error) {
+	t.Helper()
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := os.Stderr
+	os.Stderr = write
+	done := make(chan struct{})
+	var body []byte
+	var readErr error
+	go func() {
+		body, readErr = io.ReadAll(read)
+		close(done)
+	}()
+	callErr := action()
+	_ = write.Close()
+	os.Stderr = previous
+	<-done
+	defer read.Close()
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	return string(bytes.TrimSpace(body)), callErr
+}
+
+func TestUsageListsLifecycleCommands(t *testing.T) {
+	output, err := captureStdout(t, func() error {
+		usage()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "sleep|resume|finish|stop") {
+		t.Fatalf("usage is missing the lifecycle commands: %s", output)
+	}
+}
+
+func TestAgentStopWarnsAndDelegatesToSleep(t *testing.T) {
+	ctx := context.Background()
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	run := app.Run{ID: "run-deprecated-stop", Agent: "codex", Status: app.StatusCompleted, Sandbox: "sandbox-deprecated", Gateway: "gateway-unit"}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	a := &app.App{Store: store, Runner: &appfakeRunner{}}
+	var callErr error
+	stderr, err := captureStderr(t, func() error {
+		_, callErr = captureStdout(t, func() error {
+			return dispatch(ctx, a, []string{"agent", "stop", run.ID})
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "deprecated") || !strings.Contains(stderr, "agent sleep") {
+		t.Fatalf("stop warning = %q", stderr)
+	}
+	if callErr == nil || !strings.Contains(callErr.Error(), "sleep applies to") {
+		t.Fatalf("stop did not delegate to sleep: %v", callErr)
+	}
+}
+
 func TestImageRegistryShowSetClear(t *testing.T) {
 	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
 	if err := dispatch(context.Background(), a, []string{"image", "registry", "set", "quay.io/team/agentbox"}); err != nil {

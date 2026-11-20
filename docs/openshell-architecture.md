@@ -804,17 +804,27 @@ Attach transport:
   Terminal input travels as binary frames; text frames are control
   messages.
 
-When the agent exits, the session asks whether to keep the run ready or finish
-it. Kept runs retain:
+When the agent CLI exits, the session wrapper writes the exit status to
+`/workspace/exit-code`, signals `activity idle`, and leaves an interactive
+shell in the tmux pane. Nothing prompts for terminal input, so a detached
+client, a closed workspace tab, or a non-interactive launch cannot block or
+finish the run. An exited agent keeps:
 
-- the sandbox;
-- tmux;
-- `/workspace/idle`;
-- the run record;
-- the worktree.
+- the sandbox and its tmux session;
+- `/workspace/state/home` (the harness session store) and the transcript;
+- the run record and the worktree.
 
-Exiting an idle shell returns to the idle/finish prompt rather than finishing
-the run.
+The run reads as Ready with the detail `agent exited (code N); resume
+available`, and it never counts as Waiting for input. `sleep`, `resume`,
+`finish`, and `delete` are explicit actions; none of them depends on terminal
+input.
+
+`bootstrap.sh` starts `session.sh initial` on the first launch. On a sandbox
+start it starts `agent-entry.sh` instead, which removes the stale exit marker
+and runs `session.sh resume` when the harness kept its session store, or
+`session.sh fresh` (and writes `resume-fallback`) when it did not. The
+bootstrap never treats pane death as completion: it only closes the tmux
+session and keeps the sandbox alive.
 
 ## Derived run status
 
@@ -827,20 +837,27 @@ the derived value only.
 The classification lives in `internal/app/status.go`. One probe exec per run
 collects the tmux session and foreground command, the bottom of the visible
 pane, `/workspace/idle`, `/workspace/finished`, `/workspace/exit-code`,
-`/workspace/state/activity.json`, and the `agent.log` mtime. Precedence, highest first:
+`/workspace/state/activity.json`, and the `agent.log` mtime. A stopped sandbox
+is not probed, so a deliberate sleep is never reported as Unreachable. When the
+record says AgentBox is the one that stopped the sandbox (`asleep`), the
+recorded Stopped or Completed status outranks the phase: Finish closes a
+sleeping run without restarting its sandbox, and a stopped sandbox cannot tell
+the two apart. Resume, or any observed running sandbox, clears `asleep`.
+Precedence, highest first:
 
 1. sandbox phase `error` → Failed;
 2. sandbox phase `stopped`/`exited` → Stopped;
-3. no tmux session and no finished marker → Creating;
-4. sandbox phase `completed` or finished marker → Completed, with the exit code
+3. sandbox phase `completed` or finished marker → Completed, with the exit code
    or "agent exited" as detail;
-5. the Codex plan-approval prompt on screen → Waiting for input, "plan ready for
+4. `/workspace/exit-code` → Ready, "agent exited (code N); resume available";
+5. no tmux session → Creating;
+6. the Codex plan-approval prompt on screen → Waiting for input, "plan ready for
    review";
-6. an explicit `activity.json` signal while the session is alive → Working,
+7. an explicit `activity.json` signal while the session is alive → Working,
    Waiting for input, or Ready (`done`/`idle`);
-7. idle marker or a shell in the tmux foreground → Ready;
-8. agent in the tmux foreground → Working;
-9. inspect error or unparsable response → Unreachable.
+8. idle marker or a shell in the tmux foreground → Ready;
+9. agent in the tmux foreground → Working;
+10. inspect error or unparsable response → Unreachable.
 
 Log silence never produces Waiting for input. Only an explicit signal or the
 session prompt does. OpenCode has no hooks, so a run counts as Working while
@@ -889,12 +906,23 @@ look like human-in-the-loop prompts: Codex runs with
 - Active (blocks a second direct-checkout run): Creating, Ready, Working,
   Waiting for input; Unreachable also blocks because the state cannot be
   verified.
-- Attach and Stop: Ready, Working, Waiting for input.
-- Delete: refuses those three unless `--discard`; Creating records still use the
-  existing sync and diff gates. Cleanup is idempotent: a worktree or branch that
-  was already removed out of band is treated as clean instead of blocking
+- Attach: Ready, Working, Waiting for input.
+- Sleep: Ready and Waiting for input. Working is refused unless `--force`,
+  which interrupts the turn and waits for it to stop. Sync runs before the
+  sandbox stops; a sync failure leaves the sandbox running.
+- Resume: Stopped, or Ready with an exit marker. A stopped sandbox is started
+  and the agent comes back through `agent-entry.sh`. Pending work is synced
+  first, and a sync refusal leaves the run resumable.
+- Finish: Ready, Waiting for input, or Stopped. It syncs a running agent, writes
+  `/workspace/finished`, ends the tmux session, and records Completed without
+  deleting the record, worktree, or transcript. Working is refused.
+- Delete: refuses active runs unless `--discard`, and refuses `needs_sync` or
+  `unknown` sync states. The persisted `synced` flag is not used as proof that
+  newer sandbox work does not exist. Cleanup is idempotent: a worktree or branch
+  that was already removed out of band is treated as clean instead of blocking
   removal of the run record.
-- Sync runs when a run reaches Completed.
+- Reconcile syncs a run that reached Completed and an exited-but-Ready run whose
+  derived sync state is `needs_sync`.
 
 ## Diff and sync
 
@@ -905,7 +933,8 @@ a local mirror worktree for each run.
 - **Sync** exports commits, patches, and untracked files from the sandbox into
   the local run worktree.
 - Sync does not merge changes into the original project branch.
-- Stop/finish performs a final sync before stopping the sandbox.
+- Sleep, resume, and finish sync pending work before they change the sandbox
+  lifecycle. A failed sync is reported and leaves the run in its prior state.
 
 ### Sync state
 
@@ -931,6 +960,12 @@ Run JSON also exposes a derived, non-persisted `sync_state`:
 | `needs_sync` | The sandbox has outbound work and the host run worktree is unchanged. |
 | `blocked` | The sandbox has outbound work but the host worktree changed, so sync will refuse to overwrite it. |
 | `unknown` | The sandbox or host inspection failed; never presented as up to date. |
+
+A run whose sandbox AgentBox put to sleep with a recorded successful sync is
+`up_to_date` without a probe, because a stopped sandbox cannot produce new work
+and probing it would report a correct sleep as `unknown`. Host drift is still
+reported as `blocked`, and Resume clears `asleep` before the agent starts, so
+later work is probed normally.
 
 The fingerprint covers the branch, sandbox HEAD commit, the binary tracked diff,
 and non-ignored untracked paths, types, modes, symlink targets, and content

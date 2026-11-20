@@ -65,14 +65,18 @@ func TestCLISkillBootstrapAndCLIOnly(t *testing.T) {
 	)
 }
 
-// TestCLISkillStopAndSyncSequence pins the supported close sequence: stop
-// syncs the changes out before the sandbox stops, keeps the run, branch, and
-// worktree, and work resumes from the synced branch.
-func TestCLISkillStopAndSyncSequence(t *testing.T) {
+// TestCLISkillSleepResumeFinishSequence pins the supported close sequence:
+// sleep syncs before the sandbox stops, resume continues the conversation from
+// the same worktree, finish ends the record, and a sync failure leaves the
+// sandbox running.
+func TestCLISkillSleepResumeFinishSequence(t *testing.T) {
 	body := cliCollapsed(t)
 	wantAll(t, body,
-		"syncs the sandbox changes into the host worktree before the sandbox stops",
-		"work resumes from the synced branch",
+		"agentbox agent sleep RUN_ID",
+		"agentbox agent sleep --force RUN_ID",
+		"agentbox agent resume RUN_ID",
+		"agentbox agent finish RUN_ID",
+		"A sync failure leaves the sandbox running",
 		"refuses to overwrite a worktree that changed since the last sync",
 	)
 }
@@ -108,15 +112,19 @@ func TestOrchestratorSkillRepositoryEnvironment(t *testing.T) {
 }
 
 // TestOrchestratorSkillAgentBoxWorkerConventions pins the AgentBox worker
-// loop conventions: run naming and the generated branch format, the stop and
-// sync close sequence for interrupted workers, and host-denial recovery.
+// loop conventions: run naming and the generated branch format, the sleep,
+// resume, and sync close sequence for interrupted workers, and host-denial
+// recovery.
 func TestOrchestratorSkillAgentBoxWorkerConventions(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
 		"issue-<number>-<slug>",
 		"<branch_prefix>/<project>/issue-<number>-<slug>",
-		"agentbox agent stop RUN_ID",
+		"agentbox agent sleep --force RUN_ID",
+		"agentbox agent resume RUN_ID",
+		"agentbox agent finish RUN_ID",
 		"syncs the changes into the host worktree before the sandbox stops",
+		"agentbox agent stop` is the deprecated alias for `sleep",
 		"agentbox policy edit --allow-host HOST --port PORT --binary BINARY RUN_ID",
 		"append the same rule to `.agentbox/config.yaml`",
 	)

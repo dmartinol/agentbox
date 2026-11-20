@@ -144,11 +144,11 @@ func TestLiveProfileDryRun(t *testing.T) {
 		t.Fatalf("live profile is invalid: %v", err)
 	}
 	var run app.Run
-	args := []string{"run", "start", "--dry-run", "--json", "--profile", profile, "--gateway", liveGateway(), "--source", liveSource()}
+	args := []string{"agent", "start", "--dry-run", "--json", "--profile", profile, "--gateway", liveGateway(), "--source", liveSource()}
 	if err := json.Unmarshal(runLive(t, args...), &run); err != nil {
 		t.Fatal(err)
 	}
-	if run.Status != "preview" || run.ID == "" {
+	if run.Status != app.StatusCreating || run.ID == "" || run.StatusDetail != "dry run preview" {
 		t.Fatalf("unexpected dry-run result: %+v", run)
 	}
 	t.Logf("profile %q is launchable in preview mode", profile)
@@ -160,7 +160,7 @@ func TestLivePolicyAndRunState(t *testing.T) {
 		t.Skip("set AGENTBOX_LIVE_RUN to validate policy and run state for an existing run")
 	}
 	var run app.Run
-	if err := json.Unmarshal(runLive(t, "run", "show", "--json", runID), &run); err != nil {
+	if err := json.Unmarshal(runLive(t, "agent", "show", "--json", runID), &run); err != nil {
 		t.Fatal(err)
 	}
 	if run.ID != runID {
@@ -260,7 +260,7 @@ func livePrompt() string {
 func startLiveRun(t *testing.T, profile string) app.Run {
 	t.Helper()
 	args := []string{
-		"run", "start", "--json",
+		"agent", "start", "--json",
 		"--profile", profile,
 		"--gateway", liveGateway(),
 		"--source", liveSource(),
@@ -271,7 +271,7 @@ func startLiveRun(t *testing.T, profile string) app.Run {
 	if err := json.Unmarshal(runLive(t, args...), &run); err != nil {
 		t.Fatal(err)
 	}
-	if run.ID == "" || run.Status != "running" {
+	if run.ID == "" || run.Status == app.StatusFailed {
 		t.Fatalf("unexpected started run: %+v", run)
 	}
 	return run
@@ -280,7 +280,7 @@ func startLiveRun(t *testing.T, profile string) app.Run {
 func liveRunStatus(t *testing.T, id string) app.Run {
 	t.Helper()
 	var runs []app.Run
-	if err := json.Unmarshal(runLive(t, "run", "list", "--json"), &runs); err != nil {
+	if err := json.Unmarshal(runLive(t, "agent", "list", "--json"), &runs); err != nil {
 		t.Fatal(err)
 	}
 	for _, run := range runs {
@@ -294,57 +294,51 @@ func liveRunStatus(t *testing.T, id string) app.Run {
 
 func liveRunLogs(t *testing.T, id string) string {
 	t.Helper()
-	return string(runLive(t, "run", "logs", id))
+	return string(runLive(t, "agent", "logs", id))
 }
 
-func waitForIdlePrompt(t *testing.T, run app.Run, timeout time.Duration) bool {
+// waitForExitedAgent waits until the harness exits and the run stays resumable
+// instead of finishing itself.
+func waitForExitedAgent(t *testing.T, run app.Run, timeout time.Duration) app.Run {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		current := liveRunStatus(t, run.ID)
-		if current.Status == "error" {
+		switch {
+		case current.Status == app.StatusFailed:
 			t.Fatalf("run %s failed; logs:\n%s", run.ID, liveRunLogs(t, run.ID))
-		}
-		if strings.Contains(liveRunLogs(t, run.ID), "Keep this run idle") {
-			return true
-		}
-		if current.Status == "finished" {
-			return false
+		case current.Status == app.StatusCompleted:
+			t.Fatalf("run %s finished without an explicit finish: %+v", run.ID, current)
+		case current.Status == app.StatusReady && current.Exited && strings.Contains(current.StatusDetail, "resume available"):
+			return current
 		}
 		time.Sleep(5 * time.Second)
 	}
-	t.Fatalf("run %s did not reach the idle prompt within %s; logs:\n%s", run.ID, timeout, liveRunLogs(t, run.ID))
-	return false
+	t.Fatalf("run %s did not exit within %s; logs:\n%s", run.ID, timeout, liveRunLogs(t, run.ID))
+	return app.Run{}
 }
 
-func finishIdleRun(t *testing.T, run app.Run) {
+func runLiveAgent(t *testing.T, args ...string) {
 	t.Helper()
-	cmd := exec.Command(
-		"openshell",
-		"--gateway", run.Gateway,
-		"sandbox", "exec", "-n", run.Sandbox, "--no-login-shell", "--",
-		"tmux", "send-keys", "-t", "agent", "f", "Enter",
-	)
-	cmd.Dir = ".."
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("finish idle run %s: %v\n%s", run.ID, err, output)
-	}
+	runLive(t, append([]string{"agent"}, args...)...)
 }
 
-func waitForFinishedRun(t *testing.T, id string, timeout time.Duration) app.Run {
+func waitForLiveStatus(t *testing.T, id string, timeout time.Duration, want ...app.RunStatus) app.Run {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		run := liveRunStatus(t, id)
-		switch run.Status {
-		case "finished":
-			return run
-		case "error":
+		current := liveRunStatus(t, id)
+		if current.Status == app.StatusFailed {
 			t.Fatalf("run %s failed; logs:\n%s", id, liveRunLogs(t, id))
+		}
+		for _, status := range want {
+			if current.Status == status {
+				return current
+			}
 		}
 		time.Sleep(5 * time.Second)
 	}
-	t.Fatalf("run %s did not finish within %s; logs:\n%s", id, timeout, liveRunLogs(t, id))
+	t.Fatalf("run %s did not reach %v within %s; logs:\n%s", id, want, timeout, liveRunLogs(t, id))
 	return app.Run{}
 }
 
@@ -354,7 +348,7 @@ func deleteLiveRun(t *testing.T, id string) {
 		t.Logf("keeping live run %s because AGENTBOX_LIVE_KEEP_RUN=1", id)
 		return
 	}
-	_ = runLiveNoFail(t, "run", "delete", "--discard", id)
+	_ = runLiveNoFail(t, "agent", "delete", "--discard", id)
 }
 
 func runLiveNoFail(t *testing.T, args ...string) []byte {
@@ -381,10 +375,25 @@ func TestLiveNewRunLifecycle(t *testing.T) {
 	timeout := liveTimeout()
 	run := startLiveRun(t, profile)
 	defer deleteLiveRun(t, run.ID)
-	if waitForIdlePrompt(t, run, timeout) {
-		finishIdleRun(t, run)
+	exited := waitForExitedAgent(t, run, timeout)
+	if exited.StatusDetail != "agent exited (code 0); resume available" {
+		t.Logf("agent exited with detail %q", exited.StatusDetail)
 	}
-	finished := waitForFinishedRun(t, run.ID, timeout)
+	if os.Getenv("AGENTBOX_LIVE_SLEEP_RESUME") == "1" {
+		runLiveAgent(t, "sleep", run.ID)
+		slept := waitForLiveStatus(t, run.ID, timeout, app.StatusStopped)
+		if slept.StatusDetail != "asleep; resume available" {
+			t.Fatalf("sleep detail = %q", slept.StatusDetail)
+		}
+		runLiveAgent(t, "resume", "--no-attach", run.ID)
+		waitForLiveStatus(t, run.ID, timeout, app.StatusReady, app.StatusWorking, app.StatusWaiting)
+		// The continued conversation may still be working; force ends the turn
+		// before sleeping again so the test never races the agent.
+		runLiveAgent(t, "sleep", "--force", run.ID)
+		waitForLiveStatus(t, run.ID, timeout, app.StatusStopped)
+	}
+	runLiveAgent(t, "finish", run.ID)
+	finished := waitForLiveStatus(t, run.ID, timeout, app.StatusCompleted)
 	if !finished.Synced {
 		t.Fatalf("finished run was not synced: %+v", finished)
 	}
@@ -392,7 +401,7 @@ func TestLiveNewRunLifecycle(t *testing.T) {
 	if strings.TrimSpace(logs) == "" {
 		t.Fatal("run logs are empty")
 	}
-	_ = runLive(t, "run", "diff", run.ID)
+	_ = runLive(t, "agent", "diff", run.ID)
 	t.Logf("run %s logs:\n%s", run.ID, logs)
 }
 
@@ -432,10 +441,9 @@ func TestLiveConcurrentRuns(t *testing.T) {
 		seenBranches[run.Branch] = true
 	}
 	for _, run := range runs {
-		if waitForIdlePrompt(t, run, timeout) {
-			finishIdleRun(t, run)
-		}
-		waitForFinishedRun(t, run.ID, timeout)
+		waitForExitedAgent(t, run, timeout)
+		runLiveAgent(t, "finish", run.ID)
+		waitForLiveStatus(t, run.ID, timeout, app.StatusCompleted)
 	}
 }
 
@@ -470,7 +478,7 @@ func TestLivePolicyAllowDeny(t *testing.T) {
 		t.Skip("set AGENTBOX_LIVE_RUN to verify live policy allow/deny and revision loading")
 	}
 	var run app.Run
-	if err := json.Unmarshal(runLive(t, "run", "show", "--json", runID), &run); err != nil {
+	if err := json.Unmarshal(runLive(t, "agent", "show", "--json", runID), &run); err != nil {
 		t.Fatal(err)
 	}
 	allowed := "example.com"

@@ -22,7 +22,20 @@ describe('API client', () => {
 
   it('surfaces API error messages', async () => {
     mockFetch({ status: 400, body: { error: 'project not found' } });
-    await expect(api.stopRun('missing')).rejects.toThrow('project not found');
+    await expect(api.sleepRun('missing')).rejects.toThrow('project not found');
+  });
+
+  it('posts lifecycle actions to their own routes', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => ({ ok: true, status: 200, json: async () => ({ id: 'run-1' }) }));
+    vi.stubGlobal('fetch', fetchMock);
+    await api.sleepRun('run-1');
+    await api.resumeRun('run-1');
+    await api.finishRun('run-1');
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      '/api/runs/run-1/sleep',
+      '/api/runs/run-1/resume',
+      '/api/runs/run-1/finish'
+    ]);
   });
 });
 

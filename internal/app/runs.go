@@ -18,12 +18,29 @@ const bootstrapScript = `#!/bin/sh
 set -eu
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
-tmux new-session -d -s agent /bin/sh /workspace/state/session.sh
 tmux set-option -g remain-on-exit on
+if [ -f /workspace/finished ]; then
+  exec sleep infinity
+fi
+if [ -f /workspace/state/agent-started ]; then
+  # A stopped or restarted sandbox keeps /workspace/state, so the agent comes
+  # back through the continue-or-fresh entry point instead of replaying the
+  # original task prompt.
+  tmux new-session -d -s agent /bin/sh /workspace/state/agent-entry.sh
+else
+  touch /workspace/state/agent-started
+  tmux new-session -d -s agent /bin/sh /workspace/state/session.sh initial
+fi
 tmux pipe-pane -t agent -o 'cat >> /workspace/state/agent.log'
-while [ "$(tmux display-message -p -t agent '#{pane_dead}')" != 1 ]; do sleep 1; done
-touch /workspace/finished
-sleep 1
+# Finish or resume may remove the session while this loop is running, so poll
+# the session before the pane instead of using a command substitution that
+# would keep failing forever once it is gone.
+while tmux has-session -t agent 2>/dev/null; do
+  if [ "$(tmux display-message -p -t agent '#{pane_dead}' 2>/dev/null || echo 1)" = 1 ]; then
+    break
+  fi
+  sleep 1
+done
 tmux kill-session -t agent 2>/dev/null || true
 exec sleep infinity
 `
@@ -371,7 +388,14 @@ func (a *App) ListAndReconcile(ctx context.Context) ([]Run, error) {
 		if err != nil {
 			return nil, err
 		}
-		if updated.Status == StatusCompleted && !updated.Synced {
+		needsSync := updated.Status == StatusCompleted && !updated.Synced
+		if updated.Status == StatusReady && updated.Exited && updated.SyncState == SyncStateNeedsSync {
+			needsSync = true
+		}
+		if needsSync {
+			// Reconcile retries an observed exit on every read. A failed sync
+			// stays visible through the derived sync state instead of being
+			// swallowed or reported as up to date.
 			if syncErr := a.Sync(ctx, updated.ID); syncErr == nil {
 				if reloaded, loadErr := a.Store.LoadRun(updated.ID); loadErr == nil {
 					updated = reloaded
@@ -397,6 +421,7 @@ func (a *App) inspectRunWithSync(ctx context.Context, r Run, freshSyncProbe bool
 		return r, nil
 	}
 	evidence := runEvidence{Agent: r.Agent}
+	probed := false
 	b, err := a.Runner.Output(ctx, "openshell", a.sandboxArgs(r, "sandbox", "get", r.Sandbox, "-o", "json")...)
 	if err != nil {
 		// A prepared record has no sandbox yet; keep Creating instead of
@@ -414,22 +439,41 @@ func (a *App) inspectRunWithSync(ctx context.Context, r Run, freshSyncProbe bool
 			evidence.Unreadable = true
 		} else {
 			evidence.Phase = strings.ToLower(status.Phase)
-			probeOut, probeErr := a.sandboxExec(ctx, r, "/bin/sh", "-c", statusProbeScript)
-			if probeErr != nil {
-				evidence.InspectErr = probeErr.Error()
-			} else if parsed, parseErr := parseRunProbe(probeOut); parseErr != nil {
-				evidence.InspectErr = parseErr.Error()
-			} else {
-				evidence = parsed
-				evidence.Phase = strings.ToLower(status.Phase)
+			switch evidence.Phase {
+			case "stopped", "exited", "error":
+				// A stopped sandbox cannot run the probe; probing it would
+				// turn a deliberate stop into Unreachable.
 				evidence.Agent = r.Agent
+			default:
+				probeOut, probeErr := a.sandboxExec(ctx, r, "/bin/sh", "-c", statusProbeScript)
+				if probeErr != nil {
+					evidence.InspectErr = probeErr.Error()
+				} else if parsed, parseErr := parseRunProbe(probeOut); parseErr != nil {
+					evidence.InspectErr = parseErr.Error()
+				} else {
+					evidence = parsed
+					evidence.Phase = strings.ToLower(status.Phase)
+					evidence.Agent = r.Agent
+					probed = true
+				}
 			}
 		}
 	}
 	status, detail := classifyRunStatus(evidence, time.Now())
-	if status == StatusStopped && r.Status == StatusStopped && r.StatusDetail != "" {
-		// Keep the reason Stop recorded instead of the generic sandbox phase.
-		detail = r.StatusDetail
+	if r.Asleep && status == StatusStopped && (r.Status == StatusStopped || r.Status == StatusCompleted) {
+		// AgentBox stopped this sandbox itself, and a stopped sandbox reports
+		// nothing else. The record is authoritative: Finish closes a sleeping
+		// run without restarting the sandbox, so the phase alone cannot tell
+		// Stopped from Completed.
+		status, detail = r.Status, r.StatusDetail
+	}
+	if probed {
+		// The exit marker is part of the probe evidence, so only a successful
+		// probe may replace the cached value. A running sandbox also proves the
+		// run is awake, even when it was started outside AgentBox.
+		r.Exited = evidence.ExitCode != nil
+		r.ExitCode = evidence.ExitCode
+		r.Asleep = false
 	}
 	r.Status, r.StatusDetail = status, detail
 	r.SyncState = a.deriveSyncState(ctx, r, freshSyncProbe)
@@ -448,7 +492,7 @@ func (a *App) GetRun(ctx context.Context, id string) (Run, error) {
 
 // GetRunWithSyncState returns one stored run with its derived sync state. It
 // deliberately skips the status inspect so callers that just changed lifecycle
-// state, such as Stop, can report that state without overwriting it.
+// state, such as Sleep, can report that state without overwriting it.
 func (a *App) GetRunWithSyncState(ctx context.Context, id string) (Run, error) {
 	r, err := a.Store.LoadRun(id)
 	if err != nil {
@@ -617,47 +661,190 @@ func (a *App) TailLogs(ctx context.Context, id string, lines int) ([]byte, error
 	return a.sandboxExec(ctx, r, "/bin/sh", "-c", fmt.Sprintf("tail -n %d /workspace/state/agent.log 2>/dev/null || true", lines))
 }
 
-func (a *App) Stop(ctx context.Context, id string) error {
+// Sleep syncs outstanding work and stops the sandbox while keeping the run,
+// worktree, and transcript. It replaces the old terminal Stop.
+func (a *App) Sleep(ctx context.Context, id string, force bool) error {
 	r, err := a.GetRun(ctx, id)
 	if err != nil {
 		return err
 	}
-	if !r.Status.IsStoppable() {
-		return fmt.Errorf("run %s is %s; stop applies to Ready, Working, or Waiting for input (use `agentbox agent delete --discard %s` to discard it)", id, r.Status.Label(), id)
-	}
-	if _, err := a.sandboxExec(ctx, r, "tmux", "send-keys", "-t", "agent", "C-c"); err != nil {
-		return err
-	}
-	if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", "test -f /workspace/idle"); err == nil {
-		if _, err := a.sandboxExec(ctx, r, "tmux", "send-keys", "-t", "agent", "f", "Enter"); err != nil {
+	switch r.Status {
+	case StatusReady, StatusWaiting:
+	case StatusWorking:
+		if !force {
+			return fmt.Errorf("run %s is Working; wait for the turn to finish, or rerun with --force to interrupt it", id)
+		}
+		if _, err := a.sandboxExec(ctx, r, "tmux", "send-keys", "-t", agentSessionName, "C-c"); err != nil {
 			return err
 		}
-	}
-	finished := false
-	for i := 0; i < 30; i++ {
-		if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", "test -f /workspace/finished"); err == nil {
-			finished = true
-			break
+		if err := a.waitForStatus(ctx, id, func(r Run) bool { return r.Status != StatusWorking }); err != nil {
+			return fmt.Errorf("agent did not stop; the sandbox is still running: %w", err)
 		}
-		time.Sleep(time.Second)
-	}
-	if !finished {
-		return fmt.Errorf("agent did not stop within 30 seconds; sandbox retained")
+	default:
+		return fmt.Errorf("run %s is %s; sleep applies to Ready, Working (with --force), or Waiting for input; remove it with `agentbox agent delete --discard %s`", id, r.Status.Label(), id)
 	}
 	if err := a.Sync(ctx, id); err != nil {
-		return err
-	}
-	if _, err := a.Runner.Output(ctx, "openshell", "sandbox", "stop", r.Sandbox, "--gateway", r.Gateway); err != nil {
-		return err
+		return fmt.Errorf("sync before sleep failed; the sandbox is still running: %w", err)
 	}
 	r, err = a.Store.LoadRun(id)
 	if err != nil {
 		return err
 	}
+	if _, err := a.Runner.Output(ctx, "openshell", "sandbox", "stop", r.Sandbox, "--gateway", r.Gateway); err != nil {
+		return err
+	}
 	r.Status = StatusStopped
-	r.StatusDetail = "stopped by user"
+	r.StatusDetail = "asleep; resume available"
 	r.Synced = true
+	r.Asleep = true
 	return a.Store.SaveRun(r)
+}
+
+// Stop is the deprecated name for Sleep.
+func (a *App) Stop(ctx context.Context, id string) error {
+	return a.Sleep(ctx, id, false)
+}
+
+// Resume starts a stopped sandbox or relaunches an exited agent in the same
+// sandbox and worktree. It never discards the run or the transcript.
+func (a *App) Resume(ctx context.Context, id string) error {
+	r, err := a.GetRun(ctx, id)
+	if err != nil {
+		return err
+	}
+	switch r.Status {
+	case StatusStopped:
+		if _, err := a.Runner.Output(ctx, "openshell", "sandbox", "start", r.Sandbox, "--gateway", r.Gateway); err != nil {
+			return err
+		}
+		r.Asleep = false
+		if err := a.Store.SaveRun(r); err != nil {
+			return err
+		}
+		if err := a.requireResumeEntry(ctx, r); err != nil {
+			// A record created before resumable runs cannot continue its
+			// conversation; its bootstrap replays the original task prompt.
+			// Stop that session and put the sandbox back to sleep.
+			_, _ = a.sandboxExec(ctx, r, "/bin/sh", "-c", "tmux kill-session -t agent 2>/dev/null || true")
+			if _, stopErr := a.Runner.Output(ctx, "openshell", "sandbox", "stop", r.Sandbox, "--gateway", r.Gateway); stopErr == nil {
+				r.Asleep = true
+				_ = a.Store.SaveRun(r)
+			}
+			return err
+		}
+		if err := a.waitForStatus(ctx, id, func(r Run) bool {
+			return !r.Exited && (r.Status == StatusWorking || r.Status == StatusWaiting || r.Status == StatusReady)
+		}); err != nil {
+			return fmt.Errorf("sandbox started, but the agent did not resume: %w", err)
+		}
+		return nil
+	case StatusReady:
+		if !r.Exited {
+			return fmt.Errorf("run %s is Ready and its agent is still running; nothing to resume", id)
+		}
+		if err := a.requireResumeEntry(ctx, r); err != nil {
+			return err
+		}
+	case StatusCreating:
+		return fmt.Errorf("run %s is still Creating; wait for the sandbox to start", id)
+	default:
+		return fmt.Errorf("run %s is %s; resume applies to Stopped runs and Ready runs whose agent exited", id, r.Status.Label())
+	}
+	switch r.SyncState {
+	case SyncStateNeedsSync, SyncStateBlocked:
+		// Pending work, or a worktree that drifted from the last sync, is
+		// resolved first. Sync itself refuses to overwrite host edits, and a
+		// refusal leaves the run resumable.
+		if err := a.Sync(ctx, id); err != nil {
+			return fmt.Errorf("sync before resume failed; the run stays resumable: %w", err)
+		}
+	}
+	launch := "if tmux has-session -t agent 2>/dev/null; then tmux send-keys -t agent '/bin/sh /workspace/state/agent-entry.sh' Enter; else tmux new-session -d -s agent /bin/sh /workspace/state/agent-entry.sh; fi"
+	if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", launch); err != nil {
+		return err
+	}
+	if err := a.waitForStatus(ctx, id, func(r Run) bool {
+		return !r.Exited && (r.Status == StatusWorking || r.Status == StatusWaiting || r.Status == StatusReady)
+	}); err != nil {
+		return fmt.Errorf("agent did not resume: %w", err)
+	}
+	return nil
+}
+
+// requireResumeEntry verifies the sandbox carries the continue-or-fresh entry
+// point written by PrepareAgent. Runs created by older AgentBox versions only
+// hold the original launcher and would replay the task prompt on resume.
+func (a *App) requireResumeEntry(ctx context.Context, r Run) error {
+	if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", "test -f /workspace/state/agent-entry.sh"); err != nil {
+		return fmt.Errorf("run %s was created before resumable runs and cannot continue its conversation; finish it or delete it with --discard", r.ID)
+	}
+	return nil
+}
+
+// Finish ends a running run deliberately: it syncs outstanding work, marks the
+// run Completed, and keeps the record, worktree, and transcript until delete.
+func (a *App) Finish(ctx context.Context, id string) error {
+	r, err := a.GetRun(ctx, id)
+	if err != nil {
+		return err
+	}
+	switch r.Status {
+	case StatusReady, StatusWaiting:
+		if err := a.Sync(ctx, id); err != nil {
+			return fmt.Errorf("sync before finish failed; the run was not finished: %w", err)
+		}
+		if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", "touch /workspace/finished; tmux kill-session -t agent 2>/dev/null || true"); err != nil {
+			return err
+		}
+	case StatusStopped:
+		// A sleeping sandbox has no live agent and nothing to sync: sleep
+		// already synced the work. Finish only ends the record.
+	case StatusWorking:
+		return fmt.Errorf("run %s is Working; wait for the turn to finish or sleep with --force first", id)
+	case StatusCompleted:
+		return fmt.Errorf("run %s is already Completed", id)
+	default:
+		return fmt.Errorf("run %s is %s; finish applies to a running run", id, r.Status.Label())
+	}
+	r, err = a.Store.LoadRun(id)
+	if err != nil {
+		return err
+	}
+	wasStopped := r.Status == StatusStopped
+	r.Status = StatusCompleted
+	r.StatusDetail = "finished by user"
+	if !wasStopped && r.Exited && r.ExitCode != nil {
+		r.StatusDetail = fmt.Sprintf("exit code %d", *r.ExitCode)
+	}
+	if !wasStopped {
+		r.Synced = true
+	}
+	return a.Store.SaveRun(r)
+}
+
+const lifecycleStatusWait = 30 * time.Second
+
+// waitForStatus polls the derived status until done reports true. Lifecycle
+// gates use it instead of sleeping for a fixed time.
+func (a *App) waitForStatus(ctx context.Context, id string, done func(Run) bool) error {
+	deadline := time.Now().Add(lifecycleStatusWait)
+	for {
+		r, err := a.GetRun(ctx, id)
+		if err != nil {
+			return err
+		}
+		if done(r) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out after %s", lifecycleStatusWait)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 const (
@@ -775,15 +962,23 @@ func removeLeftoverWorktree(r Run) error {
 }
 
 func (a *App) Delete(ctx context.Context, id string, discard bool) error {
-	r, err := a.Store.LoadRun(id)
+	r, err := a.GetRunWithSyncState(ctx, id)
 	if err != nil {
 		return err
 	}
-	if r.Status.IsStoppable() && !discard {
-		return fmt.Errorf("run is %s; stop it or pass --discard", r.Status.Label())
+	if r.Status.IsAttachable() && !discard {
+		return fmt.Errorf("run is %s; sleep it or pass --discard", r.Status.Label())
 	}
-	if !r.Synced && !discard {
-		return fmt.Errorf("run has unsynced results; sync first or pass --discard")
+	if !discard {
+		// Gate on the derived sync state. The persisted Synced flag only
+		// records that a sync succeeded once, not whether newer sandbox work
+		// exists.
+		switch r.SyncState {
+		case SyncStateNeedsSync:
+			return fmt.Errorf("run has unsynced results; sync first or pass --discard")
+		case SyncStateUnknown:
+			return fmt.Errorf("cannot verify that the run is synced; restore the sandbox or pass --discard")
+		}
 	}
 	if !discard {
 		diff, err := a.Diff(ctx, r)

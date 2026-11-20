@@ -1222,11 +1222,17 @@ captured and the final report is delivered. Honor an explicit request to keep
 the run; otherwise delete it with `agentbox agent delete --discard RUN_ID`
 after the final report. Never reuse a run for a second task.
 
+A worker whose CLI exited stays resumable: the run is `ready` with the detail
+`agent exited (code N); resume available`, and it is not finished. Sync it,
+then either `agentbox agent resume RUN_ID` to continue the same conversation or
+`agentbox agent finish RUN_ID` to end the stage record.
+
 When a worker must be interrupted — a stall past its deadline or a user stop —
-use `agentbox agent stop RUN_ID`. Stop interrupts the agent, syncs the changes
-into the host worktree before the sandbox stops, and keeps the run, branch,
-and worktree, so the stage resumes from the synced branch in a fresh dispatch.
-Never `delete --discard` a run whose changes were not reviewed.
+use `agentbox agent sleep --force RUN_ID`. Sleep interrupts the agent, syncs the
+changes into the host worktree before the sandbox stops, and keeps the run,
+branch, and worktree, so the stage resumes with `agentbox agent resume RUN_ID`.
+`agentbox agent stop` is the deprecated alias for `sleep`. Never `delete
+--discard` a run whose changes were not reviewed.
 
 A worker blocked by a sandbox host denial is recovered with the run's **Add
 host** remediation — `agentbox policy edit --allow-host HOST --port PORT

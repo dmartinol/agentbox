@@ -18,7 +18,7 @@ import { Disclosure } from '../components/ui/disclosure';
 import { ExpandableValue } from '../components/ui/copy-value';
 import { cn } from '../lib/utils';
 import { compareVersions, formatSyncTimestamp, middleEllipsis } from '../lib/text';
-import { StatusBadge, SyncStateBadge, canAttachRun, isActiveRun, canStopRun, isWaitingRun, statusLabel, syncStateExplanation, syncStateLabel } from '../components/StatusBadge';
+import { StatusBadge, SyncStateBadge, canAttachRun, isActiveRun, canFinishRun, canResumeRun, canSleepRun, isWaitingRun, statusLabel, syncStateExplanation, syncStateLabel } from '../components/StatusBadge';
 import type { LogDrawerState } from '../components/LogDrawer';
 
 const allProjects = 'All projects';
@@ -151,7 +151,28 @@ function fleetPollDelay(runs: Run[], watching: boolean): number {
   return 15000;
 }
 
-type AgentAction = 'sync' | 'stop' | 'delete';
+type AgentAction = 'sync' | 'sleep' | 'resume' | 'finish' | 'delete';
+
+// manageHint explains why the lifecycle actions are disabled, so the reason is
+// visible instead of only implied by a greyed-out button.
+function manageHint(agent: Run): string {
+  switch (agent.status) {
+    case 'working':
+      return 'Sleep and Finish are unavailable while the agent works. Wait for the turn, or run `agentbox agent sleep --force`.';
+    case 'completed':
+      return 'Completed runs cannot be resumed. Delete removes the record and worktree.';
+    case 'stopped':
+      return 'Resume starts the sandbox and continues the last conversation in the same worktree.';
+    case 'ready':
+      return agent.exited
+        ? 'The agent exited. Resume continues the last conversation; Finish ends the run and keeps the transcript.'
+        : 'Sleep keeps the worktree and transcript. Resume continues the conversation later.';
+    case 'waiting':
+      return 'Sleep keeps the worktree and transcript. Resume continues the conversation later.';
+    default:
+      return `Lifecycle actions are unavailable while the run is ${statusLabel(agent.status).toLowerCase()}.`;
+  }
+}
 
 export function FleetView({
   refreshKey = 0,
@@ -373,7 +394,9 @@ export function FleetView({
 
   const inFlightStatus = (agent: Run): string => {
     const kind = pending[agent.id];
-    if (kind === 'stop') return 'stopping';
+    if (kind === 'sleep') return 'sleeping';
+    if (kind === 'resume') return 'resuming';
+    if (kind === 'finish') return 'finishing';
     if (kind === 'delete') return 'deleting';
     return agent.status;
   };
@@ -787,13 +810,33 @@ export function FleetView({
                   </Button>
                   <Button
                     variant="outline"
-                    loading={pending[selected.id] === 'stop'}
-                    disabled={Boolean(pending[selected.id]) || !canStopRun(selected.status)}
-                    onClick={() => void runAgentAction(selected, 'stop', () => api.stopRun(selected.id), `Stop requested for ${selected.name || selected.id}`)}
+                    loading={pending[selected.id] === 'sleep'}
+                    disabled={Boolean(pending[selected.id]) || !canSleepRun(selected.status)}
+                    onClick={() => void runAgentAction(selected, 'sleep', () => api.sleepRun(selected.id), `Sleep requested for ${selected.name || selected.id}`)}
                   >
-                    {pending[selected.id] === 'stop' ? 'Stopping' : 'Stop'}
+                    {pending[selected.id] === 'sleep' ? 'Sleeping…' : 'Sleep'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    loading={pending[selected.id] === 'resume'}
+                    disabled={Boolean(pending[selected.id]) || !canResumeRun(selected.status, selected.exited)}
+                    onClick={() => void runAgentAction(selected, 'resume', async () => {
+                      await api.resumeRun(selected.id);
+                      openWorkspace(selected);
+                    }, `Resume requested for ${selected.name || selected.id}`)}
+                  >
+                    {pending[selected.id] === 'resume' ? 'Resuming…' : 'Resume'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    loading={pending[selected.id] === 'finish'}
+                    disabled={Boolean(pending[selected.id]) || !canFinishRun(selected.status)}
+                    onClick={() => void runAgentAction(selected, 'finish', () => api.finishRun(selected.id), `Finish requested for ${selected.name || selected.id}`)}
+                  >
+                    {pending[selected.id] === 'finish' ? 'Finishing…' : 'Finish'}
                   </Button>
                 </div>
+                <p className="text-xs text-muted">{manageHint(selected)}</p>
               </section>
 
               <section aria-label="Sync" className="space-y-1.5 rounded-lg border border-border p-2">

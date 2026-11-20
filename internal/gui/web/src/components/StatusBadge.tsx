@@ -28,7 +28,9 @@ const meta: Record<string, StatusMeta> = {
   stopped: { tone: 'neutral', label: 'Stopped', glyph: <CircleStop className={cn(glyphClass, 'text-muted')} /> },
   completed: { tone: 'success', label: 'Completed', glyph: <CircleCheck className={glyphClass} /> },
   // In-flight UI states, never persisted on a run.
-  stopping: { tone: 'warning', label: 'Stopping', glyph: <Loader2 className={cn(glyphClass, 'animate-spin')} /> },
+  sleeping: { tone: 'warning', label: 'Sleeping', glyph: <Loader2 className={cn(glyphClass, 'animate-spin')} /> },
+  resuming: { tone: 'info', label: 'Resuming', glyph: <Loader2 className={cn(glyphClass, 'animate-spin')} /> },
+  finishing: { tone: 'warning', label: 'Finishing', glyph: <Loader2 className={cn(glyphClass, 'animate-spin')} /> },
   deleting: { tone: 'danger', label: 'Deleting', glyph: <Loader2 className={cn(glyphClass, 'animate-spin')} /> },
   succeeded: { tone: 'success', label: 'Succeeded', glyph: <CircleCheck className={glyphClass} /> },
   canceled: { tone: 'neutral', label: 'Canceled', glyph: <CircleStop className={cn(glyphClass, 'text-muted')} /> }
@@ -36,7 +38,10 @@ const meta: Record<string, StatusMeta> = {
 
 export const activeStatuses = new Set<RunStatus>(['creating', 'ready', 'working', 'waiting']);
 export const attachableStatuses = new Set<RunStatus>(['ready', 'working', 'waiting']);
-export const stoppableStatuses = new Set<RunStatus>(['ready', 'working', 'waiting']);
+export const sleepableStatuses = new Set<RunStatus>(['ready', 'waiting']);
+// Finish ends a Ready/Waiting run and also closes a sleeping run without
+// restarting its sandbox.
+export const finishableStatuses = new Set<RunStatus>(['ready', 'waiting', 'stopped']);
 export const waitingStatuses = new Set<RunStatus>(['waiting']);
 
 export function isActiveRun(status: string): boolean {
@@ -47,8 +52,17 @@ export function canAttachRun(status: string): boolean {
   return attachableStatuses.has(status.toLowerCase() as RunStatus);
 }
 
-export function canStopRun(status: string): boolean {
-  return stoppableStatuses.has(status.toLowerCase() as RunStatus);
+export function canSleepRun(status: string): boolean {
+  return sleepableStatuses.has(status.toLowerCase() as RunStatus);
+}
+
+export function canFinishRun(status: string): boolean {
+  return finishableStatuses.has(status.toLowerCase() as RunStatus);
+}
+
+export function canResumeRun(status: string, exited?: boolean): boolean {
+  const normalized = status.toLowerCase() as RunStatus;
+  return normalized === 'stopped' || (normalized === 'ready' && Boolean(exited));
 }
 
 export function isWaitingRun(status: string): boolean {
