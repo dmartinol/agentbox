@@ -10,6 +10,9 @@ subcommands:
   - show
   - attach
   - logs
+  - sleep
+  - resume
+  - finish
   - stop
   - sync
   - diff
@@ -119,16 +122,66 @@ Print a run's captured logs.
 agentbox agent logs ID
 ```
 
+## sleep
+{: #agent-sleep }
+
+Sync a run's work and stop its sandbox while keeping the run resumable.
+
+```text
+agentbox agent sleep [--force] ID
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--force` | `false` | Interrupt a Working agent before sleeping. |
+
+Syncs pending work first; a sync failure leaves the sandbox running. A
+successful sleep records `stopped` with the detail `asleep; resume available`
+and keeps the record, worktree, transcript, and harness session store.
+
+## resume
+{: #agent-resume }
+
+Resume a sleeping run or continue an agent that exited.
+
+```text
+agentbox agent resume [--no-attach] ID
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--no-attach` | `false` | Do not attach after the agent resumes. |
+
+Starts the sandbox when the run is `stopped`, otherwise relaunches the agent in
+the existing sandbox. The agent continues its last conversation; when the
+harness session store is missing, AgentBox starts a fresh session in the same
+worktree and reports that context could not be restored. Pending work is
+synced first, and a sync failure leaves the run resumable.
+
+## finish
+{: #agent-finish }
+
+End a run deliberately.
+
+```text
+agentbox agent finish ID
+```
+
+Syncs outstanding work, ends the agent session, and records `completed`. The
+run keeps its record, worktree, and transcript, but it cannot be resumed. A
+sleeping run is marked completed without restarting its sandbox. Finish refuses
+while the agent is `working`; sleep with `--force` first.
+
 ## stop
 {: #agent-stop }
 
-Stop a run.
+Deprecated alias for `sleep`.
 
 ```text
 agentbox agent stop ID
 ```
 
-Stops the run's sandbox. The run record and its results are kept.
+Prints a deprecation warning and behaves like `agentbox agent sleep ID`.
 
 ## sync
 {: #agent-sync }
@@ -172,3 +225,6 @@ Deletes the run record and its sandbox. Use `--discard` to confirm deleting a
 run whose results have not been synced. The flag must come before the run id:
 `agentbox agent delete --discard RUN_ID`. A flag written after the id is read
 as a second argument, and the command then waits for confirmation.
+
+Without `--discard`, delete refuses an active run and any run whose derived
+`sync_state` is `needs_sync` or `unknown`.

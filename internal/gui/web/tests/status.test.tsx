@@ -2,7 +2,9 @@ import { render, screen } from '@testing-library/react';
 import {
   StatusBadge,
   canAttachRun,
-  canStopRun,
+  canFinishRun,
+  canResumeRun,
+  canSleepRun,
   isActiveRun,
   isWaitingRun,
   statusLabel
@@ -39,8 +41,17 @@ describe('agent status presentation', () => {
     expect(canAttachRun('ready')).toBe(true);
     expect(canAttachRun('working')).toBe(true);
     expect(canAttachRun('completed')).toBe(false);
-    expect(canStopRun('waiting')).toBe(true);
-    expect(canStopRun('failed')).toBe(false);
+    expect(canSleepRun('ready')).toBe(true);
+    expect(canSleepRun('waiting')).toBe(true);
+    expect(canSleepRun('working')).toBe(false);
+    expect(canSleepRun('failed')).toBe(false);
+    expect(canFinishRun('ready')).toBe(true);
+    expect(canFinishRun('working')).toBe(false);
+    expect(canFinishRun('stopped')).toBe(true);
+    expect(canResumeRun('stopped', false)).toBe(true);
+    expect(canResumeRun('ready', true)).toBe(true);
+    expect(canResumeRun('ready', false)).toBe(false);
+    expect(canResumeRun('completed', true)).toBe(false);
     expect(isWaitingRun('waiting')).toBe(true);
     expect(isWaitingRun('ready')).toBe(false);
     expect(statusLabel('unreachable')).toBe('Unreachable');
@@ -49,11 +60,15 @@ describe('agent status presentation', () => {
   it('labels in-flight action states', () => {
     render(
       <>
-        <StatusBadge status="stopping" />
+        <StatusBadge status="sleeping" />
+        <StatusBadge status="resuming" />
+        <StatusBadge status="finishing" />
         <StatusBadge status="deleting" />
       </>
     );
-    expect(screen.getByText('Stopping')).toBeInTheDocument();
+    expect(screen.getByText('Sleeping')).toBeInTheDocument();
+    expect(screen.getByText('Resuming')).toBeInTheDocument();
+    expect(screen.getByText('Finishing')).toBeInTheDocument();
     expect(screen.getByText('Deleting')).toBeInTheDocument();
   });
 });

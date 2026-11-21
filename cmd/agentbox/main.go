@@ -131,7 +131,7 @@ func usage() {
 	fmt.Println("  skill list|show|create|delete|available")
 	fmt.Println("  skills install|update|remove|list|show|roles")
 	fmt.Println("  orchestrator config path|show|validate")
-	fmt.Println("  agent start|list|show|attach|logs|stop|sync|diff|delete")
+	fmt.Println("  agent start|list|show|attach|logs|sleep|resume|finish|stop|sync|diff|delete")
 	fmt.Println("  gui [--address host:port]")
 }
 
@@ -1210,9 +1210,25 @@ func printSkillsOutput(results []skills.Result, err error, jsonOut bool) error {
 	return errors.Join(err, writer.Flush())
 }
 
+// printRunState reports the derived state after a lifecycle command.
+func printRunState(ctx context.Context, a *app.App, id, message string) error {
+	r, err := a.GetRun(ctx, id)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(message, "%s") {
+		message = fmt.Sprintf(message, r.ID)
+	}
+	fmt.Printf("%s %s: %s\n", r.ID, r.Status.Label(), message)
+	if r.StatusDetail != "" {
+		fmt.Printf("detail:  %s\n", r.StatusDetail)
+	}
+	return nil
+}
+
 func agentCmd(ctx context.Context, a *app.App, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("agent start|list|show|attach|logs|stop|sync|diff|delete required")
+		return fmt.Errorf("agent start|list|show|attach|logs|sleep|resume|finish|stop|sync|diff|delete required")
 	}
 	switch args[0] {
 	case "start":
@@ -1325,11 +1341,52 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		}
 		fmt.Print(string(b))
 		return nil
-	case "stop":
+	case "sleep":
+		f := flags("agent sleep")
+		force := f.Bool("force", false, "interrupt a working agent before sleeping")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		if err := a.Sleep(ctx, f.Args()[0], *force); err != nil {
+			return err
+		}
+		return printRunState(ctx, a, f.Args()[0], "asleep; resume with `agentbox agent resume %s`")
+	case "resume":
+		f := flags("agent resume")
+		noAttach := f.Bool("no-attach", false, "do not attach after resuming")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		if err := a.Resume(ctx, f.Args()[0]); err != nil {
+			return err
+		}
+		if *noAttach {
+			return printRunState(ctx, a, f.Args()[0], "resumed")
+		}
+		return a.Attach(ctx, f.Args()[0])
+	case "finish":
 		if err := need(args[1:], 1); err != nil {
 			return err
 		}
-		return a.Stop(ctx, args[1])
+		if err := a.Finish(ctx, args[1]); err != nil {
+			return err
+		}
+		return printRunState(ctx, a, args[1], "finished; the run is Completed and cannot be resumed")
+	case "stop":
+		fmt.Fprintln(os.Stderr, "warning: `agentbox agent stop` is deprecated; use `agentbox agent sleep`")
+		if err := need(args[1:], 1); err != nil {
+			return err
+		}
+		if err := a.Sleep(ctx, args[1], false); err != nil {
+			return err
+		}
+		return printRunState(ctx, a, args[1], "asleep; resume with `agentbox agent resume %s`")
 	case "sync":
 		if err := need(args[1:], 1); err != nil {
 			return err

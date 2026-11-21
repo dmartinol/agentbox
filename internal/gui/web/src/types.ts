@@ -43,6 +43,8 @@ export interface Run {
   approval: string;
   status: RunStatus;
   status_detail?: string;
+  exited?: boolean;
+  exit_code?: number;
   profile?: string;
   synced: boolean;
   policy: string;

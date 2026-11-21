@@ -100,6 +100,25 @@ func TestClassifyRunStatusPrecedence(t *testing.T) {
 			wantDetail: "agent exited",
 		},
 		{
+			// An agent CLI exit is resumable, not a finished run.
+			name:       "exit marker keeps the run resumable",
+			evidence:   runEvidence{Phase: "running", Session: true, PaneCommand: "sh", ExitCode: &exitThree},
+			want:       StatusReady,
+			wantDetail: "agent exited (code 3); resume available",
+		},
+		{
+			name:       "exit marker without a session stays resumable",
+			evidence:   runEvidence{Phase: "running", ExitCode: &exitThree},
+			want:       StatusReady,
+			wantDetail: "agent exited (code 3); resume available",
+		},
+		{
+			name:       "finished run wins over the exit marker",
+			evidence:   runEvidence{Phase: "running", FinishedMarker: true, ExitCode: &exitThree},
+			want:       StatusCompleted,
+			wantDetail: "exit code 3",
+		},
+		{
 			name:     "completed phase",
 			evidence: runEvidence{Phase: "completed", Session: true, PaneCommand: "codex"},
 			want:     StatusCompleted,
@@ -228,9 +247,17 @@ func TestStatusPredicates(t *testing.T) {
 		}
 	}
 	for _, status := range []RunStatus{StatusReady, StatusWorking, StatusWaiting} {
-		if !status.IsAttachable() || !status.IsStoppable() {
-			t.Errorf("%q should be attachable and stoppable", status)
+		if !status.IsAttachable() {
+			t.Errorf("%q should be attachable", status)
 		}
+	}
+	for _, status := range []RunStatus{StatusReady, StatusWaiting} {
+		if !status.IsSleepable() {
+			t.Errorf("%q should be sleepable", status)
+		}
+	}
+	if StatusWorking.IsSleepable() || StatusStopped.IsSleepable() {
+		t.Error("working and stopped runs must not be sleepable without --force")
 	}
 	if StatusCreating.IsAttachable() || StatusStopped.IsAttachable() || StatusCompleted.IsAttachable() {
 		t.Error("creating/stopped/completed must not be attachable")
@@ -287,7 +314,7 @@ func TestInspectRunCachesDerivedStatus(t *testing.T) {
 	}
 }
 
-func TestStopRefusesTerminalStatuses(t *testing.T) {
+func TestSleepRefusesTerminalStatuses(t *testing.T) {
 	ctx := context.Background()
 	store := Store{Base: t.TempDir()}
 	app := App{Store: store}
@@ -296,10 +323,10 @@ func TestStopRefusesTerminalStatuses(t *testing.T) {
 		t.Fatal(err)
 	}
 	app.Runner = statusRunnerFor("running", "session=0\ndead=1\nfinished=1\nexit=0\n")
-	if err := app.Stop(ctx, run.ID); err == nil || !strings.Contains(err.Error(), "stop applies to") {
-		t.Fatalf("completed run stop = %v", err)
+	if err := app.Sleep(ctx, run.ID, false); err == nil || !strings.Contains(err.Error(), "sleep applies to") {
+		t.Fatalf("completed run sleep = %v", err)
 	}
-	if err := app.Stop(ctx, run.ID); err == nil || !strings.Contains(err.Error(), "agentbox agent delete --discard "+run.ID) {
-		t.Fatalf("stop guidance does not put --discard before the run id: %v", err)
+	if err := app.Sleep(ctx, run.ID, false); err == nil || !strings.Contains(err.Error(), "agentbox agent delete --discard "+run.ID) {
+		t.Fatalf("sleep guidance does not put --discard before the run id: %v", err)
 	}
 }

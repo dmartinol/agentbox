@@ -143,7 +143,15 @@ type Run struct {
 	Approval                 string               `json:"approval"`
 	Status                   RunStatus            `json:"status"`
 	StatusDetail             string               `json:"status_detail"`
-	Synced                   bool                 `json:"synced"`
+	// Asleep records that AgentBox stopped this sandbox with Sleep. A stopped
+	// sandbox cannot report anything, so the record stays authoritative until
+	// Resume or an observed running sandbox clears it.
+	Asleep bool `json:"asleep,omitempty"`
+	// Exited and ExitCode are derived from /workspace/exit-code during an
+	// inspect. They are a cache like Status, not user-settable state.
+	Exited   bool `json:"exited,omitempty"`
+	ExitCode *int `json:"exit_code,omitempty"`
+	Synced   bool `json:"synced"`
 	// SyncState is derived for each read. SaveRun never persists it.
 	SyncState      SyncState `json:"sync_state,omitempty"`
 	Policy         string    `json:"policy"`

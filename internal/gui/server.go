@@ -45,7 +45,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/runs", s.listRuns)
 	mux.HandleFunc("POST /api/runs", s.startRun)
 	mux.HandleFunc("GET /api/runs/{id}", s.getRun)
-	mux.HandleFunc("POST /api/runs/{id}/stop", s.stopRun)
+	mux.HandleFunc("POST /api/runs/{id}/sleep", s.sleepRun)
+	mux.HandleFunc("POST /api/runs/{id}/resume", s.resumeRun)
+	mux.HandleFunc("POST /api/runs/{id}/finish", s.finishRun)
+	// /stop is the deprecated alias for /sleep.
+	mux.HandleFunc("POST /api/runs/{id}/stop", s.sleepRun)
 	mux.HandleFunc("POST /api/runs/{id}/sync", s.syncRun)
 	mux.HandleFunc("POST /api/runs/{id}/delete", s.deleteRun)
 	mux.HandleFunc("DELETE /api/runs/{id}", s.deleteRun)
@@ -424,12 +428,35 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, run)
 }
 
-func (s *Server) stopRun(w http.ResponseWriter, r *http.Request) {
-	if err := s.app.Stop(r.Context(), r.PathValue("id")); err != nil {
+func (s *Server) sleepRun(w http.ResponseWriter, r *http.Request) {
+	force := r.URL.Query().Get("force") == "true"
+	if err := s.app.Sleep(r.Context(), r.PathValue("id"), force); err != nil {
 		writeError(w, err)
 		return
 	}
-	run, err := s.app.GetRunWithSyncState(r.Context(), r.PathValue("id"))
+	s.writeRunState(w, r)
+}
+
+func (s *Server) resumeRun(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.Resume(r.Context(), r.PathValue("id")); err != nil {
+		writeError(w, err)
+		return
+	}
+	s.writeRunState(w, r)
+}
+
+func (s *Server) finishRun(w http.ResponseWriter, r *http.Request) {
+	if err := s.app.Finish(r.Context(), r.PathValue("id")); err != nil {
+		writeError(w, err)
+		return
+	}
+	s.writeRunState(w, r)
+}
+
+// writeRunState returns the run after a lifecycle action with freshly derived
+// status and sync state.
+func (s *Server) writeRunState(w http.ResponseWriter, r *http.Request) {
+	run, err := s.app.GetRun(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeError(w, err)
 		return

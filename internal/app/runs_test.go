@@ -11,54 +11,12 @@ import (
 	"time"
 )
 
-func TestDeleteProtectsActiveAndReviewableRunData(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		active bool
-		edit   bool
-		want   string
-	}{
-		{name: "active", active: true},
-		{name: "unsynced", active: false, want: "unsynced"},
-		{name: "review changes", active: false, edit: true, want: "review changes"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			app, run, _ := createSyncFixture(t)
-			run.Synced = true
-			if tc.name == "unsynced" {
-				run.Synced = false
-			}
-			if !tc.active {
-				run.Status = StatusStopped
-			} else {
-				run.Status = StatusWorking
-			}
-			if tc.edit {
-				if err := os.WriteFile(filepath.Join(run.Worktree, "tracked.txt"), []byte("review me\n"), 0600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if err := app.Store.SaveRun(run); err != nil {
-				t.Fatal(err)
-			}
-			runner := newSyncRunner(t, nil)
-			app.Runner = runner
-			err := app.Delete(context.Background(), run.ID, false)
-			if err == nil {
-				t.Fatal("run with protected data was deleted")
-			}
-			if tc.want != "" && !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("unexpected delete refusal: %v", err)
-			}
-			if tc.active && !strings.Contains(err.Error(), "run is Working") {
-				t.Fatalf("active run refusal was unclear: %v", err)
-			}
-			for _, call := range runner.outputs {
-				if call.name == "openshell" {
-					t.Fatalf("sandbox delete attempted before guard: %#v", call)
-				}
-			}
-		})
+func assertNoSandboxRemoval(t *testing.T, runner *fakeRunner) {
+	t.Helper()
+	for _, call := range runner.outputs {
+		if call.name == "openshell" && (containsCommand(call.args, "sandbox", "delete") || containsCommand(call.args, "sandbox", "stop")) {
+			t.Fatalf("sandbox removal attempted before the guard: %#v", call)
+		}
 	}
 }
 
@@ -153,46 +111,196 @@ func TestDeleteKeepsUnrelatedDirectoryAtRecordedWorktreePath(t *testing.T) {
 	}
 }
 
-func TestStopRetainsSandboxWhenSyncRefusesLocalConflict(t *testing.T) {
+func TestDeleteProtectsActiveRun(t *testing.T) {
 	app, run, _ := createSyncFixture(t)
-	if err := os.WriteFile(filepath.Join(run.Worktree, "tracked.txt"), []byte("local edit during run\n"), 0600); err != nil {
+	run.Status = StatusWorking
+	run.Synced = true
+	if err := app.Store.SaveRun(run); err != nil {
 		t.Fatal(err)
 	}
 	runner := newSyncRunner(t, nil)
 	app.Runner = runner
-	err := app.Stop(context.Background(), run.ID)
+	err := app.Delete(context.Background(), run.ID, false)
+	if err == nil || !strings.Contains(err.Error(), "run is Working") {
+		t.Fatalf("active run refusal was unclear: %v", err)
+	}
+	assertNoSandboxRemoval(t, runner)
+}
+
+func TestDeleteRefusesUnsyncedRun(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	ctx := context.Background()
+	sandbox := cloneSandboxRepo(t, run)
+	if err := os.WriteFile(filepath.Join(sandbox, "tracked.txt"), []byte("agent edit\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd(t, sandbox, "git", "commit", "-qam", "agent edit")
+	hostFingerprint, err := app.WorktreeFingerprint(ctx, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A completed run still holds the record, so its sandbox is probeable and
+	// the derived state sees sandbox work that was never synced.
+	run.Status = StatusCompleted
+	run.Synced = true
+	run.Fingerprint = hostFingerprint
+	run.SyncedSandboxFingerprint = "stale-sandbox-fingerprint"
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, sandbox))
+	app.Runner = runner
+	err = app.Delete(ctx, run.ID, false)
+	if err == nil || !strings.Contains(err.Error(), "unsynced") {
+		t.Fatalf("unsynced refusal = %v", err)
+	}
+	assertNoSandboxRemoval(t, runner)
+}
+
+func TestDeleteRefusesUnknownSyncState(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	run.Status = StatusStopped
+	run.Synced = true
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := newSyncRunner(t, nil)
+	app.Runner = runner
+	err := app.Delete(context.Background(), run.ID, false)
+	if err == nil || !strings.Contains(err.Error(), "cannot verify") {
+		t.Fatalf("unknown sync state refusal = %v", err)
+	}
+	assertNoSandboxRemoval(t, runner)
+}
+
+func TestDeleteRefusesReviewChanges(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	run.Status = StatusStopped
+	run.Synced = true
+	if err := os.WriteFile(filepath.Join(run.Worktree, "tracked.txt"), []byte("review me\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, run.Worktree))
+	app.Runner = runner
+	err := app.Delete(context.Background(), run.ID, false)
+	if err == nil || !strings.Contains(err.Error(), "review changes") {
+		t.Fatalf("review-changes refusal = %v", err)
+	}
+	assertNoSandboxRemoval(t, runner)
+}
+
+const (
+	readyProbe   = "session=1\ndead=0\ncommand=sh\nplan=0\nidle=0\nfinished=0\nexit=\nactivity={\"state\":\"idle\"}\nmtime=\n"
+	workingProbe = "session=1\ndead=0\ncommand=codex\nplan=0\nidle=0\nfinished=0\nexit=\nactivity={\"state\":\"working\",\"detail\":\"turn\"}\nmtime=\n"
+	exitedProbe  = "session=1\ndead=0\ncommand=sh\nplan=0\nidle=0\nfinished=0\nexit=0\nactivity={\"state\":\"idle\"}\nmtime=\n"
+	probeMarker  = "printf 'session=%s"
+)
+
+// readyLifecycleRunner answers the status probe with a Ready run and delegates
+// everything else to the sync fixture runner.
+func readyLifecycleRunner(t *testing.T, artifacts map[string]string) *fakeRunner {
+	t.Helper()
+	runner := newSyncRunner(t, artifacts)
+	base := runner.output
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && strings.Contains(strings.Join(call.args, " "), probeMarker) {
+			return []byte(readyProbe), nil
+		}
+		return base(call)
+	}
+	return runner
+}
+
+func TestSleepRetainsSandboxWhenSyncRefusesLocalConflict(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	if err := os.WriteFile(filepath.Join(run.Worktree, "tracked.txt"), []byte("local edit during run\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runner := readyLifecycleRunner(t, nil)
+	app.Runner = runner
+	err := app.Sleep(context.Background(), run.ID, false)
 	if err == nil || !strings.Contains(err.Error(), "refusing to overwrite") {
 		t.Fatalf("expected sync refusal, got %v", err)
 	}
 	for _, call := range runner.outputs {
-		if call.name == "openshell" && commandHasArg(call, "stop") {
+		if call.name == "openshell" && containsCommand(call.args, "sandbox", "stop") {
 			t.Fatal("sandbox stopped despite sync failure")
 		}
 	}
 	stored, err := app.Store.LoadRun(run.ID)
-	if err != nil || stored.Status != StatusWorking {
-		t.Fatalf("run state did not retain recovery status: %+v, %v", stored, err)
+	if err != nil || stored.Status != StatusReady {
+		t.Fatalf("run state did not retain the resumable status: %+v, %v", stored, err)
 	}
 }
 
-func TestStopSyncsBeforeStoppingSandbox(t *testing.T) {
+func TestSleepRefusesWorkingWithoutForce(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	runner := newSyncRunner(t, nil)
+	app.Runner = runner
+	err := app.Sleep(context.Background(), run.ID, false)
+	if err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("working sleep refusal = %v", err)
+	}
+	for _, call := range runner.outputs {
+		if call.name == "openshell" && containsCommand(call.args, "sandbox", "stop") {
+			t.Fatal("sandbox stopped despite the Working gate")
+		}
+	}
+}
+
+func TestSleepForceInterruptsWorkingAgent(t *testing.T) {
 	app, run, _ := createSyncFixture(t)
 	artifacts := createAgentExport(t, run, t.TempDir())
 	runner := newSyncRunner(t, artifacts)
+	base := runner.output
+	interrupted := false
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && commandHasArg(call, "send-keys") {
+			interrupted = true
+			return nil, nil
+		}
+		if call.name == "openshell" && strings.Contains(strings.Join(call.args, " "), probeMarker) {
+			if interrupted {
+				return []byte(readyProbe), nil
+			}
+			return []byte(workingProbe), nil
+		}
+		return base(call)
+	}
 	app.Runner = runner
-	if err := app.Stop(context.Background(), run.ID); err != nil {
+	if err := app.Sleep(context.Background(), run.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if !interrupted {
+		t.Fatal("forced sleep did not interrupt the working turn")
+	}
+	stored, err := app.Store.LoadRun(run.ID)
+	if err != nil || stored.Status != StatusStopped || !stored.Synced {
+		t.Fatalf("run did not record successful sleep/sync: %+v, %v", stored, err)
+	}
+}
+
+func TestSleepSyncsBeforeStoppingSandbox(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	artifacts := createAgentExport(t, run, t.TempDir())
+	runner := readyLifecycleRunner(t, artifacts)
+	app.Runner = runner
+	if err := app.Sleep(context.Background(), run.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := app.Store.LoadRun(run.ID)
 	if err != nil || stored.Status != StatusStopped || !stored.Synced {
-		t.Fatalf("run did not record successful stop/sync: %+v, %v", stored, err)
+		t.Fatalf("run did not record successful sleep/sync: %+v, %v", stored, err)
 	}
-	if stored.StatusDetail != "stopped by user" {
-		t.Fatalf("stop detail = %q", stored.StatusDetail)
+	if stored.StatusDetail != "asleep; resume available" {
+		t.Fatalf("sleep detail = %q", stored.StatusDetail)
 	}
 	stopIndex, syncDownloadIndex := -1, -1
 	for i, call := range runner.outputs {
-		if call.name == "openshell" && commandHasArg(call, "stop") {
+		if call.name == "openshell" && containsCommand(call.args, "sandbox", "stop") {
 			stopIndex = i
 		}
 		if call.name == "openshell" && commandHasArg(call, "download") {
@@ -201,6 +309,152 @@ func TestStopSyncsBeforeStoppingSandbox(t *testing.T) {
 	}
 	if syncDownloadIndex < 0 || stopIndex < syncDownloadIndex {
 		t.Fatalf("sandbox stop did not follow sync: download=%d stop=%d", syncDownloadIndex, stopIndex)
+	}
+}
+
+func TestResumeRefusesRunningAgent(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	app.Runner = readyLifecycleRunner(t, nil)
+	err := app.Resume(context.Background(), run.ID)
+	if err == nil || !strings.Contains(err.Error(), "nothing to resume") {
+		t.Fatalf("running resume = %v", err)
+	}
+}
+
+func TestResumeRelaunchesExitedAgentInPlace(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	runner := newSyncRunner(t, nil)
+	base := runner.output
+	launched := false
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		joined := strings.Join(call.args, " ")
+		if call.name == "openshell" && strings.Contains(joined, probeMarker) {
+			if launched {
+				return []byte(workingProbe), nil
+			}
+			return []byte(exitedProbe), nil
+		}
+		if call.name == "openshell" && strings.Contains(joined, "agent-entry.sh") {
+			launched = true
+			return nil, nil
+		}
+		return base(call)
+	}
+	app.Runner = runner
+	if err := app.Resume(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !launched {
+		t.Fatal("resume did not relaunch the agent entry point")
+	}
+	stored, err := app.Store.LoadRun(run.ID)
+	if err != nil || stored.Status != StatusWorking {
+		t.Fatalf("resume did not return a working run: %+v, %v", stored, err)
+	}
+}
+
+func TestResumeStartsStoppedSandbox(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	run.Status = StatusStopped
+	run.StatusDetail = "asleep; resume available"
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := newSyncRunner(t, nil)
+	base := runner.output
+	started := false
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		joined := strings.Join(call.args, " ")
+		if call.name == "openshell" && containsCommand(call.args, "sandbox", "start") {
+			started = true
+			return nil, nil
+		}
+		if call.name == "openshell" && containsCommand(call.args, "sandbox", "get") {
+			if started {
+				return []byte(`{"phase":"running"}`), nil
+			}
+			return []byte(`{"phase":"stopped"}`), nil
+		}
+		if call.name == "openshell" && strings.Contains(joined, probeMarker) {
+			return []byte(workingProbe), nil
+		}
+		return base(call)
+	}
+	app.Runner = runner
+	if err := app.Resume(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !started {
+		t.Fatal("resume did not start the stopped sandbox")
+	}
+	stored, err := app.Store.LoadRun(run.ID)
+	if err != nil || stored.Status != StatusWorking {
+		t.Fatalf("resume did not return a working run: %+v, %v", stored, err)
+	}
+}
+
+func TestFinishSyncsThenMarksCompleted(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	artifacts := createAgentExport(t, run, t.TempDir())
+	runner := readyLifecycleRunner(t, artifacts)
+	app.Runner = runner
+	if err := app.Finish(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := app.Store.LoadRun(run.ID)
+	if err != nil || stored.Status != StatusCompleted || !stored.Synced {
+		t.Fatalf("finish did not mark the run completed: %+v, %v", stored, err)
+	}
+	finishIndex, syncDownloadIndex := -1, -1
+	for i, call := range runner.outputs {
+		if call.name == "openshell" && strings.Contains(strings.Join(call.args, " "), "/workspace/finished") {
+			finishIndex = i
+		}
+		if call.name == "openshell" && commandHasArg(call, "download") {
+			syncDownloadIndex = i
+		}
+	}
+	if syncDownloadIndex < 0 || finishIndex < syncDownloadIndex {
+		t.Fatalf("finish marker did not follow sync: download=%d finish=%d", syncDownloadIndex, finishIndex)
+	}
+}
+
+func TestFinishRefusesWorking(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	run.Status = StatusWorking
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := statusRunnerFor("running", workingProbe)
+	app.Runner = runner
+	err := app.Finish(context.Background(), run.ID)
+	if err == nil || !strings.Contains(err.Error(), "Working") {
+		t.Fatalf("finish refusal = %v", err)
+	}
+	assertNoSandboxRemoval(t, runner)
+}
+
+func TestFinishMarksStoppedRunCompletedWithoutRestartingIt(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	run.Status = StatusStopped
+	run.StatusDetail = "asleep; resume available"
+	run.Synced = true
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := statusRunnerFor("stopped", "")
+	app.Runner = runner
+	if err := app.Finish(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := app.Store.LoadRun(run.ID)
+	if err != nil || stored.Status != StatusCompleted || stored.StatusDetail != "finished by user" {
+		t.Fatalf("stopped finish = %+v, %v", stored, err)
+	}
+	for _, call := range runner.outputs {
+		if call.name == "openshell" && containsCommand(call.args, "sandbox", "start") {
+			t.Fatalf("finish restarted the sleeping sandbox: %#v", call)
+		}
 	}
 }
 
@@ -329,11 +583,30 @@ func TestStartApprovalPrecedence(t *testing.T) {
 	}
 }
 
-func TestBootstrapKillsAgentSessionWhenAgentExits(t *testing.T) {
-	for _, want := range []string{"/workspace/state/session.sh", "touch /workspace/finished", "tmux kill-session -t agent", "exec sleep infinity", "export LANG=C.UTF-8", "export LC_ALL=C.UTF-8"} {
+func TestBootstrapResumesInsteadOfFinishing(t *testing.T) {
+	for _, want := range []string{
+		"/workspace/state/session.sh initial",
+		"/workspace/state/agent-started",
+		"/workspace/state/agent-entry.sh",
+		"tmux kill-session -t agent",
+		"exec sleep infinity",
+		"export LANG=C.UTF-8",
+		"export LC_ALL=C.UTF-8",
+	} {
 		if !strings.Contains(bootstrapScript, want) {
 			t.Fatalf("bootstrap script missing %q:\n%s", want, bootstrapScript)
 		}
+	}
+	if strings.Contains(bootstrapScript, "touch /workspace/finished") {
+		t.Fatalf("bootstrap must not finish a run when the agent pane dies:\n%s", bootstrapScript)
+	}
+	// remain-on-exit can only be set once the tmux server exists; the first
+	// new-session starts it, so set-option must come after it or every fresh
+	// sandbox dies with "error connecting" under set -eu.
+	optionIndex := strings.Index(bootstrapScript, "tmux set-option -g remain-on-exit on")
+	sessionIndex := strings.Index(bootstrapScript, "tmux new-session")
+	if optionIndex < 0 || sessionIndex < 0 || optionIndex < sessionIndex {
+		t.Fatalf("remain-on-exit must be set after the first new-session:\n%s", bootstrapScript)
 	}
 }
 
@@ -662,5 +935,128 @@ func TestRunRecordsProfileName(t *testing.T) {
 	stored, err := store.LoadRun(run.ID)
 	if err != nil || stored.ProfileName != "mycodex" {
 		t.Fatalf("stored run profile = %q, %v", stored.ProfileName, err)
+	}
+}
+
+func TestFinishSleepingRunStaysCompletedAfterInspect(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	run.Status = StatusStopped
+	run.StatusDetail = "asleep; resume available"
+	run.Synced = true
+	run.Asleep = true
+	run.SyncedSandboxFingerprint = "fingerprint-after-sleep"
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	app.Runner = statusRunnerFor("stopped", "")
+	ctx := context.Background()
+	if err := app.Finish(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	// A stopped sandbox can only report its phase, so the recorded decision has
+	// to survive the inspect that follows every lifecycle command.
+	got, err := app.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCompleted || got.StatusDetail != "finished by user" {
+		t.Fatalf("inspect reverted the finish: %s %q", got.Status, got.StatusDetail)
+	}
+}
+
+func TestFinishedSleepingRunReportsSyncedStateInsteadOfUnknown(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	artifacts := createAgentExport(t, run, t.TempDir())
+	runner := readyLifecycleRunner(t, artifacts)
+	stopped := false
+	base := runner.output
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" {
+			if containsCommand(call.args, "sandbox", "stop") {
+				stopped = true
+			}
+			if containsCommand(call.args, "sandbox", "get") && stopped {
+				return []byte(`{"phase":"stopped"}`), nil
+			}
+		}
+		return base(call)
+	}
+	app.Runner = runner
+	ctx := context.Background()
+	if err := app.Sleep(ctx, run.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Finish(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := app.GetRunWithSyncState(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCompleted {
+		t.Fatalf("status = %s; want completed", got.Status)
+	}
+	if got.SyncState != SyncStateUpToDate {
+		t.Fatalf("sync state = %s; a synced sleeping run must not report %s", got.SyncState, SyncStateUnknown)
+	}
+}
+
+func TestResumeClearsAsleep(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	run.Status = StatusStopped
+	run.StatusDetail = "asleep; resume available"
+	run.Synced = true
+	run.Asleep = true
+	run.SyncedSandboxFingerprint = "fingerprint-after-sleep"
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := newSyncRunner(t, nil)
+	base := runner.output
+	started := false
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name != "openshell" {
+			return base(call)
+		}
+		if containsCommand(call.args, "sandbox", "start") {
+			started = true
+			return nil, nil
+		}
+		if containsCommand(call.args, "sandbox", "get") {
+			if started {
+				return []byte(`{"phase":"running"}`), nil
+			}
+			return []byte(`{"phase":"stopped"}`), nil
+		}
+		return base(call)
+	}
+	app.Runner = runner
+	if err := app.Resume(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := app.Store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Asleep {
+		t.Fatal("resume left the run asleep, so its sync state would never be probed again")
+	}
+}
+
+func TestInspectClearsAsleepWhenSandboxRuns(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	run.Status = StatusStopped
+	run.Asleep = true
+	run.Synced = true
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	app.Runner = statusRunnerFor("running", workingProbe)
+	got, err := app.GetRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Asleep {
+		t.Fatal("a running sandbox must clear the asleep flag")
 	}
 }

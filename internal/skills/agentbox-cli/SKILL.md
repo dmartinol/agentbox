@@ -221,19 +221,24 @@ host, or the agent reports that a domain is blocked.
 6. Never weaken hard isolation, disable Landlock, or bypass the sandbox to make
    a command run.
 
-## Stop and clean up
+## Sleep, resume, finish, and clean up
 
-`stop` is the supported close sequence for an active run: it interrupts the
-agent, waits for it to finish, syncs the sandbox changes into the host
-worktree before the sandbox stops, and keeps the run record, branch, and
-worktree, so work resumes from the synced branch.
+When the agent CLI exits, the run stays resumable: it is `ready` with the
+detail `agent exited (code N); resume available`. End it deliberately.
 
 ```sh
-agentbox agent stop RUN_ID        # interrupt, sync, then stop the sandbox; keeps run, branch, and worktree
-agentbox agent delete RUN_ID      # remove sandbox, worktree, and branch
+agentbox agent sleep RUN_ID          # sync, then stop the sandbox; keeps run, worktree, and transcript
+agentbox agent sleep --force RUN_ID  # interrupt a working agent, then sleep
+agentbox agent resume RUN_ID         # start the sandbox / continue the last conversation, then attach
+agentbox agent resume --no-attach RUN_ID
+agentbox agent finish RUN_ID         # sync, end the session, record Completed; cannot be resumed
+agentbox agent delete RUN_ID         # remove sandbox, worktree, and branch
 ```
 
-Never `delete --discard` a run whose changes were not reviewed.
+A sync failure leaves the sandbox running, so nothing is lost. `finish` refuses
+while the agent is `working`; sleep with `--force` first. `agentbox agent stop`
+is the deprecated alias for `sleep`. Never `delete --discard` a run whose
+changes were not reviewed.
 
 ## Report back to the user
 

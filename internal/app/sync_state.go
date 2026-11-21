@@ -269,6 +269,15 @@ func (a *App) deriveSyncState(ctx context.Context, r Run, fresh bool) SyncState 
 	if r.Sandbox == "" || r.Worktree == "" {
 		return SyncStateUnknown
 	}
+	if r.Asleep && r.SyncedSandboxFingerprint != "" {
+		// A sandbox AgentBox put to sleep cannot produce new work, so probing
+		// it only turns a successful sleep into a false "unknown". Host drift
+		// is still reported, and Resume clears Asleep before the agent starts.
+		if hostFingerprint, err := a.WorktreeFingerprint(ctx, r); err == nil && r.Fingerprint != "" && hostFingerprint != r.Fingerprint {
+			return SyncStateBlocked
+		}
+		return SyncStateUpToDate
+	}
 	snapshot, err := a.syncSnapshotForRun(ctx, r, fresh)
 	if err != nil {
 		return SyncStateUnknown

@@ -76,8 +76,16 @@ func (s RunStatus) IsAttachable() bool {
 	}
 }
 
-// IsStoppable reports whether Stop applies to the run.
-func (s RunStatus) IsStoppable() bool { return s.IsAttachable() }
+// IsSleepable reports whether Sleep applies without --force. A Working run
+// needs an explicit interrupt first.
+func (s RunStatus) IsSleepable() bool {
+	switch s {
+	case StatusReady, StatusWaiting:
+		return true
+	default:
+		return false
+	}
+}
 
 // NormalizeRunStatus maps a persisted value, including legacy values, onto the
 // documented status set. Unknown values are reported as Unreachable with a
@@ -165,14 +173,19 @@ func classifyRunStatus(e runEvidence, now time.Time) (RunStatus, string) {
 	case "stopped", "exited":
 		return StatusStopped, "sandbox stopped"
 	}
-	if !e.Session && !e.FinishedMarker {
-		return StatusCreating, ""
-	}
 	if e.Phase == "completed" || e.FinishedMarker {
 		if e.ExitCode != nil {
 			return StatusCompleted, fmt.Sprintf("exit code %d", *e.ExitCode)
 		}
 		return StatusCompleted, "agent exited"
+	}
+	// An agent CLI exit is resumable. The exit marker is removed when the
+	// agent starts again, so it is authoritative while it exists.
+	if e.ExitCode != nil {
+		return StatusReady, fmt.Sprintf("agent exited (code %d); resume available", *e.ExitCode)
+	}
+	if !e.Session {
+		return StatusCreating, ""
 	}
 	if e.agentAlive() && e.PlanPrompt {
 		return StatusWaiting, "plan ready for review"

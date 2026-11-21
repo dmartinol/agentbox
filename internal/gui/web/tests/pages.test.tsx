@@ -991,21 +991,73 @@ describe('fleet actions', () => {
     expect(await screen.findByText('Sync requested for active-run')).toBeInTheDocument();
   });
 
-  it('marks a stop in flight until it settles', async () => {
-    let resolveStop!: (value: unknown) => void;
+  it('marks a sleep in flight until it settles', async () => {
+    let resolveSleep!: (value: unknown) => void;
+    const readyRuns = runs.map((run) => run.id === 'run-active' ? { ...run, status: 'ready' as const, status_detail: '' } : run);
     mockRoutes({
       ...defaultRoutes(),
-      'POST /api/runs/run-active/stop': () => new Promise((resolve) => { resolveStop = resolve; })
+      'GET /api/overview': { ...overview, runs: readyRuns },
+      'GET /api/runs': readyRuns,
+      'POST /api/runs/run-active/sleep': () => new Promise((resolve) => { resolveSleep = resolve; })
     });
     const user = userEvent.setup();
     render(<App />);
     const row = (await screen.findByText('active-run')).closest('tr');
     if (!row) throw new Error('agent row missing');
     await user.click(row);
-    await user.click(within(await screen.findByRole('complementary', { name: 'Agent details' })).getByRole('button', { name: 'Stop' }));
-    expect(within(row).getByText('Stopping', { selector: 'span' })).toBeInTheDocument();
-    resolveStop(runs[0]);
-    await waitFor(() => expect(within(row).getByText('Working')).toBeInTheDocument());
+    await user.click(within(await screen.findByRole('complementary', { name: 'Agent details' })).getByRole('button', { name: 'Sleep' }));
+    expect(within(row).getByText('Sleeping', { selector: 'span' })).toBeInTheDocument();
+    resolveSleep(readyRuns[0]);
+    await waitFor(() => expect(screen.getByText('Sleep requested for active-run')).toBeInTheDocument());
+  });
+
+  it('explains why lifecycle actions are disabled while the agent works', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const row = (await screen.findByText('active-run')).closest('tr');
+    if (!row) throw new Error('agent row missing');
+    await user.click(row);
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    expect(within(panel).getByRole('button', { name: 'Sleep' })).toBeDisabled();
+    expect(within(panel).getByRole('button', { name: 'Finish' })).toBeDisabled();
+    expect(within(panel).getByRole('button', { name: 'Resume' })).toBeDisabled();
+    expect(within(panel).getByText(/Sleep and Finish are unavailable while the agent works/)).toBeInTheDocument();
+  });
+
+  it('offers Resume for an exited agent without counting it as Needs You', async () => {
+    const exitedRuns = runs.map((run) => run.id === 'run-active'
+      ? { ...run, status: 'ready' as const, exited: true, status_detail: 'agent exited (code 0); resume available' }
+      : run);
+    mockRoutes({ ...defaultRoutes(), 'GET /api/overview': { ...overview, runs: exitedRuns }, 'GET /api/runs': exitedRuns });
+    const user = userEvent.setup();
+    render(<App />);
+    expect(screen.queryByText(/Needs You/)).toBeNull();
+    const row = (await screen.findByText('active-run')).closest('tr');
+    if (!row) throw new Error('agent row missing');
+    await user.click(row);
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    expect(within(panel).getByText('agent exited (code 0); resume available')).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Resume' })).toBeEnabled();
+    expect(within(panel).getByText(/Resume continues the last conversation/)).toBeInTheDocument();
+  });
+
+  it('offers Resume and Finish for a sleeping run', async () => {
+    const idle = runs.find((run) => run.id === 'run-idle');
+    if (!idle) throw new Error('idle fixture missing');
+    mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/runs/run-idle/finish': { ...idle, status: 'completed' }
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    const row = (await screen.findByText('idle-run')).closest('tr');
+    if (!row) throw new Error('agent row missing');
+    await user.click(row);
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    expect(within(panel).getByRole('button', { name: 'Resume' })).toBeEnabled();
+    expect(within(panel).getByText(/Resume starts the sandbox and continues the last conversation/)).toBeInTheDocument();
+    await user.click(within(panel).getByRole('button', { name: 'Finish' }));
+    expect(await screen.findByText('Finish requested for idle-run')).toBeInTheDocument();
   });
 
   it('marks a new agent start in flight', async () => {

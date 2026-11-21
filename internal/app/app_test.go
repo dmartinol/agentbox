@@ -124,7 +124,7 @@ func TestDirtySourceSnapshot(t *testing.T) {
 
 func TestAgentScriptPromptAndPermission(t *testing.T) {
 	p := Profile{Version: 1, Name: "dev", Agent: "codex", Mode: "gateway", Model: "unit-model", Provider: "unit-provider", Policy: "/tmp/p", Approval: "prompted", BaseURL: "https://models.example.test/v1", APIKeyEnv: "UNIT_MODEL_KEY"}
-	s, err := agentScript(p, "say 'ok'")
+	s, err := agentScript(p, "say 'ok'", launchInitial)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestAgentScriptPromptAndPermission(t *testing.T) {
 		t.Fatal("prompted mode bypasses approval")
 	}
 	p.Args = []string{"--yolo"}
-	if _, err := agentScript(p, ""); err == nil {
+	if _, err := agentScript(p, "", launchInitial); err == nil {
 		t.Fatal("accepted bypass flag in prompted mode")
 	}
 }

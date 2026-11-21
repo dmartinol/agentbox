@@ -68,55 +68,52 @@ mv /workspace/state/activity.json.tmp /workspace/state/activity.json
 const sessionScript = `#!/bin/sh
 set -u
 cd /workspace/project
+mode=${1:-initial}
 activity() {
   /bin/sh /workspace/state/activity.sh "$1" "${2:-}" 2>/dev/null || true
 }
-/bin/sh /workspace/state/agent.sh
+case "$mode" in
+  resume) /bin/sh /workspace/state/resume-agent.sh ;;
+  fresh) /bin/sh /workspace/state/fresh-agent.sh ;;
+  *) /bin/sh /workspace/state/agent.sh ;;
+esac
 status=$?
-while :; do
-  echo
-  echo "Agent session ended."
-  activity waiting "agent exited; choose idle or finish"
-  printf "Keep this run idle for reattach? [y]es/[f]inish: "
-  if ! IFS= read -r answer; then
-    answer=f
-  fi
-  case "$answer" in
-    y|Y|yes|YES)
-      touch /workspace/idle
-      activity idle "kept idle for reattach"
-      echo
-      echo "Run kept idle."
-      echo "Detach: Ctrl-b d. Exiting this shell keeps the run idle."
-      while :; do
-        /bin/sh
-        echo
-        echo "Idle shell ended. The run remains available for reattach."
-        activity waiting "idle shell ended; choose idle or finish"
-        printf "Keep this run idle for reattach? [y]es/[f]inish: "
-        if ! IFS= read -r answer; then
-          answer=f
-        fi
-        case "$answer" in
-          y|Y|yes|YES) continue ;;
-          f|F|finish|FINISH|n|N|no|NO) break ;;
-          *) echo "Enter y to keep this run idle or f to finish." ;;
-        esac
-      done
-      rm -f /workspace/idle
-      ;;
-    f|F|finish|FINISH|n|N|no|NO)
-      break
-      ;;
-    *)
-      echo "Enter y to keep this run idle or f to finish."
-      ;;
-  esac
-done
-activity done "session finished"
-touch /workspace/finished
-exit "$status"
+printf '%s' "$status" > /workspace/exit-code
+activity idle "agent exited (code $status); resume available"
+echo
+echo "Agent session ended (exit $status)."
+echo "The run stays resumable: use 'agentbox agent resume <id>' or the agent details panel."
+echo "Detach: Ctrl-b d. Exiting this shell keeps the run resumable."
+exec /bin/sh
 `
+
+// agentEntryScript decides how a sandbox relaunch continues the conversation.
+// The harness session stores live under /workspace/state, which survives a
+// stopped or restarted sandbox, so a missing store means the continue command
+// would fail and a fresh interactive session is the honest fallback.
+func agentEntryScript(agent string) string {
+	check := "false"
+	switch agent {
+	case "codex":
+		check = "[ -d /workspace/state/home/.codex/sessions ]"
+	case "claude":
+		check = "[ -d /workspace/state/home/.claude/projects ]"
+	case "opencode":
+		check = "[ -d /workspace/state/data/opencode/storage ] || [ -d /workspace/state/home/.local/share/opencode/storage ]"
+	}
+	return `#!/bin/sh
+# Continue the previous conversation when the harness kept its session store.
+# Drop the exit marker first: this entry point only runs when the agent is
+# about to start again.
+rm -f /workspace/exit-code /workspace/state/resume-fallback
+if ` + check + `; then
+  exec /bin/sh /workspace/state/session.sh resume
+fi
+printf 'context unavailable\n' > /workspace/state/resume-fallback
+echo "Previous conversation not found; starting a fresh session in the same worktree."
+exec /bin/sh /workspace/state/session.sh fresh
+`
+}
 
 // activityHook maps a harness event to an explicit activity state.
 type activityHook struct {
@@ -255,23 +252,51 @@ func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string,
 	if err := deliverSkills(dir, skills); err != nil {
 		return "", err
 	}
-	script, err := agentScript(p, prompt)
-	if err != nil {
-		return "", err
+	scripts := []struct {
+		name   string
+		prompt string
+		mode   agentLaunchMode
+	}{
+		{name: "agent.sh", prompt: prompt, mode: launchInitial},
+		{name: "fresh-agent.sh", mode: launchFresh},
+		{name: "resume-agent.sh", mode: launchResume},
 	}
-	if err := os.WriteFile(filepath.Join(dir, "agent.sh"), []byte(script), 0700); err != nil {
-		return "", err
+	for _, spec := range scripts {
+		script, err := agentScript(p, spec.prompt, spec.mode)
+		if err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(filepath.Join(dir, spec.name), []byte(script), 0700); err != nil {
+			return "", err
+		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, "session.sh"), []byte(sessionScript), 0700); err != nil {
-		return "", err
+	generated := map[string]string{
+		"session.sh":     sessionScript,
+		"agent-entry.sh": agentEntryScript(p.Agent),
+		"activity.sh":    activityScript,
 	}
-	if err := os.WriteFile(filepath.Join(dir, "activity.sh"), []byte(activityScript), 0700); err != nil {
-		return "", err
+	for name, body := range generated {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0700); err != nil {
+			return "", err
+		}
 	}
 	return dir, nil
 }
 
-func agentScript(p Profile, prompt string) (string, error) {
+// agentLaunchMode selects how the generated launcher starts the harness.
+type agentLaunchMode int
+
+const (
+	// launchInitial starts the task prompt, or an interactive session when the
+	// run was started without one.
+	launchInitial agentLaunchMode = iota
+	// launchResume continues the most recent conversation.
+	launchResume
+	// launchFresh starts an interactive session without the original prompt.
+	launchFresh
+)
+
+func agentScript(p Profile, prompt string, mode agentLaunchMode) (string, error) {
 	if err := p.Validate(); err != nil {
 		return "", err
 	}
@@ -318,26 +343,12 @@ func agentScript(p Profile, prompt string) (string, error) {
 		}
 		args = append(args, arg)
 	}
-	if prompt != "" {
-		if p.Approval == "unattended" {
-			switch p.Agent {
-			case "codex":
-				args = append([]string{"codex", "--no-daemon", "exec"}, args[2:]...)
-				args = append(args, prompt)
-			case "claude":
-				args = append(args, "-p", prompt)
-			case "opencode":
-				args = append([]string{"opencode", "run"}, args[1:]...)
-				args = append(args, prompt)
-			}
-		} else {
-			switch p.Agent {
-			case "codex", "claude":
-				args = append(args, prompt)
-			case "opencode":
-				args = append([]string{"opencode", "mini"}, args[1:]...)
-				args = append(args, "--prompt", prompt)
-			}
+	switch mode {
+	case launchResume:
+		args = continueArgs(p.Agent, args)
+	case launchInitial:
+		if prompt != "" {
+			args = promptArgs(p, args, prompt)
 		}
 	}
 	var b strings.Builder
@@ -371,6 +382,43 @@ func agentScript(p Profile, prompt string) (string, error) {
 	}
 	b.WriteByte('\n')
 	return b.String(), nil
+}
+
+// continueArgs appends the harness-specific "continue the last conversation"
+// invocation. The flags already collected in args keep the run's profile,
+// model, approval, and gateway configuration.
+func continueArgs(agent string, args []string) []string {
+	switch agent {
+	case "codex":
+		return append([]string{args[0], "resume", "--last"}, args[1:]...)
+	case "claude":
+		return append([]string{args[0], "--continue"}, args[1:]...)
+	case "opencode":
+		return append([]string{args[0], "--continue"}, args[1:]...)
+	default:
+		return args
+	}
+}
+
+func promptArgs(p Profile, args []string, prompt string) []string {
+	if p.Approval == "unattended" {
+		switch p.Agent {
+		case "codex":
+			return append(append([]string{"codex", "--no-daemon", "exec"}, args[2:]...), prompt)
+		case "claude":
+			return append(args, "-p", prompt)
+		case "opencode":
+			return append(append([]string{"opencode", "run"}, args[1:]...), prompt)
+		}
+		return args
+	}
+	switch p.Agent {
+	case "codex", "claude":
+		return append(args, prompt)
+	case "opencode":
+		return append(append([]string{"opencode", "mini"}, args[1:]...), "--prompt", prompt)
+	}
+	return args
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }

@@ -114,7 +114,7 @@ func TestAgentScriptApprovalModesAndArgumentGuards(t *testing.T) {
 	for _, agent := range []string{"claude", "codex", "opencode"} {
 		t.Run(agent, func(t *testing.T) {
 			prompted := testProfile(agent, "standard", "prompted")
-			script, err := agentScript(prompted, "do work")
+			script, err := agentScript(prompted, "do work", launchInitial)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -124,11 +124,11 @@ func TestAgentScriptApprovalModesAndArgumentGuards(t *testing.T) {
 				}
 			}
 			prompted.Args = []string{"--yolo"}
-			if _, err := agentScript(prompted, ""); err == nil {
+			if _, err := agentScript(prompted, "", launchInitial); err == nil {
 				t.Fatal("prompted mode accepted a bypass argument")
 			}
 			unattended := testProfile(agent, "standard", "unattended")
-			script, err = agentScript(unattended, "do work")
+			script, err = agentScript(unattended, "do work", launchInitial)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -143,7 +143,7 @@ func TestAgentScriptApprovalModesAndArgumentGuards(t *testing.T) {
 func TestCodexStandardScriptUsesOpenAIProviderKey(t *testing.T) {
 	profile := testProfile("codex", "standard", "prompted")
 	profile.APIKeyEnv = "OPENAI_API_KEY"
-	script, err := agentScript(profile, "do work")
+	script, err := agentScript(profile, "do work", launchInitial)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestCodexStandardScriptUsesOpenAIProviderKey(t *testing.T) {
 }
 
 func TestCodexGatewayScriptDisablesNestedSandbox(t *testing.T) {
-	script, err := agentScript(testProfile("codex", "gateway", "prompted"), "do work")
+	script, err := agentScript(testProfile("codex", "gateway", "prompted"), "do work", launchInitial)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestCodexGatewayScriptDisablesNestedSandbox(t *testing.T) {
 }
 
 func TestAgentScriptUsesUTF8Locale(t *testing.T) {
-	script, err := agentScript(testProfile("codex", "standard", "prompted"), "")
+	script, err := agentScript(testProfile("codex", "standard", "prompted"), "", launchInitial)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestCodexStandardScriptWorksWithoutModel(t *testing.T) {
 	profile := testProfile("codex", "standard", "prompted")
 	profile.Model = ""
 	profile.APIKeyEnv = "OPENAI_API_KEY"
-	script, err := agentScript(profile, "")
+	script, err := agentScript(profile, "", launchInitial)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestCodexStandardScriptWorksWithoutModel(t *testing.T) {
 }
 
 func TestOpenCodeGatewayScriptUsesConfigModel(t *testing.T) {
-	script, err := agentScript(testProfile("opencode", "gateway", "unattended"), "do work")
+	script, err := agentScript(testProfile("opencode", "gateway", "unattended"), "do work", launchInitial)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,20 +280,23 @@ func TestProviderSetupAllowsCurrentAgentBinaryLayouts(t *testing.T) {
 	}
 }
 
-func TestSessionScriptOffersIdleReattach(t *testing.T) {
+func TestSessionScriptKeepsAnExitedAgentResumable(t *testing.T) {
 	for _, want := range []string{
-		"Keep this run idle for reattach?",
-		"touch /workspace/idle",
-		"Exiting this shell keeps the run idle",
-		"The run remains available for reattach",
-		"Detach: Ctrl-b d",
-		"touch /workspace/finished",
-		"activity waiting",
+		"/workspace/state/agent.sh",
+		"/workspace/state/resume-agent.sh",
+		"/workspace/state/fresh-agent.sh",
+		"printf '%s' \"$status\" > /workspace/exit-code",
 		"activity idle",
-		"activity done",
+		"exec /bin/sh",
+		"agentbox agent resume",
 	} {
 		if !strings.Contains(sessionScript, want) {
 			t.Fatalf("session script missing %q:\n%s", want, sessionScript)
+		}
+	}
+	for _, unwanted := range []string{"Keep this run idle for reattach?", "/workspace/idle", "touch /workspace/finished", "activity waiting", "activity done"} {
+		if strings.Contains(sessionScript, unwanted) {
+			t.Fatalf("session script still contains %q:\n%s", unwanted, sessionScript)
 		}
 	}
 }
@@ -544,5 +547,60 @@ func TestPrepareAgentNeverWritesGitCredentials(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestAgentScriptResumeContinuesTheLastConversation(t *testing.T) {
+	for _, tc := range []struct {
+		agent string
+		want  string
+	}{
+		{agent: "codex", want: "'resume' '--last'"},
+		{agent: "claude", want: "--continue"},
+		{agent: "opencode", want: "--continue"},
+	} {
+		t.Run(tc.agent, func(t *testing.T) {
+			script, err := agentScript(testProfile(tc.agent, "standard", "prompted"), "", launchResume)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(script, tc.want) {
+				t.Fatalf("resume script missing %q:\n%s", tc.want, script)
+			}
+			if !strings.Contains(script, "exec") {
+				t.Fatalf("resume script does not exec the agent:\n%s", script)
+			}
+		})
+	}
+}
+
+func TestAgentScriptResumeKeepsProfileFlags(t *testing.T) {
+	profile := testProfile("codex", "gateway", "unattended")
+	script, err := agentScript(profile, "", launchResume)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"'--profile'", "'gateway'", "'--dangerously-bypass-approvals-and-sandbox'", "'resume' '--last'"} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("resume script missing %q:\n%s", want, script)
+		}
+	}
+}
+
+func TestAgentEntryScriptUsesHarnessSessionStore(t *testing.T) {
+	for _, tc := range []struct {
+		agent string
+		store string
+	}{
+		{agent: "codex", store: "/workspace/state/home/.codex/sessions"},
+		{agent: "claude", store: "/workspace/state/home/.claude/projects"},
+		{agent: "opencode", store: "/workspace/state/data/opencode/storage"},
+	} {
+		script := agentEntryScript(tc.agent)
+		for _, want := range []string{tc.store, "session.sh resume", "session.sh fresh", "rm -f /workspace/exit-code", "resume-fallback"} {
+			if !strings.Contains(script, want) {
+				t.Fatalf("%s entry script missing %q:\n%s", tc.agent, want, script)
+			}
+		}
 	}
 }
