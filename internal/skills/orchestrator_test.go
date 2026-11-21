@@ -557,6 +557,83 @@ func TestOrchestratorSkillTemplates(t *testing.T) {
 		"3. the template shipped with this skill.",
 		"Never edit a repository's own templates",
 	)
+	wantAll(t, body,
+		"### Prose formatting in posted artifacts",
+		"GitHub renders every newline inside a paragraph or list item as a line break",
+		"issue, pull request, comment, plan, verify, and verdict bodies do not",
+	)
+}
+
+// artifactTemplateNames lists the templates that install beside SKILL.md.
+var artifactTemplateNames = []string{
+	"issue.md", "plan.md", "pr.md", "review-task.md", "state.md", "verdict.md", "verify-task.md",
+}
+
+// markdownBlockStart matches a line that opens a new markdown block, so the
+// line before it is never a soft wrap.
+var markdownBlockStart = regexp.MustCompile("^\\s*(?:[-*+]\\s|\\d+\\.\\s|#{1,6}\\s|\\||```|>|<)")
+
+// proseLine is one hard-wrapped line in a template.
+type proseLine struct {
+	number int
+	text   string
+}
+
+// hardWrappedProseLines reports lines that a renderer would turn into a line
+// break in the middle of a sentence. GitHub renders a newline inside a
+// paragraph or list item as a line break, so prose must stay on one source
+// line; tables, headings, fenced blocks, HTML comments, and explicit hard
+// breaks are exempt.
+func hardWrappedProseLines(body string) []proseLine {
+	lines := strings.Split(body, "\n")
+	var found []proseLine
+	inFence, inComment := false, false
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		if strings.Contains(trimmed, "<!--") {
+			inComment = true
+		}
+		if inComment {
+			if strings.Contains(trimmed, "-->") {
+				inComment = false
+			}
+			continue
+		}
+		if trimmed == "" || index+1 >= len(lines) {
+			continue
+		}
+		next := lines[index+1]
+		if strings.TrimSpace(next) == "" || markdownBlockStart.MatchString(next) {
+			continue
+		}
+		if strings.HasSuffix(line, "  ") {
+			continue
+		}
+		found = append(found, proseLine{number: index + 1, text: line})
+	}
+	return found
+}
+
+// TestOrchestratorArtifactTemplatesDoNotHardWrapProse keeps posted artifacts
+// readable: a template wrapped at an editor column produces a ragged body with
+// sentences broken mid-line in the browser.
+func TestOrchestratorArtifactTemplatesDoNotHardWrapProse(t *testing.T) {
+	for _, name := range artifactTemplateNames {
+		raw, err := embedded.ReadFile("agentbox-orchestrator/templates/" + name)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for _, line := range hardWrappedProseLines(string(raw)) {
+			t.Errorf("%s:%d is hard-wrapped prose, keep the paragraph on one line: %q", name, line.number, line.text)
+		}
+	}
 }
 
 // TestOrchestratorSkillSeverityBar pins the severity-to-action mapping that

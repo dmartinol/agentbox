@@ -67,13 +67,11 @@ before → after, data flow, or derivation (5 to 10 lines)
 
 ## Acceptance criteria
 
-Group by surface; every box must be observable and must appear in the gate
-list below.
+Group by surface; every box must be observable and must appear in the gate list below.
 
 ### Surface
 
-- [ ] Observable result, including the empty, loading, and error states when
-  the surface has them.
+- [ ] Observable result, including the empty, loading, and error states when the surface has them.
 - [ ] Observable result.
 
 ## Test plan
@@ -92,15 +90,12 @@ list below.
 
 ## Out of scope
 
-- Adjacent work this issue deliberately does not include, with the issue that
-  owns it when one exists.
+- Adjacent work this issue deliberately does not include, with the issue that owns it when one exists.
 
 ## Related
 
 - `#<issue>` — why it matters here.
-- `AGENTS.md` — the sections that constrain this work: Scope rules,
-  Architecture boundaries, GUI expectations, Layout and accessibility
-  checklist, Credential and configuration rules.
+- `AGENTS.md` — the sections that constrain this work: Scope rules, Architecture boundaries, GUI expectations, Layout and accessibility checklist, Credential and configuration rules.
 - `docs/file.md` — what must be updated with the code.
 
 ---

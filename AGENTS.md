@@ -165,6 +165,9 @@ make race
   `internal/skills/agentbox-orchestrator/templates/`. Keep their scan layer
   short enough to read without opening the diff, and keep the provenance
   marker, gate results, and `Closes #<issue>` line intact.
+- Do not hard-wrap prose in a pull request body, issue body, or comment.
+  GitHub renders each newline as a line break, so keep a paragraph, bullet, or
+  table cell on one source line and let the browser wrap it.
 
 ## Review checklist
 

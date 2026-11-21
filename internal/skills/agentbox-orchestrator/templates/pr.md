@@ -61,8 +61,7 @@ Results at the reviewed commit, not at the implementer's last local edit.
 | Vet | `make vet` | pass | `sha` |
 | Build | `make build` | pass | `sha` |
 
-**Independent checks** — the orchestrator fills these in; `pending` until the
-stage reports.
+**Independent checks** — the orchestrator fills these in; `pending` until the stage reports.
 
 | Stage | Role | Result | Evidence |
 | --- | --- | --- | --- |
@@ -84,8 +83,7 @@ stage reports.
 
 ## Risks
 
-- **Risk** — when it shows up, and what the reviewer or user would see.
-  Rollback: revert commit / revert plus manifest edit / none.
+- **Risk** — when it shows up, and what the reviewer or user would see. Rollback: revert commit / revert plus manifest edit / none.
 
 ## Follow-ups
 
@@ -93,10 +91,7 @@ stage reports.
 
 ## Provenance
 
-This body describes the implementation stage; it may be written by that worker
-or by the orchestrator on its behalf, and it does not imply a human author.
-Template: `pr.md` beside the installed `SKILL.md`, or the repository's
-`.github/orchestrator/pr.md` override when present.
+This body describes the implementation stage; it may be written by that worker or by the orchestrator on its behalf, and it does not imply a human author. Template: `pr.md` beside the installed `SKILL.md`, or the repository's `.github/orchestrator/pr.md` override when present.
 
 ---
 

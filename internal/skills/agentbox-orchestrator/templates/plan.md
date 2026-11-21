@@ -25,8 +25,7 @@ it and never rewrites the plan. Repository contract: AGENTS.md.
 
 ## Acceptance criteria
 
-- [ ] measurable criterion, phrased so a reviewer can decide it against
-  evidence at a commit
+- [ ] measurable criterion, phrased so a reviewer can decide it against evidence at a commit
 - [ ] the test or observed behavior that proves it
 
 ## Implementation slices
@@ -36,9 +35,7 @@ it and never rewrites the plan. Repository contract: AGENTS.md.
 
 ## Gate list
 
-Use the repository's Makefile targets rather than the raw tool invocation.
-A raw `npm` command inside the sandbox can fail with `EACCES` on the cache;
-`make test` and `make build` already wrap it with a writable cache.
+Use the repository's Makefile targets rather than the raw tool invocation. A raw `npm` command inside the sandbox can fail with `EACCES` on the cache; `make test` and `make build` already wrap it with a writable cache.
 
 | Gate | Command | Why it must pass |
 | --- | --- | --- |
@@ -47,10 +44,7 @@ A raw `npm` command inside the sandbox can fail with `EACCES` on the cache;
 | Vet | `make vet` | static checks |
 | Build | `make build` | the shipped binary compiles |
 
-Add `make race`, `make web-test`, or `make web-build` when the change touches
-provider, profile, policy, image, run lifecycle, attach, or GUI source. When a
-target does not exist, name the closest Makefile target and only then the raw
-command.
+Add `make race`, `make web-test`, or `make web-build` when the change touches provider, profile, policy, image, run lifecycle, attach, or GUI source. When a target does not exist, name the closest Makefile target and only then the raw command.
 
 ## Task spec for the implementer
 
@@ -62,8 +56,7 @@ Self-contained: the implementer never sees this conversation.
 - **Tests to add or update:** `TestName` — the behavior it pins.
 - **Gates to run:** the gate list above, on the final commit.
 - **Out of scope:** the thing this plan deliberately does not change.
-- **Commit identity:** `AgentBox <agentbox@local.invalid>`; the orchestrator
-  preserves authorship on push.
+- **Commit identity:** `AgentBox <agentbox@local.invalid>`; the orchestrator preserves authorship on push.
 
 ## Risks
 
@@ -77,8 +70,7 @@ Self-contained: the implementer never sees this conversation.
 
 ## Provenance
 
-The planner returns this artifact to the orchestrator. The orchestrator posts
-it with provenance; the planner never posts to the tracker.
+The planner returns this artifact to the orchestrator. The orchestrator posts it with provenance; the planner never posts to the tracker.
 
 ---
 
