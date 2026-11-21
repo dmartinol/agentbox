@@ -29,7 +29,11 @@ func (a *App) RunDenials(ctx context.Context, runID string) ([]PolicyDenial, err
 	if err != nil {
 		return []PolicyDenial{}, fmt.Errorf("sandbox policy log unavailable: %w", err)
 	}
-	return ParsePolicyDenials(out), nil
+	agentBinary := ""
+	if run.PolicyProvenance != nil {
+		agentBinary = run.PolicyProvenance.AgentBinary
+	}
+	return ParsePolicyDenialsForRun(out, agentBinary), nil
 }
 
 // PreviewDenial validates one exact denial entry and returns the policy and
@@ -175,7 +179,7 @@ func (a *App) findDenial(ctx context.Context, runID string, rule RepoHostRule) (
 		return PolicyDenial{}, err
 	}
 	for _, denial := range denials {
-		if strings.EqualFold(denial.Host, rule.Host) && denial.Port == rule.Port && denial.Binary == rule.Binaries[0] {
+		if strings.EqualFold(denial.Host, rule.Host) && denial.Port == rule.Port && (denial.Binary == rule.Binaries[0] || denial.ObservedBinary == rule.Binaries[0]) {
 			return denial, nil
 		}
 	}

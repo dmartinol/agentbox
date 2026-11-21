@@ -158,7 +158,25 @@ export const overview: Overview = {
     }
   ],
   runs,
-  projects: [{ version: 1, name: 'demo', root: '/repo', worktree: true, manifest: true, repo: 'github.com/example/demo' }],
+  projects: [{
+    version: 1,
+    name: 'demo',
+    root: '/repo',
+    worktree: true,
+    manifest: true,
+    repo: 'github.com/example/demo',
+    repo_status: {
+      manifest_present: true,
+      manifest_path: '/repo/.agentbox/config.yaml',
+      manifest_digest: 'sha256:manifest-a',
+      fragment_status: 'current',
+      worker_images: [
+        { agent: 'codex', status: 'current', reference: 'localhost/openshell:repo-github-com-example-demo-codex-22222222', manifest_digest: 'sha256:manifest-a' },
+        { agent: 'claude', status: 'missing' },
+        { agent: 'opencode', status: 'stale', reference: 'localhost/openshell:repo-github-com-example-demo-opencode-11111111', manifest_digest: 'sha256:manifest-b' }
+      ]
+    }
+  }],
   profiles: [{ version: 1, name: 'codex-default', agent: 'codex', image: 'localhost/openshell:codex-1.0.0-r3', mode: 'gateway', model: 'model-x', provider: 'model-gateway', base_url: 'https://models.example.test/v1', api_key_env: 'UNIT_MODEL_KEY', policy: '/policies/default.yaml', approval: 'unattended' }],
   images: [
     { reference: 'localhost/openshell:opencode-2.0.0-r3', agent: 'opencode', version: '2.0.0', recipe: 3, os: 'linux', arch: 'arm64' },

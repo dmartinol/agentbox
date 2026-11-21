@@ -414,9 +414,14 @@ The GUI reads the same record. **Setup → Images** derives its
 `FOUNDATIONAL`/`PROJECT <name>` badges from the worker and repository labels
 and exposes the manifest digest and base reference. **New agent** matches
 repository images by the project's normalized origin remote and the selected
-profile's agent; its latest-image default sends no explicit image override so
-run start still records `image_source: repo`, while **Use profile image**
-sends the forced-profile opt-out. Run details render the recorded source,
+profile's agent. Its default is **Current project image** — the `repo_status`
+worker image whose tag matches the current manifest — and it sends no explicit
+image override, so run start still records `image_source: repo` and resolves
+the same artifact. Any other repository image is labeled as an override that
+does not retain repository provenance, and **Use profile image** sends the
+forced-profile opt-out. Overrides cannot start with a blank model, and the
+resolved-configuration disclosure shows the effective image, model, and
+approval values the start request sends. Run details render the recorded source,
 base, repository, manifest digest, and warnings, and **View policy** shows the
 run policy file with its repository-fragment path and digest.
 
@@ -495,9 +500,14 @@ that exact tuple. The CLI requires `--binary` with `--allow-host`; the GUI
 sends back the tuple from the surfaced denial, and the backend verifies that
 it still appears in `openshell logs <sandbox> --source sandbox`.
 
-A denial becomes one exact endpoint and one exact binary path. Globs,
-directory paths, invalid ports, and secret-like values are rejected by the
-same manifest validation used for `.agentbox/config.yaml`. When a rule for
+A denial becomes one exact endpoint and one exact binary path. When OpenShell
+reports a vendored harness path, such as a Codex child process running from
+`vendor/<target>/codex`, AgentBox maps it to the canonical binary recorded in
+the run's `policy_provenance.agent_binary` before validation, provided the
+basenames match. The denial keeps the logged path in `observedBinary` so the
+drawer and the Add-host dialog show what the sandbox reported. Globs, directory
+paths, invalid ports, and secret-like values are still rejected by the same
+manifest validation used for `.agentbox/config.yaml`. When a rule for
 the same host and port already exists, the missing binary is appended instead
 of creating a duplicate host/port entry.
 
@@ -858,6 +868,11 @@ Precedence, highest first:
 8. idle marker or a shell in the tmux foreground → Ready;
 9. agent in the tmux foreground → Working;
 10. inspect error or unparsable response → Unreachable.
+
+A user-issued Finish records `status_detail: "finished by user"`. The exit
+marker alone cannot distinguish that from an agent exit, so Finish does not
+replace the reason with an exit code, and a Completed run keeps the reason
+through re-inspection.
 
 Log silence never produces Waiting for input. Only an explicit signal or the
 session prompt does. OpenCode has no hooks, so a run counts as Working while

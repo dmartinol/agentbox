@@ -27,6 +27,9 @@ const meta: Record<string, StatusMeta> = {
   unreachable: { tone: 'warning', label: 'Unreachable', glyph: <TriangleAlert className={glyphClass} /> },
   stopped: { tone: 'neutral', label: 'Stopped', glyph: <CircleStop className={cn(glyphClass, 'text-muted')} /> },
   completed: { tone: 'success', label: 'Completed', glyph: <CircleCheck className={glyphClass} /> },
+  // An exited agent is resumable, but it is not "Ready" to take a new turn
+  // until Resume relaunches it.
+  exited: { tone: 'warning', label: 'Exited', glyph: <CircleStop className={glyphClass} /> },
   // In-flight UI states, never persisted on a run.
   sleeping: { tone: 'warning', label: 'Sleeping', glyph: <Loader2 className={cn(glyphClass, 'animate-spin')} /> },
   resuming: { tone: 'info', label: 'Resuming', glyph: <Loader2 className={cn(glyphClass, 'animate-spin')} /> },
@@ -46,6 +49,10 @@ export const waitingStatuses = new Set<RunStatus>(['waiting']);
 
 export function isActiveRun(status: string): boolean {
   return activeStatuses.has(status.toLowerCase() as RunStatus);
+}
+
+export function displayStatus(status: string, exited?: boolean): string {
+  return status.toLowerCase() === 'ready' && exited ? 'exited' : status;
 }
 
 export function canAttachRun(status: string): boolean {

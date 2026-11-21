@@ -38,14 +38,14 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 
 | Surface | Scan level | Detail reveal | Narrow layout |
 | --- | --- | --- | --- |
-| Fleet toolbar | Search, project filter, Needs You count, refresh, New agent | — | Wrapping rows; search and filter span the width |
+| Fleet toolbar | Search, project filter, Needs You count, refresh, New agent | Doctor summary is a button that opens Setup → Advanced | Wrapping rows; search and filter span the width |
 | Project group | Project name, counts, Workspace entry | Agent rows | Wrapping header badges and actions |
-| Agent row | Name, type, operational status, derived sync state, branch, primary action | Selecting the row (click, or Enter/Space on the focused row) opens the detail panel | Name plus type/status/sync on one line; sync state keeps its text and glyph; actions beneath; branch in the detail panel |
-| Agent detail panel | Identity, operational status, project, harness, running model, profile, image | Image-source qualifier and drift warnings; Attach, Logs, Diff, Policy, and Configuration; Sync, Sleep, Resume, and Finish with a visible reason when an action is unavailable; sync state with last-sync time and explanation | Bottom sheet with close control; same grouped actions |
+| Agent row | Name, type, operational status (Exited for a resumable exited agent), derived sync state, branch, primary action | Selecting the row (click, or Enter/Space on the focused row) opens the detail panel | Name plus type/status/sync on one line; sync state keeps its text and glyph; actions beneath; branch in the detail panel |
+| Agent detail panel | Identity, operational status, project, harness, running model, profile, image | Image-source qualifier and drift warnings; Attach, Logs, Diff, Policy, and Configuration; Sync, Sleep, Resume, and Finish with a visible reason when an action is unavailable; Finish opens the shared confirmation dialog; sync state with last-sync time and explanation | Bottom sheet with close control; same grouped actions |
 | Agent configuration | — | Read-only New agent field grid (project, profile, gateway, name, MCP, skills, image, model, approval); identifiers and repository disclosure; runtime host rules disclosure; Copy agent and Delete agent in the footer | Single-column form; footer actions wrap |
 | Workspace | Project, agent tabs, shell tabs | Terminal or cached log tail | Horizontally scrollable tabs; terminal fills the surface |
-| New agent | Project, profile, gateway, name, MCP, skills, prompt | Resolved image/model/provider/approval disclosure; image select defaults to the project's latest repository image with a profile-image opt-out; optional overrides | Single-column form; the image select spans the row and actions wrap |
-| Logs / diff / policy drawer | Title and task status; structured **Network denials** above raw output | Denial host, port, binary, and reason with **Add host**; Add-host dialog shows the manifest entry, run-policy diff, optional persist, and manifest/fragment diffs; run policy shows textual provenance before the YAML | Full-width drawer; denial cards and dialog fields wrap and scroll |
+| New agent | Project, profile, gateway, name, MCP, skills, prompt | Resolved configuration shows the effective image, model, and approval; the image select defaults to the current project image that matches the manifest, labels other repository images as overrides that do not retain provenance, and offers a profile-image opt-out; enabling overrides prefills the profile model and a blank model blocks Start | Single-column form; the image select spans the row and actions wrap |
+| Logs / diff / policy drawer | Title and task status; structured **Network denials** above raw output | Denial host, port, canonical binary, and reason with **Add host**, plus the observed binary when AgentBox canonicalized a vendored harness path; Add-host dialog shows the manifest entry, run-policy diff, optional persist, and manifest/fragment diffs; run policy shows textual provenance before the YAML | Full-width drawer; denial cards and dialog fields wrap and scroll |
 
 ## Setup tabs
 
@@ -58,7 +58,7 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 | Gateways | Name, status, type | Expandable endpoint, inspect payload, remove | Compact card; toolbar wraps |
 | MCP Tools | Name, agent, server names | Expandable server list, edit/delete | Compact card; explanatory panel below |
 | Skills | Name, agent, skills, plugins | Expandable lists, role installations, edit/delete | Compact card; role table uses the same pattern |
-| Advanced | Worktree settings, Doctor summary | Doctor check disclosure with complete output, action, and copy | Single-column fields; check rows stack |
+| Advanced | Worktree settings, Doctor summary (opened directly by the Fleet Doctor badge) | Doctor check disclosure with complete output, action, and copy | Single-column fields; check rows stack |
 
 ## Dialog and state rules
 

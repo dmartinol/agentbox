@@ -6,7 +6,8 @@ export type RunStatus =
   | 'failed'
   | 'unreachable'
   | 'stopped'
-  | 'completed';
+  | 'completed'
+  | 'exited';
 
 export type SyncState = 'no_changes' | 'up_to_date' | 'needs_sync' | 'blocked' | 'unknown';
 
@@ -348,6 +349,7 @@ export interface PolicyDenial {
   host: string;
   port: number;
   binary: string;
+  observedBinary?: string;
   reason?: string;
   logLine?: string;
   valid: boolean;

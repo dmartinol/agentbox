@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -14,13 +15,14 @@ import (
 // the authority: the entry carries the destination and the calling binary, so
 // a remediation rule can be scoped without asking the user to retype them.
 type PolicyDenial struct {
-	Host          string `json:"host"`
-	Port          int    `json:"port"`
-	Binary        string `json:"binary"`
-	Reason        string `json:"reason,omitempty"`
-	LogLine       string `json:"logLine,omitempty"`
-	Valid         bool   `json:"valid"`
-	InvalidReason string `json:"invalidReason,omitempty"`
+	Host           string `json:"host"`
+	Port           int    `json:"port"`
+	Binary         string `json:"binary"`
+	ObservedBinary string `json:"observedBinary,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	LogLine        string `json:"logLine,omitempty"`
+	Valid          bool   `json:"valid"`
+	InvalidReason  string `json:"invalidReason,omitempty"`
 }
 
 // RuntimeHost records one host rule added to a live run. Source is "run" for a
@@ -81,6 +83,15 @@ var (
 // ignored: they do not describe a host, port, and binary that a host rule can
 // safely fix. Duplicate tuples collapse to the first occurrence.
 func ParsePolicyDenials(output []byte) []PolicyDenial {
+	return ParsePolicyDenialsForRun(output, "")
+}
+
+// ParsePolicyDenialsForRun also maps a vendored harness binary back to the
+// canonical agent binary recorded in the run's policy provenance. OpenShell
+// reports the deep vendor path for Codex child processes, and that path can
+// look like an opaque credential to the manifest secret scan. The observed
+// path stays on the denial so the UI can still show what the sandbox logged.
+func ParsePolicyDenialsForRun(output []byte, agentBinary string) []PolicyDenial {
 	seen := make(map[string]bool)
 	denials := make([]PolicyDenial, 0)
 	scanner := bufio.NewScanner(bytes.NewReader(output))
@@ -91,12 +102,12 @@ func ParsePolicyDenials(output []byte) []PolicyDenial {
 			continue
 		}
 		for _, denial := range parseDenialLine(line) {
+			annotateDenial(&denial, agentBinary)
 			key := denialKey(denial.Host, denial.Port, denial.Binary)
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
-			annotateDenial(&denial)
 			denials = append(denials, denial)
 		}
 	}
@@ -153,11 +164,32 @@ func denialKey(host string, port int, binary string) string {
 	return fmt.Sprintf("%s:%d\x00%s", strings.ToLower(host), port, binary)
 }
 
-func annotateDenial(denial *PolicyDenial) {
+func annotateDenial(denial *PolicyDenial, agentBinary string) {
 	rule := RepoHostRule{Host: denial.Host, Port: denial.Port, Binaries: []string{denial.Binary}}
 	err := ValidateHostRule(rule)
+	if err != nil {
+		if canonical := canonicalDenialBinary(denial.Binary, agentBinary); canonical != "" {
+			rule.Binaries[0] = canonical
+			if ValidateHostRule(rule) == nil {
+				denial.ObservedBinary = denial.Binary
+				denial.Binary = canonical
+				err = nil
+			}
+		}
+	}
 	denial.Valid = err == nil
 	if err != nil {
 		denial.InvalidReason = err.Error()
 	}
+}
+
+func canonicalDenialBinary(binary, agentBinary string) string {
+	agentBinary = strings.TrimSpace(agentBinary)
+	if agentBinary == "" || binary == "" || binary == agentBinary {
+		return ""
+	}
+	if path.Base(binary) != path.Base(agentBinary) {
+		return ""
+	}
+	return agentBinary
 }

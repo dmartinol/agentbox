@@ -124,7 +124,7 @@ func (a *App) ProjectRepoStatus(ctx context.Context, root string) ProjectRepoSta
 			worker.Status = "missing"
 		} else if identityErr != nil || repo == "" || (imageInventoryTried && !imageInventoryAvailable) {
 			worker.Status = "unknown"
-		} else if found, ok := projectWorkerImage(images, repo, agent, status.ManifestDigest); ok {
+		} else if found, ok := projectWorkerImage(images, repo, agent, status.ManifestDigest, config); ok {
 			worker.Status = "current"
 			worker.Reference = found.Reference
 			worker.ManifestDigest = found.ManifestDigest
@@ -146,7 +146,12 @@ func (a *App) storeRepoFragmentPath(repo string) string {
 	return filepath.Join(a.Store.PolicyDir(), "repo-"+repoKey(repo)+".yaml")
 }
 
-func projectWorkerImage(images []ImageArtifact, repo, agent, manifestDigest string) (ImageArtifact, bool) {
+// projectWorkerImage finds the repository image whose content-addressed tag
+// matches the current manifest on a current-recipe base. Matching only the
+// manifest digest is not enough: a previous build of the same manifest can
+// still be present under a different tag, and reporting that one as current
+// sends the GUI to an image the run resolver will not choose.
+func projectWorkerImage(images []ImageArtifact, repo, agent, manifestDigest string, config RepoConfig) (ImageArtifact, bool) {
 	if manifestDigest == "" {
 		return ImageArtifact{}, false
 	}
@@ -154,12 +159,36 @@ func projectWorkerImage(images []ImageArtifact, repo, agent, manifestDigest stri
 	if err != nil {
 		return ImageArtifact{}, false
 	}
+	var bases []ImageArtifact
 	for _, image := range images {
-		if image.Worker && image.Repo == repo && image.Agent == agent && image.Recipe == recipe && image.ManifestDigest == manifestDigest {
-			return image, true
+		if image.Worker || image.Agent != agent || image.Recipe != recipe {
+			continue
+		}
+		bases = append(bases, image)
+	}
+	var found ImageArtifact
+	var foundBase ImageArtifact
+	for _, image := range images {
+		if !image.Worker || image.Repo != repo || image.Agent != agent || image.ManifestDigest != manifestDigest {
+			continue
+		}
+		for _, base := range bases {
+			hash, err := repoImageHash(base.Reference, config)
+			if err != nil {
+				continue
+			}
+			if !imageHasReference(image, repoImageTag(repo, agent, hash)) {
+				continue
+			}
+			if found.Reference == "" || compareImageVersions(base.Version, foundBase.Version) > 0 {
+				found, foundBase = image, base
+			}
 		}
 	}
-	return ImageArtifact{}, false
+	if found.Reference == "" {
+		return ImageArtifact{}, false
+	}
+	return found, true
 }
 
 func projectAnyWorkerImage(images []ImageArtifact, repo, agent string) (ImageArtifact, bool) {
