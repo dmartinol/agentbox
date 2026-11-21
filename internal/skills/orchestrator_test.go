@@ -571,7 +571,7 @@ var artifactTemplateNames = []string{
 
 // markdownBlockStart matches a line that opens a new markdown block, so the
 // line before it is never a soft wrap.
-var markdownBlockStart = regexp.MustCompile("^\\s*(?:[-*+]\\s|\\d+\\.\\s|#{1,6}\\s|\\||```|>|<)")
+var markdownBlockStart = regexp.MustCompile("^\\s*(?:[-*+]\\s|\\d+\\.\\s|#{1,6}\\s|\\||```|>|<|-{3,}\\s*$)")
 
 // proseLine is one hard-wrapped line in a template.
 type proseLine struct {
@@ -586,9 +586,21 @@ type proseLine struct {
 // breaks are exempt.
 func hardWrappedProseLines(body string) []proseLine {
 	lines := strings.Split(body, "\n")
+	start := 0
+	// A skill file opens with YAML front matter, which is structured data and
+	// never prose.
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
+		for index := 1; index < len(lines); index++ {
+			if strings.TrimSpace(lines[index]) == "---" {
+				start = index + 1
+				break
+			}
+		}
+	}
 	var found []proseLine
 	inFence, inComment := false, false
-	for index, line := range lines {
+	for index, line := range lines[start:] {
+		index += start
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") {
 			inFence = !inFence
@@ -621,17 +633,22 @@ func hardWrappedProseLines(body string) []proseLine {
 	return found
 }
 
-// TestOrchestratorArtifactTemplatesDoNotHardWrapProse keeps posted artifacts
-// readable: a template wrapped at an editor column produces a ragged body with
-// sentences broken mid-line in the browser.
-func TestOrchestratorArtifactTemplatesDoNotHardWrapProse(t *testing.T) {
+// TestOrchestratorArtifactsDoNotHardWrapProse keeps posted artifacts and the
+// skill text readable: anything wrapped at an editor column produces a ragged
+// body with sentences broken mid-line in the browser, and an agent copying the
+// shipped shape reproduces it.
+func TestOrchestratorArtifactsDoNotHardWrapProse(t *testing.T) {
+	sources := []string{"agentbox-orchestrator/SKILL.md"}
 	for _, name := range artifactTemplateNames {
-		raw, err := embedded.ReadFile("agentbox-orchestrator/templates/" + name)
+		sources = append(sources, "agentbox-orchestrator/templates/"+name)
+	}
+	for _, source := range sources {
+		raw, err := embedded.ReadFile(source)
 		if err != nil {
-			t.Fatalf("%s: %v", name, err)
+			t.Fatalf("%s: %v", source, err)
 		}
 		for _, line := range hardWrappedProseLines(string(raw)) {
-			t.Errorf("%s:%d is hard-wrapped prose, keep the paragraph on one line: %q", name, line.number, line.text)
+			t.Errorf("%s:%d is hard-wrapped prose, keep the paragraph on one line: %q", source, line.number, line.text)
 		}
 	}
 }
