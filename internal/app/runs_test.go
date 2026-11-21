@@ -419,6 +419,41 @@ func TestFinishSyncsThenMarksCompleted(t *testing.T) {
 	}
 }
 
+func TestFinishRecordsTheUserReasonEvenWhenTheAgentAlreadyExited(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	code := 0
+	run.Status = StatusReady
+	run.StatusDetail = "agent exited (code 0); resume available"
+	run.Exited = true
+	run.ExitCode = &code
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	app.Runner = readyLifecycleRunner(t, createAgentExport(t, run, t.TempDir()))
+	if err := app.Finish(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := app.Store.LoadRun(run.ID)
+	if err != nil || stored.Status != StatusCompleted || stored.StatusDetail != "finished by user" {
+		t.Fatalf("finish reason = %+v, %v", stored, err)
+	}
+}
+
+func TestInspectKeepsTheUserFinishReason(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	run.Status = StatusCompleted
+	run.StatusDetail = "finished by user"
+	run.Synced = true
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	app.Runner = statusRunnerFor("running", "session=0\ndead=1\nfinished=1\nexit=0\n")
+	got, err := app.GetRun(context.Background(), run.ID)
+	if err != nil || got.Status != StatusCompleted || got.StatusDetail != "finished by user" {
+		t.Fatalf("re-inspected finish = %+v, %v", got, err)
+	}
+}
+
 func TestFinishRefusesWorking(t *testing.T) {
 	app, run, _ := createSyncFixture(t)
 	run.Status = StatusWorking

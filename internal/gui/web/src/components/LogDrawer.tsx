@@ -203,6 +203,7 @@ export function LogDrawer({
                           </div>
                           <div className="break-all font-mono text-sm">{denial.host}:{denial.port}</div>
                           <div className="break-all font-mono text-xs text-muted">{denial.binary}</div>
+                          {denial.observedBinary ? <div className="break-all font-mono text-xs text-muted">Observed: {denial.observedBinary}</div> : null}
                           {denial.reason ? <div className="text-xs text-muted">Reason: {denial.reason}</div> : null}
                           {!denial.valid ? (
                             <div className="text-xs text-danger">Cannot add this rule: {denial.invalidReason}</div>
@@ -295,7 +296,11 @@ export function LogDrawer({
             <div className="grid gap-2 rounded-lg border border-border p-2 text-sm sm:grid-cols-3">
               <div><div className="text-xs text-muted">Host</div><div className="break-all font-mono">{selected.host}</div></div>
               <div><div className="text-xs text-muted">Port</div><div className="font-mono">{selected.port}</div></div>
-              <div className="sm:col-span-1"><div className="text-xs text-muted">Binary</div><div className="break-all font-mono text-xs">{selected.binary}</div></div>
+              <div className="sm:col-span-1">
+                <div className="text-xs text-muted">Binary</div>
+                <div className="break-all font-mono text-xs">{selected.binary}</div>
+                {selected.observedBinary ? <div className="break-all font-mono text-xs text-muted">Observed: {selected.observedBinary}</div> : null}
+              </div>
             </div>
             <div>
               <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Manifest entry</div>

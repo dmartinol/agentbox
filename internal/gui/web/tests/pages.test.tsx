@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../src/App';
 import { ProvidersPanel } from '../src/pages/setup/ProvidersPanel';
@@ -116,6 +116,20 @@ describe('fleet shell', () => {
     expect(screen.getAllByText('active-run').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /new agent/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /setup/i })).toHaveLength(1);
+  });
+
+  it('opens Advanced diagnostics from the Doctor badge', async () => {
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/doctor': [{ name: 'npm', ok: false, detail: 'npm not found' }],
+      'GET /api/settings': { version: 1, worktrees: { root: '/trees', branch_prefix: 'agentbox/' } }
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Doctor 1 issue' }));
+    expect(await screen.findByRole('tab', { name: 'Advanced', selected: true })).toBeInTheDocument();
+    expect(await screen.findByText('1 of 1 checks failed')).toBeInTheDocument();
+    expect(screen.getByText('Install Node.js and npm.')).toBeInTheDocument();
   });
 
   it('keeps start disabled until the start configuration loads', async () => {
@@ -241,6 +255,32 @@ describe('fleet shell', () => {
     await user.click((await screen.findAllByRole('button', { name: /logs/i }))[0]);
     expect(await screen.findByText(/Logs · active-run/i)).toBeInTheDocument();
     expect(await screen.findByText('agent log output')).toBeInTheDocument();
+  });
+
+  it('closes the log drawer when the workspace opens', async () => {
+    class MockWebSocket {
+      url: string;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number; reason: string }) => void) | null = null;
+
+      constructor(url: string) {
+        this.url = url;
+      }
+
+      send() {}
+      close() {}
+    }
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const user = userEvent.setup();
+    render(<App />);
+    const row = (await screen.findByText('active-run')).closest('tr');
+    if (!row) throw new Error('agent row missing');
+    await user.click(within(row).getByRole('button', { name: 'Logs' }));
+    expect(await screen.findByText(/Logs · active-run/)).toBeInTheDocument();
+    fireEvent.click(within(row).getByText('Attach', { selector: 'button' }));
+    expect(await screen.findByLabelText('Terminal for active-run')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/Logs · active-run/)).toBeNull());
   });
 
   it('opens an interactive agent terminal from the fleet', async () => {
@@ -399,6 +439,9 @@ describe('setup sheet', () => {
       expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
     }
     expect(screen.queryByRole('tab', { name: 'Policies' })).toBeNull();
+    const description = screen.getByText('Projects, profiles, providers, images, gateways, MCP tools, skills, and diagnostics');
+    expect(description).not.toHaveClass('truncate');
+    expect(description).toHaveClass('[overflow-wrap:anywhere]');
     expect(screen.getByRole('tab', { name: 'Providers', selected: true })).toHaveClass(
       'data-[state=active]:bg-accent',
       'data-[state=active]:text-accent-foreground'
@@ -521,10 +564,10 @@ describe('repository image provenance', () => {
 
     const image = within(dialog).getByLabelText(/^Image/);
     expect(image).toHaveValue('auto');
-    expect(within(image).getByRole('option', { name: /Latest project image.*1\.0\.0/ })).toHaveValue('auto');
-    expect(within(image).getByRole('option', { name: /^Project image.*0\.9\.0/ })).toBeInTheDocument();
+    expect(within(image).getByRole('option', { name: /Current project image.*1\.0\.0/ })).toHaveValue('auto');
+    expect(within(image).getByRole('option', { name: /Repository override.*0\.9\.0/ })).toHaveValue('localhost/openshell:repo-github-com-example-demo-codex-11111111');
     expect(within(image).getByRole('option', { name: /Use profile image/ })).toHaveValue('profile');
-    expect(within(dialog).getByText(/Defaults to the latest repository image/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Current repository image: localhost\/openshell:repo-github-com-example-demo-codex-22222222/)).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole('button', { name: 'Start' }));
     const request = fetchMock.mock.calls.find(([input, init]) => input.toString() === '/api/runs' && init?.method === 'POST');
@@ -1034,6 +1077,8 @@ describe('fleet actions', () => {
     expect(screen.queryByText(/Needs You/)).toBeNull();
     const row = (await screen.findByText('active-run')).closest('tr');
     if (!row) throw new Error('agent row missing');
+    expect(within(row).getByLabelText('Status: Exited')).toBeInTheDocument();
+    expect(within(row).queryByLabelText('Status: Ready')).toBeNull();
     await user.click(row);
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
     expect(within(panel).getByText('agent exited (code 0); resume available')).toBeInTheDocument();
@@ -1057,7 +1102,40 @@ describe('fleet actions', () => {
     expect(within(panel).getByRole('button', { name: 'Resume' })).toBeEnabled();
     expect(within(panel).getByText(/Resume starts the sandbox and continues the last conversation/)).toBeInTheDocument();
     await user.click(within(panel).getByRole('button', { name: 'Finish' }));
+    const finish = await screen.findByRole('dialog', { name: 'Finish idle-run' });
+    await user.click(within(finish).getByRole('button', { name: 'Finish' }));
     expect(await screen.findByText('Finish requested for idle-run')).toBeInTheDocument();
+  });
+
+  it('waits for confirmation before finishing an idle agent', async () => {
+    const fetchMock = mockRoutes({
+      ...defaultRoutes(),
+      'POST /api/runs/run-idle/finish': { ...runs[1], status: 'completed', status_detail: 'finished by user' }
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText('idle-run'));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByRole('button', { name: 'Finish' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Finish idle-run' });
+    expect(fetchMock.mock.calls.some(([input, init]) => input.toString() === '/api/runs/run-idle/finish' && init?.method === 'POST')).toBe(false);
+    await user.click(within(dialog).getByRole('button', { name: 'Finish' }));
+    expect(await screen.findByText('Finish requested for idle-run')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input, init]) => input.toString() === '/api/runs/run-idle/finish' && init?.method === 'POST')).toBe(true);
+  });
+
+  it('leaves the idle agent unchanged when Finish is canceled', async () => {
+    const fetchMock = mockRoutes(defaultRoutes());
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByText('idle-run'));
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    await user.click(within(panel).getByRole('button', { name: 'Finish' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Finish idle-run' });
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(fetchMock.mock.calls.some(([input]) => input.toString() === '/api/runs/run-idle/finish')).toBe(false);
+    expect(screen.queryByText('Finish requested for idle-run')).toBeNull();
   });
 
   it('marks a new agent start in flight', async () => {
@@ -1172,6 +1250,7 @@ describe('fleet actions', () => {
     await user.click(await screen.findByRole('button', { name: 'New agent' }));
     const dialog = await screen.findByRole('dialog');
     await user.click(within(dialog).getByLabelText('Override image, model, and approval'));
+    await user.type(within(dialog).getByLabelText(/^Model/), 'model-z');
 
     const approval = within(dialog).getByLabelText(/^Approval/);
     expect(approval).toHaveValue('unattended');
@@ -1181,6 +1260,26 @@ describe('fleet actions', () => {
     const request = fetchMock.mock.calls.find(([input, init]) => input.toString() === '/api/runs' && init?.method === 'POST');
     expect(request).toBeDefined();
     expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({ approval: 'unattended' });
+  });
+
+  it('prefills the effective model when overrides are enabled and blocks a blank model', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'New agent' }));
+    const dialog = await screen.findByRole('dialog');
+    const start = within(dialog).getByRole('button', { name: 'Start' });
+    expect(start).toBeEnabled();
+    await user.click(within(dialog).getByLabelText('Override image, model, and approval'));
+
+    const model = within(dialog).getByLabelText(/^Model/);
+    expect(model).toHaveValue('model-x');
+    const resolved = within(dialog).getByText('Resolved configuration').closest('details');
+    if (!resolved) throw new Error('resolved configuration missing');
+    expect(within(resolved).getByText('model-x')).toBeInTheDocument();
+
+    await user.clear(model);
+    expect(start).toBeDisabled();
+    expect(within(dialog).getByText('Required when overrides are enabled.')).toBeInTheDocument();
   });
 
   it('preserves a prompted run approval when copying an agent', async () => {
@@ -1659,6 +1758,34 @@ describe('denial remediation', () => {
     )).toBe(false);
   });
 
+  it('keeps the observed vendored binary while adding the canonical rule', async () => {
+    const observedBinary = '/home/agent/.codex/vendor/x86_64-unknown-linux-gnu/codex';
+    const vendored = { ...liveDenial, binary: '/usr/local/bin/codex', observedBinary };
+    const fetchMock = mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/runs/run-active/logs': { logs: 'agent log output', denials: [vendored] },
+      'POST /api/runs/run-active/policy/denial/preview': {
+        ...denialPreview,
+        entry: { host: 'api.example.com', port: 443, binaries: ['/usr/local/bin/codex'] }
+      }
+    });
+    const user = userEvent.setup();
+    await openLogs(user);
+    expect(await screen.findByText(`Observed: ${observedBinary}`)).toBeInTheDocument();
+    expect(screen.getByText('/usr/local/bin/codex')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Add host api.example.com:443' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add host api.example.com:443' });
+    expect(await within(dialog).findByText('Run policy diff')).toBeInTheDocument();
+    expect(within(dialog).getByText(`Observed: ${observedBinary}`)).toBeInTheDocument();
+    const call = fetchMock.mock.calls.find(([input, init]) =>
+      input.toString() === '/api/runs/run-active/policy/denial/preview' && init?.method === 'POST'
+    );
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+      host: 'api.example.com', port: 443, binary: '/usr/local/bin/codex', persist: false
+    });
+  });
+
   it('shows manifest and fragment diffs when persisting is selected', async () => {
     const fetchMock = mockRoutes({
       ...defaultRoutes(),
@@ -1838,7 +1965,8 @@ describe('readable fleet layout', () => {
     expect(within(panel).getByText('running a tool')).toBeInTheDocument();
     expect(within(panel).queryByText('Policy provenance')).toBeNull();
     expect(within(panel).queryByText('Runtime host rules (0)')).toBeNull();
-    expect(within(panel).queryByText('Branch')).toBeNull();
+    expect(within(panel).getByText('Branch')).toBeInTheDocument();
+    expect(within(panel).getByText('agentbox/demo/active-run')).toBeInTheDocument();
     expect(within(panel).queryByText('Worktree')).toBeNull();
   });
 
@@ -1964,7 +2092,7 @@ describe('readable fleet layout', () => {
     await user.click(await screen.findByRole('button', { name: 'New agent' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Resolved configuration')).toBeInTheDocument();
-    expect(within(dialog).getByText('localhost/openshell:codex-1.0.0-r3')).toBeInTheDocument();
+    expect(within(dialog).getByText('localhost/openshell:repo-github-com-example-demo-codex-22222222')).toBeInTheDocument();
     expect(within(dialog).getByText('model-x')).toBeInTheDocument();
     expect(within(dialog).queryByLabelText(/^Image/)).toBeNull();
     expect(within(dialog).getByLabelText(/^Project/)).toBeInTheDocument();
@@ -2017,6 +2145,8 @@ describe('readable fleet layout', () => {
     if (!row) throw new Error('agent row missing');
     await user.click(row);
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    expect(panel).toHaveClass('bg-background');
+    expect(panel).not.toHaveClass('bg-background/95');
     await user.click(within(panel).getByRole('button', { name: 'View logs' }));
     await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Agent details' })).toBeNull());
     expect(await screen.findByText('agent log output')).toBeInTheDocument();

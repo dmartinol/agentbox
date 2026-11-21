@@ -30,7 +30,7 @@ export function Sheet({
           <div className="flex min-h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-2">
             <div className="min-w-0">
               <Dialog.Title className="truncate text-sm font-semibold">{title}</Dialog.Title>
-              {description ? <Dialog.Description className="truncate text-sm text-muted" title={typeof description === 'string' ? description : undefined}>{description}</Dialog.Description> : null}
+              {description ? <Dialog.Description className="text-sm text-muted [overflow-wrap:anywhere]">{description}</Dialog.Description> : null}
             </div>
             <Dialog.Close asChild>
               <Button variant="ghost" size="icon" aria-label="Close"><X className="size-4" /></Button>

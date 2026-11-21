@@ -13,6 +13,7 @@ const initialLog: LogDrawerState = { open: false, title: '', content: '' };
 
 export function App() {
   const [setupOpen, setSetupOpen] = useState(false);
+  const [setupTab, setSetupTab] = useState('providers');
   const [log, setLog] = useState<LogDrawerState>(initialLog);
   const [doctor, setDoctor] = useState<Check[]>([]);
   const [stoppingTask, setStoppingTask] = useState(false);
@@ -45,9 +46,18 @@ export function App() {
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <ThemeToggle />
-          <Badge tone={failed === 0 ? 'success' : failed > 1 ? 'danger' : 'warning'}>
-            Doctor {failed === 0 ? 'OK' : `${failed} issue${failed === 1 ? '' : 's'}`}
-          </Badge>
+          <button
+            type="button"
+            className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            onClick={() => {
+              setSetupTab('advanced');
+              setSetupOpen(true);
+            }}
+          >
+            <Badge tone={failed === 0 ? 'success' : failed > 1 ? 'danger' : 'warning'}>
+              Doctor {failed === 0 ? 'OK' : `${failed} issue${failed === 1 ? '' : 's'}`}
+            </Badge>
+          </button>
           <Button size="sm" variant="outline" onClick={() => setSetupOpen(true)}>
             <Settings className="size-3.5" /> Setup
           </Button>
@@ -58,7 +68,7 @@ export function App() {
         <FleetView refreshKey={fleetRefreshKey} openLog={openLog} updateLog={updateLog} />
       </main>
 
-      <SetupSheet open={setupOpen} onOpenChange={setSetupOpen} onResourcesChanged={refreshFleet} openLog={openLog} updateLog={updateLog} />
+      <SetupSheet open={setupOpen} onOpenChange={setSetupOpen} activeTab={setupTab} onTabChange={setSetupTab} onResourcesChanged={refreshFleet} openLog={openLog} updateLog={updateLog} />
       <LogDrawer
         state={log}
         stopping={stoppingTask}

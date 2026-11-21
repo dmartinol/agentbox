@@ -28,6 +28,22 @@ func TestParsePolicyDenialsReadsRealSandboxSamples(t *testing.T) {
 	}
 }
 
+func TestParsePolicyDenialsForRunCanonicalizesAVendoredAgentBinary(t *testing.T) {
+	output := []byte(`[1795092241.660] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED /usr/local/lib/node_modules/@openai/codex/vendor/abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN012345/bin/codex(0) -> ab.chatgpt.com:443 [reason:transparent_tcp_policy_denied]
+`)
+	denials := ParsePolicyDenialsForRun(output, "/usr/local/bin/codex")
+	if len(denials) != 1 {
+		t.Fatalf("denials = %#v", denials)
+	}
+	denial := denials[0]
+	if !denial.Valid || denial.Binary != "/usr/local/bin/codex" {
+		t.Fatalf("denial = %#v, want the canonical agent binary", denial)
+	}
+	if denial.ObservedBinary != "/usr/local/lib/node_modules/@openai/codex/vendor/abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN012345/bin/codex" {
+		t.Fatalf("observed binary = %q", denial.ObservedBinary)
+	}
+}
+
 func TestParsePolicyDenialsSupportsLegacyFieldsAndDeduplicates(t *testing.T) {
 	output := []byte(`action=deny dst_host=api.github.com dst_port=443 binary=/usr/bin/curl deny_reason="no matching network policy"
 action=deny dst_host=api.github.com dst_port=443 binary=/usr/bin/curl deny_reason="no matching network policy"

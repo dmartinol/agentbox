@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -32,6 +33,28 @@ func TestProjectRepoStatusReportsRepositoryState(t *testing.T) {
 	}
 	if codex == nil || codex.Status != "current" || codex.Reference != f.repoTag(t, f.baseRef) {
 		t.Fatalf("codex worker status = %+v", codex)
+	}
+}
+
+func TestProjectRepoStatusPrefersTheBuildMatchingTheCurrentManifest(t *testing.T) {
+	f := newRunImageFixture(t, runRepoManifest)
+	f.writeFragment(t)
+	staleBase := fmt.Sprintf("localhost/openshell:codex-0.168.0-r%d", f.recipe)
+	stale := f.repoRecord(t, staleBase, "0.169.0", f.digest())
+	current := f.repoRecord(t, f.baseRef, "0.169.0", f.digest())
+	stale["Id"] = "repo-stale"
+	current["Id"] = "repo-current"
+	app, _ := f.app(t, f.baseRecord("0.169.0"), stale, current)
+
+	status := app.ProjectRepoStatus(context.Background(), f.root)
+	var codex *ProjectWorkerImageStatus
+	for index := range status.WorkerImages {
+		if status.WorkerImages[index].Agent == "codex" {
+			codex = &status.WorkerImages[index]
+		}
+	}
+	if codex == nil || codex.Status != "current" || codex.Reference != f.repoTag(t, f.baseRef) {
+		t.Fatalf("codex worker status = %+v, want the tag matching the current manifest", codex)
 	}
 }
 
