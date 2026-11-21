@@ -564,11 +564,6 @@ func TestOrchestratorSkillTemplates(t *testing.T) {
 	)
 }
 
-// artifactTemplateNames lists the templates that install beside SKILL.md.
-var artifactTemplateNames = []string{
-	"issue.md", "plan.md", "pr.md", "review-task.md", "state.md", "verdict.md", "verify-task.md",
-}
-
 // markdownBlockStart matches a line that opens a new markdown block, so the
 // line before it is never a soft wrap.
 var markdownBlockStart = regexp.MustCompile("^\\s*(?:[-*+]\\s|\\d+\\.\\s|#{1,6}\\s|\\||```|>|<|-{3,}\\s*$)")
@@ -633,22 +628,24 @@ func hardWrappedProseLines(body string) []proseLine {
 	return found
 }
 
-// TestOrchestratorArtifactsDoNotHardWrapProse keeps posted artifacts and the
-// skill text readable: anything wrapped at an editor column produces a ragged
-// body with sentences broken mid-line in the browser, and an agent copying the
-// shipped shape reproduces it.
-func TestOrchestratorArtifactsDoNotHardWrapProse(t *testing.T) {
-	sources := []string{"agentbox-orchestrator/SKILL.md"}
-	for _, name := range artifactTemplateNames {
-		sources = append(sources, "agentbox-orchestrator/templates/"+name)
+// TestSkillFilesDoNotHardWrapProse keeps every shipped skill file readable:
+// anything wrapped at an editor column produces a ragged body with sentences
+// broken mid-line in the browser, and an agent copying the shipped shape
+// reproduces it. Every embedded skill and template is covered, so a new skill
+// inherits the rule without touching this test.
+func TestSkillFilesDoNotHardWrapProse(t *testing.T) {
+	if len(Names()) == 0 {
+		t.Fatal("no embedded skills found, the guard would pass vacuously")
 	}
-	for _, source := range sources {
-		raw, err := embedded.ReadFile(source)
-		if err != nil {
-			t.Fatalf("%s: %v", source, err)
-		}
-		for _, line := range hardWrappedProseLines(string(raw)) {
-			t.Errorf("%s:%d is hard-wrapped prose, keep the paragraph on one line: %q", source, line.number, line.text)
+	for _, name := range Names() {
+		for _, file := range Files(name) {
+			raw, err := embedded.ReadFile(file.Source)
+			if err != nil {
+				t.Fatalf("%s: %v", file.Source, err)
+			}
+			for _, line := range hardWrappedProseLines(string(raw)) {
+				t.Errorf("%s:%d is hard-wrapped prose, keep the paragraph on one line: %q", file.Source, line.number, line.text)
+			}
 		}
 	}
 }

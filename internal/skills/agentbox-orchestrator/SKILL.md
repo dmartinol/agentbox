@@ -406,7 +406,7 @@ The issue, plan, and pull request templates open with a scan layer a human can r
 
 ### Prose formatting in posted artifacts
 
-GitHub renders every newline inside a paragraph or list item as a line break, so a hard-wrapped body shows a ragged 70 to 80 column edge and breaks sentences mid-line in the browser. Write each paragraph, bullet, and table cell on one source line and let the renderer wrap it. Keep a newline only where markdown needs one: a blank line between blocks, a `|` row in a table, a line inside a fenced code block, or an explicit hard break. The shipped templates follow this rule, so copy their shape instead of a 72 column editor habit. Commit messages still wrap; issue, pull request, comment, plan, verify, and verdict bodies do not. `TestOrchestratorArtifactsDoNotHardWrapProse` fails the build when a shipped template or this skill file regresses.
+GitHub renders every newline inside a paragraph or list item as a line break, so a hard-wrapped body shows a ragged 70 to 80 column edge and breaks sentences mid-line in the browser. Write each paragraph, bullet, and table cell on one source line and let the renderer wrap it. Keep a newline only where markdown needs one: a blank line between blocks, a `|` row in a table, a line inside a fenced code block, or an explicit hard break. The shipped templates follow this rule, so copy their shape instead of a 72 column editor habit. Commit messages still wrap; issue, pull request, comment, plan, verify, and verdict bodies do not. Every shipped skill file follows this rule: `TestSkillFilesDoNotHardWrapProse` fails the build when any embedded skill or template regresses.
 
 Resolve a template from the first source that defines it:
 
