@@ -4,13 +4,11 @@
 
 ## Verdict
 
-One of `approve`, `approve-with-follow-ups`, `request-changes`, or `blocked`,
-with one sentence of reasoning.
+One of `approve`, `approve-with-follow-ups`, `request-changes`, or `blocked`, with one sentence of reasoning.
 
 ## Severity bar
 
-Only `blocker` and `major` block merge. `minor` and `nit` never block merge and
-are always follow-ups.
+Only `blocker` and `major` block merge. `minor` and `nit` never block merge and are always follow-ups.
 
 | Severity | Definition | Action |
 | --- | --- | --- |
@@ -22,19 +20,14 @@ are always follow-ups.
 ## Review scope
 
 - Cycle 1: the full diff against the base.
-- Cycle 2 and later: `prev_head..head`, the ledger status of every prior
-  finding, and the gates. Do not re-derive the touched subsystem or review the
-  full diff again. A new finding outside the reviewed range is allowed only at
-  `blocker` severity.
+- Cycle 2 and later: `prev_head..head`, the ledger status of every prior finding, and the gates. Do not re-derive the touched subsystem or review the full diff again. A new finding outside the reviewed range is allowed only at `blocker` severity.
 
 ## Independence
 
 State the basis on the face of the verdict, not only in the footer:
 
-- `different agent or model` — name the implementer and the reviewer
-  selections.
-- `same agent and model as the implementer` — a recorded limitation. Say so
-  plainly; session and worktree isolation do not make the review independent.
+- `different agent or model` — name the implementer and the reviewer selections.
+- `same agent and model as the implementer` — a recorded limitation. Say so plainly; session and worktree isolation do not make the review independent.
 
 ## Findings
 
@@ -45,25 +38,19 @@ State the basis on the face of the verdict, not only in the footer:
 ## Evidence at commit
 
 - Reviewed commit: `<full-sha>`
-- Reviewed range: `base..<full-sha>` for cycle 1, `prev_head..<full-sha>` for
-  later cycles.
+- Reviewed range: `base..<full-sha>` for cycle 1, `prev_head..<full-sha>` for later cycles.
 - Head check: `git diff <reviewed-sha>..HEAD --stat` is empty.
 - Gates observed: `<command>` — result.
-- Worktree: fresh checkout at the pull request head, not the implementer's
-  worktree.
-- Real-git probe: the observed result per state, when the change derives
-  behavior from git state.
+- Worktree: fresh checkout at the pull request head, not the implementer's worktree.
+- Real-git probe: the observed result per state, when the change derives behavior from git state.
 
 ## Required changes
 
-Only for `request-changes`: the smallest changes that remove the merge risk
-from each open `blocker` or `major` finding. Never list a `minor` or `nit`
-finding here.
+Only for `request-changes`: the smallest changes that remove the merge risk from each open `blocker` or `major` finding. Never list a `minor` or `nit` finding here.
 
 ## Follow-ups
 
-Mandatory for `approve-with-follow-ups`; otherwise `none`. List one group per
-deferred finding or finding group and the created issue that tracks it:
+Mandatory for `approve-with-follow-ups`; otherwise `none`. List one group per deferred finding or finding group and the created issue that tracks it:
 
 | Findings | Issue |
 | --- | --- |
@@ -71,8 +58,7 @@ deferred finding or finding group and the created issue that tracks it:
 
 ## Provenance
 
-The reviewer returns this artifact to the orchestrator. The orchestrator posts
-it, so a review verdict always has one writer and one provenance path.
+The reviewer returns this artifact to the orchestrator. The orchestrator posts it, so a review verdict always has one writer and one provenance path.
 
 ---
 
