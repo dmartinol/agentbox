@@ -18,7 +18,6 @@ const bootstrapScript = `#!/bin/sh
 set -eu
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
-tmux set-option -g remain-on-exit on
 if [ -f /workspace/finished ]; then
   exec sleep infinity
 fi
@@ -31,6 +30,10 @@ else
   touch /workspace/state/agent-started
   tmux new-session -d -s agent /bin/sh /workspace/state/session.sh initial
 fi
+# The first tmux client command starts the server, so remain-on-exit can only
+# be set after new-session; on a fresh sandbox set-option before it fails with
+# "error connecting" and ends the run.
+tmux set-option -g remain-on-exit on
 tmux pipe-pane -t agent -o 'cat >> /workspace/state/agent.log'
 # Finish or resume may remove the session while this loop is running, so poll
 # the session before the pane instead of using a command substitution that

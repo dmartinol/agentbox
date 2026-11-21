@@ -600,6 +600,14 @@ func TestBootstrapResumesInsteadOfFinishing(t *testing.T) {
 	if strings.Contains(bootstrapScript, "touch /workspace/finished") {
 		t.Fatalf("bootstrap must not finish a run when the agent pane dies:\n%s", bootstrapScript)
 	}
+	// remain-on-exit can only be set once the tmux server exists; the first
+	// new-session starts it, so set-option must come after it or every fresh
+	// sandbox dies with "error connecting" under set -eu.
+	optionIndex := strings.Index(bootstrapScript, "tmux set-option -g remain-on-exit on")
+	sessionIndex := strings.Index(bootstrapScript, "tmux new-session")
+	if optionIndex < 0 || sessionIndex < 0 || optionIndex < sessionIndex {
+		t.Fatalf("remain-on-exit must be set after the first new-session:\n%s", bootstrapScript)
+	}
 }
 
 func TestAttachArgsRequestUTF8Locale(t *testing.T) {
