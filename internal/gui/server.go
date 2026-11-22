@@ -1,22 +1,28 @@
 package gui
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 
@@ -129,17 +135,53 @@ func spaHandler() http.Handler {
 	if err != nil {
 		panic(err)
 	}
+	index, err := fs.ReadFile(assets, "index.html")
+	if err != nil {
+		panic(err)
+	}
+	indexETag := fmt.Sprintf(`"%x"`, sha256.Sum256(index))
 	fileServer := http.FileServer(http.FS(assets))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/")
-		if path == "" {
-			path = "index.html"
+		path := strings.TrimPrefix(pathpkg.Clean("/"+r.URL.Path), "/")
+		switch {
+		case path == "" || path == "index.html":
+			serveIndexHTML(w, r, index, indexETag)
+		case strings.HasPrefix(path, "assets/"):
+			// Vite content-hashes every asset name and drops the old files on
+			// rebuild. A missing chunk must stay a 404: returning index.html
+			// makes the browser reject the module with a MIME-type error and
+			// leaves a stale tab looking like a broken app.
+			if !fileExists(assets, path) {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			fileServer.ServeHTTP(w, r)
+		case fileExists(assets, path):
+			// Root files such as the icons are not content-hashed.
+			w.Header().Set("Cache-Control", "no-cache")
+			fileServer.ServeHTTP(w, r)
+		case pathpkg.Ext(path) != "":
+			http.NotFound(w, r)
+		default:
+			serveIndexHTML(w, r, index, indexETag)
 		}
-		if _, err := fs.Stat(assets, path); err != nil {
-			r.URL.Path = "/"
-		}
-		fileServer.ServeHTTP(w, r)
 	})
+}
+
+// serveIndexHTML makes the app shell revalidate on every load. Without it the
+// browser can keep an index.html that points at assets deleted by a rebuild,
+// which is exactly what happens to a tab left open across a rebase and build.
+func serveIndexHTML(w http.ResponseWriter, r *http.Request, body []byte, etag string) {
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(body))
+}
+
+func fileExists(assets fs.FS, path string) bool {
+	info, err := fs.Stat(assets, path)
+	return err == nil && !info.IsDir()
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -501,6 +543,9 @@ type websocketTerminal struct {
 	mutex      sync.Mutex
 	buffer     []byte
 	onResize   func(app.TerminalSize)
+	// onFailure cancels the attach context when the browser goes away. Without
+	// it a dead pane leaves the sandbox stream running until the sandbox dies.
+	onFailure func()
 }
 
 type resizeMessage struct {
@@ -528,6 +573,7 @@ func (t *websocketTerminal) Read(p []byte) (int, error) {
 	for len(t.buffer) == 0 {
 		messageType, message, err := t.connection.ReadMessage()
 		if err != nil {
+			t.fail()
 			return 0, err
 		}
 		if messageType == websocket.TextMessage {
@@ -548,10 +594,21 @@ func (t *websocketTerminal) Read(p []byte) (int, error) {
 func (t *websocketTerminal) Write(p []byte) (int, error) {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
-	if err := t.connection.WriteMessage(websocket.TextMessage, p); err != nil {
+	// Terminal output is a raw byte stream, not text. A pty read can split a
+	// multibyte UTF-8 character across frames, and a browser drops the whole
+	// connection when a text frame is not valid UTF-8. That surfaces as a
+	// reasonless 1006 close, so the stream must stay binary.
+	if err := t.connection.WriteMessage(websocket.BinaryMessage, p); err != nil {
+		t.fail()
 		return 0, err
 	}
 	return len(p), nil
+}
+
+func (t *websocketTerminal) fail() {
+	if t.onFailure != nil {
+		t.onFailure()
+	}
 }
 
 // terminalSizeFromQuery reads the client's reported viewport size. The
@@ -581,6 +638,7 @@ func (s *Server) attachRun(w http.ResponseWriter, r *http.Request) {
 	defer close(resizes)
 	terminal := &websocketTerminal{
 		connection: conn,
+		onFailure:  cancel,
 		onResize: func(size app.TerminalSize) {
 			select {
 			case resizes <- size:
@@ -593,10 +651,27 @@ func (s *Server) attachRun(w http.ResponseWriter, r *http.Request) {
 		session = "agent"
 	}
 	if err := s.app.AttachSessionStream(ctx, r.PathValue("id"), session, terminal, terminal, terminal, size, resizes); err != nil {
-		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()), time.Now().Add(time.Second))
+		log.Printf("attach %s/%s failed: %v", r.PathValue("id"), session, err)
+		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, closeReason(err)), time.Now().Add(time.Second))
 		return
 	}
 	_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+}
+
+// closeReason keeps an attach failure readable to the browser. A control
+// frame payload caps at 125 bytes, and an oversized reason is dropped
+// entirely, leaving the client with an unexplained 1006 close.
+func closeReason(err error) string {
+	const limit = 120
+	reason := err.Error()
+	if len(reason) <= limit {
+		return reason
+	}
+	cut := limit - 1
+	for cut > 0 && !utf8.RuneStart(reason[cut]) {
+		cut--
+	}
+	return reason[:cut] + "…"
 }
 
 func (s *Server) runLogs(w http.ResponseWriter, r *http.Request) {
@@ -1791,20 +1866,23 @@ func Run(ctx context.Context, a *app.App, address string) error {
 	if err != nil {
 		return err
 	}
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return guiListenError(address, err)
+	}
 	httpServer := &http.Server{
-		Addr:              address,
 		Handler:           server.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	shutdown := make(chan error, 1)
 	go func() {
-		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			shutdown <- err
 			return
 		}
 		shutdown <- nil
 	}()
-	fmt.Printf("AgentBox GUI listening on http://%s\n", address)
+	fmt.Printf("AgentBox GUI listening on http://%s\n", listener.Addr())
 	select {
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1813,4 +1891,19 @@ func Run(ctx context.Context, a *app.App, address string) error {
 	case err := <-shutdown:
 		return err
 	}
+}
+
+// guiListenError turns a bind failure into an actionable message. The common
+// case after a rebuild is an earlier GUI process that still owns the port and
+// keeps serving its old embedded UI, so "listening" must never be printed
+// before the bind succeeds.
+func guiListenError(address string, err error) error {
+	if !errors.Is(err, syscall.EADDRINUSE) {
+		return fmt.Errorf("cannot start the AgentBox GUI on http://%s: %w", address, err)
+	}
+	port := address
+	if _, value, splitErr := net.SplitHostPort(address); splitErr == nil {
+		port = value
+	}
+	return fmt.Errorf("cannot start the AgentBox GUI on http://%s: address already in use (%w); an earlier GUI process is still running and will keep serving its old embedded UI. Stop it with `lsof -nP -iTCP:%s -sTCP:LISTEN`, then retry", address, err, port)
 }

@@ -370,9 +370,12 @@ func TestRunAttachWebSocket(t *testing.T) {
 	if err := connection.WriteMessage(websocket.TextMessage, []byte("terminal input")); err != nil {
 		t.Fatal(err)
 	}
-	_, message, err := connection.ReadMessage()
+	messageType, message, err := connection.ReadMessage()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if messageType != websocket.BinaryMessage {
+		t.Fatalf("terminal frame type = %d, want binary", messageType)
 	}
 	if string(message) != "attach terminal output" {
 		t.Fatalf("terminal output = %q", message)
@@ -391,6 +394,70 @@ func TestRunAttachWebSocket(t *testing.T) {
 		if !slices.Contains(attach, want) {
 			t.Fatalf("attach command missing %q: %#v", want, attach)
 		}
+	}
+}
+
+type rawAttachRunner struct {
+	payload []byte
+}
+
+func (r *rawAttachRunner) Output(_ context.Context, _ string, _ ...string) ([]byte, error) {
+	return []byte(`{}`), nil
+}
+
+func (r *rawAttachRunner) StreamTerminal(_ context.Context, in io.Reader, out io.Writer, _ io.Writer, _ int, _ int, _ <-chan app.TerminalSize, _ string, _ ...string) error {
+	buffer := make([]byte, 128)
+	_, _ = in.Read(buffer)
+	_, err := out.Write(r.payload)
+	return err
+}
+
+func (r *rawAttachRunner) Stream(_ context.Context, _ io.Reader, out io.Writer, _ io.Writer, _ string, _ ...string) error {
+	_, err := out.Write(r.payload)
+	return err
+}
+
+// A pty read can split a multibyte UTF-8 character. A browser rejects such a
+// text frame and drops the socket with an unexplained 1006 close, so terminal
+// output has to travel as binary frames.
+func TestRunAttachWebSocketStreamsRawBytes(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	run := app.Run{
+		ID: "run-attach", Sandbox: "sandbox-attach", Gateway: "openshell", Agent: "codex",
+		Status: "running", Source: "/repo", Worktree: "/trees/run-attach", Branch: "main",
+		Baseline: "abc", LastSynced: "abc", Created: time.Now(), Synced: true, Policy: "/policy",
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("\x1b[32m├─\xe2\x94")
+	server, err := New(&app.App{Store: store, Runner: &rawAttachRunner{payload: payload}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	connection, _, err := websocket.DefaultDialer.Dial(strings.Replace(httpServer.URL, "http://", "ws://", 1)+"/api/runs/run-attach/attach?cols=100&rows=30", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if err := connection.WriteMessage(websocket.TextMessage, []byte("terminal input")); err != nil {
+		t.Fatal(err)
+	}
+	messageType, message, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if messageType != websocket.BinaryMessage {
+		t.Fatalf("terminal frame type = %d, want binary", messageType)
+	}
+	if !bytes.Equal(message, payload) {
+		t.Fatalf("terminal output = %q, want %q", message, payload)
 	}
 }
 
