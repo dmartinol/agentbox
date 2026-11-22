@@ -462,6 +462,7 @@ func (a *App) inspectRunWithSync(ctx context.Context, r Run, freshSyncProbe bool
 			}
 		}
 	}
+	previousStatus, previousDetail := r.Status, r.StatusDetail
 	status, detail := classifyRunStatus(evidence, time.Now())
 	if r.Asleep && status == StatusStopped && (r.Status == StatusStopped || r.Status == StatusCompleted) {
 		// AgentBox stopped this sandbox itself, and a stopped sandbox reports
@@ -469,6 +470,12 @@ func (a *App) inspectRunWithSync(ctx context.Context, r Run, freshSyncProbe bool
 		// run without restarting the sandbox, so the phase alone cannot tell
 		// Stopped from Completed.
 		status, detail = r.Status, r.StatusDetail
+	}
+	if status == StatusCompleted && previousStatus == StatusCompleted && previousDetail == "finished by user" {
+		// A user finish keeps its reason even though the sandbox probe can
+		// only see the exit marker. Otherwise the next refresh rewrites the
+		// record as if the agent had exited on its own.
+		detail = previousDetail
 	}
 	if probed {
 		// The exit marker is part of the probe evidence, so only a successful
@@ -816,9 +823,6 @@ func (a *App) Finish(ctx context.Context, id string) error {
 	wasStopped := r.Status == StatusStopped
 	r.Status = StatusCompleted
 	r.StatusDetail = "finished by user"
-	if !wasStopped && r.Exited && r.ExitCode != nil {
-		r.StatusDetail = fmt.Sprintf("exit code %d", *r.ExitCode)
-	}
 	if !wasStopped {
 		r.Synced = true
 	}

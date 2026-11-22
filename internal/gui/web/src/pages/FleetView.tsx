@@ -18,7 +18,7 @@ import { Disclosure } from '../components/ui/disclosure';
 import { ExpandableValue } from '../components/ui/copy-value';
 import { cn } from '../lib/utils';
 import { compareVersions, formatSyncTimestamp, middleEllipsis } from '../lib/text';
-import { StatusBadge, SyncStateBadge, canAttachRun, isActiveRun, canFinishRun, canResumeRun, canSleepRun, isWaitingRun, statusLabel, syncStateExplanation, syncStateLabel } from '../components/StatusBadge';
+import { StatusBadge, SyncStateBadge, canAttachRun, displayStatus, isActiveRun, canFinishRun, canResumeRun, canSleepRun, isWaitingRun, statusLabel, syncStateExplanation, syncStateLabel } from '../components/StatusBadge';
 import type { LogDrawerState } from '../components/LogDrawer';
 
 const allProjects = 'All projects';
@@ -160,7 +160,7 @@ function manageHint(agent: Run): string {
     case 'working':
       return 'Sleep and Finish are unavailable while the agent works. Wait for the turn, or run `agentbox agent sleep --force`.';
     case 'completed':
-      return 'Completed runs cannot be resumed. Delete removes the record and worktree.';
+      return 'Completed runs cannot be resumed. Delete removes the record and worktree; use Configuration → Delete agent.';
     case 'stopped':
       return 'Resume starts the sandbox and continues the last conversation in the same worktree.';
     case 'ready':
@@ -209,6 +209,7 @@ export function FleetView({
   const [skillWarnings, setSkillWarnings] = useState<string[]>([]);
   const [pending, setPending] = useState<Record<string, AgentAction>>({});
   const [deleteTarget, setDeleteTarget] = useState<Run>();
+  const [finishTarget, setFinishTarget] = useState<Run>();
   const [copySource, setCopySource] = useState<Run>();
   const [configRunId, setConfigRunId] = useState<string>();
   const configTrigger = useRef<HTMLButtonElement>(null);
@@ -267,14 +268,21 @@ export function FleetView({
 
   const selectedProfile: Profile | undefined = overview?.profiles.find((profile) => profile.name === startForm.profile);
   const selectedProject = overview?.projects.find((project) => project.name === startForm.project);
+  const currentRepoImage = selectedProject?.repo_status?.worker_images.find((image) => image.agent === selectedProfile?.agent && image.status === 'current')?.reference;
   const repoImages = useMemo(() => {
     const repo = selectedProject?.repo;
     const agent = selectedProfile?.agent;
     if (!repo || !agent) return [];
     return (overview?.images ?? [])
       .filter((image) => image.worker && image.repo === repo && image.agent === agent)
-      .sort((left, right) => compareVersions(right.version, left.version) || left.reference.localeCompare(right.reference));
-  }, [overview?.images, selectedProject?.repo, selectedProfile?.agent]);
+      .sort((left, right) => {
+        const leftCurrent = left.reference === currentRepoImage ? 1 : 0;
+        const rightCurrent = right.reference === currentRepoImage ? 1 : 0;
+        if (leftCurrent !== rightCurrent) return rightCurrent - leftCurrent;
+        return compareVersions(right.version, left.version) || left.reference.localeCompare(right.reference);
+      });
+  }, [overview?.images, selectedProject?.repo, selectedProfile?.agent, currentRepoImage]);
+  const autoRepoReference = currentRepoImage ?? repoImages[0]?.reference;
   const defaultImageSelection = repoImages.length ? autoImage : profileImage;
   const imageUnavailableReason = !selectedProject
     ? 'Select a project to choose an image.'
@@ -287,10 +295,26 @@ export function FleetView({
     ? overrides.image
     : undefined;
   const imageSelection = overrides.image === autoImage && repoImages.length === 0 ? profileImage : overrides.image || defaultImageSelection;
+  const selectedRepoImage = repoImages.find((image) => image.reference === (imageSelection === autoImage ? autoRepoReference : imageSelection));
   const imageHelper = recordedImage
-    ? 'Keeping the image recorded on the copied run.'
-    : imageUnavailableReason ?? (repoImages[0] ? `Defaults to the latest repository image: ${repoImages[0].reference}` : undefined);
-  const canStart = Boolean(overview && startForm.project && startForm.gateway);
+    ? 'Recorded image override: repository provenance is not retained.'
+    : imageUnavailableReason ?? (selectedRepoImage
+      ? selectedRepoImage.reference === currentRepoImage
+        ? `Current repository image: ${selectedRepoImage.reference}`
+        : `Explicit override; repository provenance is not retained. Run repo setup to pin a rebuild: ${selectedRepoImage.reference}`
+      : imageSelection === profileImage
+        ? `Profile image: ${selectedProfile?.image ?? 'resolved at start'}`
+        : undefined);
+  const effectiveImage = useOverrides && overrides.image
+    ? overrides.image === profileImage
+      ? selectedProfile?.image ?? '—'
+      : overrides.image === autoImage || overrides.image === currentRepoImage
+        ? currentRepoImage ?? 'Latest repository image (resolved at start)'
+        : overrides.image
+    : currentRepoImage ?? (selectedProject?.manifest ? 'Latest repository image (resolved at start)' : selectedProfile?.image ?? '—');
+  const effectiveModel = useOverrides ? overrides.model || selectedProfile?.model || '—' : selectedProfile?.model || '—';
+  const effectiveApproval = useOverrides ? overrides.approval : approvalForProfile(selectedProfile);
+  const canStart = Boolean(overview && startForm.project && startForm.gateway && (!useOverrides || overrides.model.trim()));
 
   useEffect(() => {
     if (!startOpen || approvalExplicit.current) return;
@@ -307,6 +331,9 @@ export function FleetView({
   }, [useOverrides, repoImages, defaultImageSelection, copySource?.image]);
 
   const openWorkspace = (agent: Run) => {
+    // The Logs drawer is modal. Leaving it open over the workspace covers the
+    // terminal and intercepts clicks, so opening the workspace takes over.
+    updateLog({ open: false });
     setFocusedRunId(agent.id);
     setUnread((current) => {
       const next = new Set(current);
@@ -398,7 +425,7 @@ export function FleetView({
     if (kind === 'resume') return 'resuming';
     if (kind === 'finish') return 'finishing';
     if (kind === 'delete') return 'deleting';
-    return agent.status;
+    return displayStatus(agent.status, agent.exited);
   };
 
   const runAgentAction = async (agent: Run, kind: AgentAction, callback: () => Promise<unknown>, message: string) => {
@@ -484,10 +511,16 @@ export function FleetView({
     setNotice('');
     setStartSubmitting(true);
     try {
-      const overrideImage = useOverrides && overrides.image !== autoImage ? overrides.image : undefined;
+      let imageOverride: string | undefined;
+      if (useOverrides) {
+        if (overrides.image === profileImage) imageOverride = profileImage;
+        else if (overrides.image && overrides.image !== autoImage && overrides.image !== currentRepoImage) imageOverride = overrides.image;
+      }
       const created = await api.startRun({
         ...startForm,
-        ...(useOverrides ? { ...overrides, image: overrideImage } : {}),
+        ...(useOverrides
+          ? { image: imageOverride, model: overrides.model.trim() || undefined, approval: overrides.approval }
+          : {}),
         name: startForm.name?.trim() || undefined,
         prompt: startForm.prompt?.trim() || undefined,
         mcp: startForm.mcp?.trim() || undefined,
@@ -515,6 +548,13 @@ export function FleetView({
       await api.deleteRun(target.id);
       setSelected((current) => (current?.id === target.id ? undefined : current));
     }, 'Agent deleted');
+  };
+
+  const confirmFinish = () => {
+    const target = finishTarget;
+    if (!target) return;
+    setFinishTarget(undefined);
+    void runAgentAction(target, 'finish', () => api.finishRun(target.id), `Finish requested for ${target.name || target.id}`);
   };
 
 
@@ -691,7 +731,7 @@ export function FleetView({
                             )}
                           </TD>
                           <TD label="Branch">
-                            <ExpandableValue value={agent.branch} label={`branch for ${label}`} max={28} />
+                            <ExpandableValue value={agent.branch} label={`branch for ${label}`} max={40} />
                           </TD>
                           <TD label="Actions">
                             <div className="flex flex-wrap items-center gap-1">
@@ -726,7 +766,7 @@ export function FleetView({
         <aside
           aria-label="Agent details"
           className={cn(
-            'border-border bg-background/95',
+            'border-border bg-background',
             selected
               ? 'fixed inset-x-0 bottom-0 z-30 max-h-[72vh] overflow-y-auto rounded-t-xl border-t shadow-2xl agentbox-scrollbar md:static md:z-auto md:max-h-none md:w-96 md:shrink-0 md:rounded-none md:border-l md:border-t-0 md:bg-background/70 md:shadow-none'
               : 'hidden md:block md:w-96 md:shrink-0 md:border-l'
@@ -755,6 +795,7 @@ export function FleetView({
                   ['Harness', selected.agent, 24],
                   ['Model', selected.model || '—', 24],
                   ...(selected.profile ? [['Profile', selected.profile, 24] as const] : []),
+                  ['Branch', selected.branch, 34],
                   ['Image', selected.image, 24]
                 ] as const).map(([label, value, max]) => (
                   <div key={label} className="grid grid-cols-[5.5rem_minmax(0,1fr)] items-start gap-2">
@@ -831,7 +872,7 @@ export function FleetView({
                     variant="outline"
                     loading={pending[selected.id] === 'finish'}
                     disabled={Boolean(pending[selected.id]) || !canFinishRun(selected.status)}
-                    onClick={() => void runAgentAction(selected, 'finish', () => api.finishRun(selected.id), `Finish requested for ${selected.name || selected.id}`)}
+                    onClick={() => setFinishTarget(selected)}
                   >
                     {pending[selected.id] === 'finish' ? 'Finishing…' : 'Finish'}
                   </Button>
@@ -971,10 +1012,10 @@ export function FleetView({
               {selectedProfile ? (
                 <dl className="grid gap-1.5 text-sm sm:grid-cols-2">
                   {([
-                    ['Image', selectedProfile.image, `image for ${selectedProfile.name}`],
-                    ['Model', selectedProfile.model || '—', `model for ${selectedProfile.name}`],
+                    ['Image', effectiveImage, `effective image for ${selectedProfile.name}`],
+                    ['Model', effectiveModel, `effective model for ${selectedProfile.name}`],
                     ['Provider', selectedProfile.provider, `provider for ${selectedProfile.name}`],
-                    ['Approval', approvalLabel(selectedProfile.approval), `approval for ${selectedProfile.name}`]
+                    ['Approval', approvalLabel(effectiveApproval), `effective approval for ${selectedProfile.name}`]
                   ] as const).map(([label, value, copyLabel]) => (
                     <div key={label} className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-start gap-2">
                       <dt className="text-muted">{label}</dt>
@@ -988,7 +1029,22 @@ export function FleetView({
             </Disclosure>
           </div>
           <label className="flex items-center gap-2 text-sm text-muted sm:col-span-2">
-            <input type="checkbox" checked={useOverrides} onChange={(event) => setUseOverrides(event.target.checked)} className="size-3.5 accent-accent" />
+            <input
+              type="checkbox"
+              checked={useOverrides}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setUseOverrides(checked);
+                if (checked) {
+                  setOverrides((current) => ({
+                    image: current.image || defaultImageSelection,
+                    model: current.model || selectedProfile?.model || '',
+                    approval: current.approval || approvalForProfile(selectedProfile)
+                  }));
+                }
+              }}
+              className="size-3.5 accent-accent"
+            />
             Override image, model, and approval
           </label>
           {useOverrides ? (
@@ -1000,16 +1056,20 @@ export function FleetView({
                   disabled={Boolean(imageUnavailableReason) && !recordedImage}
                   onChange={(event) => setOverrides({ ...overrides, image: event.target.value })}
                 >
-                  {repoImages.map((image, index) => (
-                    <option key={image.reference} value={index === 0 ? autoImage : image.reference}>
-                      {index === 0 ? 'Latest project image' : 'Project image'} · {image.agent} {image.version} · {middleEllipsis(image.reference, 36)}
-                    </option>
-                  ))}
-                  {recordedImage ? <option value={recordedImage}>Recorded image · {middleEllipsis(recordedImage, 36)}</option> : null}
+                  {repoImages.map((image) => {
+                    const current = image.reference === currentRepoImage;
+                    const automatic = image.reference === autoRepoReference;
+                    return (
+                      <option key={image.reference} value={automatic ? autoImage : image.reference}>
+                        {current ? 'Current project image' : automatic ? 'Latest project image' : 'Repository override · provenance not retained'} · {image.agent} {image.version} · {middleEllipsis(image.reference, 36)}
+                      </option>
+                    );
+                  })}
+                  {recordedImage ? <option value={recordedImage}>Recorded image override · {middleEllipsis(recordedImage, 36)}</option> : null}
                   <option value={profileImage}>Use profile image{selectedProfile ? ` · ${selectedProfile.agent} profile` : ''}</option>
                 </Select>
               </Field>
-              <Field label="Model" htmlFor="new-agent-model">
+              <Field label="Model" htmlFor="new-agent-model" helper={overrides.model.trim() ? undefined : 'Required when overrides are enabled.'}>
                 <Input id="new-agent-model" value={overrides.model} onChange={(event) => setOverrides({ ...overrides, model: event.target.value })} />
               </Field>
               <Field label="Approval" htmlFor="new-agent-approval">
@@ -1062,6 +1122,18 @@ export function FleetView({
       >
         {configRun ? <AgentConfiguration run={configRun} /> : null}
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(finishTarget)}
+        onOpenChange={(open) => !open && setFinishTarget(undefined)}
+        title={finishTarget ? `Finish ${finishTarget.name || finishTarget.id}` : 'Finish agent'}
+        confirmLabel="Finish"
+        onConfirm={confirmFinish}
+      >
+        <p className="text-sm text-muted">
+          This syncs outstanding work and ends the agent run. The record, worktree, and transcript are kept until you delete the agent.
+        </p>
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={Boolean(deleteTarget)}

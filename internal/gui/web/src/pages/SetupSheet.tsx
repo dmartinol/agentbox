@@ -14,19 +14,23 @@ import type { LogDrawerState } from '../components/LogDrawer';
 export function SetupSheet({
   open,
   onOpenChange,
+  activeTab,
+  onTabChange,
   openLog,
   updateLog,
   onResourcesChanged
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
   openLog: (state: Omit<LogDrawerState, 'open'>) => void;
   updateLog: (state: Partial<LogDrawerState>) => void;
   onResourcesChanged?: () => void;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Setup" description="Projects, profiles, providers, images, gateways, MCP tools, skills, and diagnostics" width="58rem">
-      <Tabs.Root defaultValue="providers" className="flex h-full min-h-0 flex-col">
+      <Tabs.Root value={activeTab} onValueChange={onTabChange} className="flex h-full min-h-0 flex-col">
         <TabList>
           <TabTrigger value="providers">Providers</TabTrigger>
           <TabTrigger value="profiles">Profiles</TabTrigger>
