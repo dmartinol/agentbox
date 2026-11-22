@@ -49,9 +49,10 @@ effective policy before changing network or binary rules. Network rules are
 binary-scoped: a rule for a stdio MCP server must name the server process
 binary, not the agent binary.
 
-Host rules are denial-scoped. Copy the host, port, and binary from the run's
-**Network denials** entry (or `openshell logs <sandbox> --source sandbox`), for
-example:
+Host rules are denial-scoped. List the run's denials with
+`agentbox agent denials RUN_ID` (or read
+`openshell logs <sandbox> --source sandbox`) and copy the host, port, and
+binary from the row to allow, for example:
 
 ```sh
 agentbox policy edit --allow-host api.example.com --port 443 \

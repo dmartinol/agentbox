@@ -55,12 +55,15 @@ agentbox agent start --project demo --profile codex-gateway \
   --prompt "Investigate and fix the failing tests. Run the relevant checks."
 
 agentbox agent list
+agentbox agent denials RUN_ID
 agentbox agent diff RUN_ID
 agentbox agent sync RUN_ID
 ```
 
-Replace `RUN_ID` with the ID printed at startup. Sync brings work into the
-run's local worktree; integrating it into your main branch is a separate step.
+Replace `RUN_ID` with the ID printed at startup. `agent denials` lists the
+network connections the sandbox refused and can turn a selected denial into a
+run-only host rule. Sync brings work into the run's local worktree;
+integrating it into your main branch is a separate step.
 
 ## Agentic development lifecycle
 

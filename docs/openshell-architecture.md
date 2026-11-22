@@ -494,7 +494,8 @@ sandbox log emits entries such as
 `NET:OPEN [MED] DENIED /usr/bin/curl(64) -> api.example.com:443` (or the
 legacy `action=deny dst_host=... dst_port=... binary=...` form). AgentBox
 parses those entries and surfaces the exact host, port, and binary in the
-output drawer. `agentbox policy edit --allow-host HOST --port PORT
+output drawer. `agentbox agent denials RUN_ID` prints the same parsed list
+on the CLI; `agentbox policy edit --allow-host HOST --port PORT
 --binary /abs/path RUN_ID` and the Fleet **Add host** action both remediate
 that exact tuple. The CLI requires `--binary` with `--allow-host`; the GUI
 sends back the tuple from the surfaced denial, and the backend verifies that
@@ -528,6 +529,14 @@ the rule to `hosts` in the repository manifest, regenerates the fragment with
 is recorded on the run as `runtime_hosts` with `source: "run"` or
 `source: "run+manifest"`; the run rule is saved first so a later persist
 failure still leaves the live fix recorded.
+
+`agentbox agent denials RUN_ID [--json]` is the CLI surface over the same
+flow. It lists the run's denials and, when run from a terminal with at least
+one valid denial, ends with one prompt that accepts row numbers or `all` and
+applies run-only host rules (`persist` stays a GUI-only option). The
+selection resolves against the listing from the same invocation, each apply
+re-verifies the tuple against current sandbox output, and piped or `--json`
+invocations never prompt.
 
 A successful edit returns the path it wrote as `policyPath`. Reusable policy
 configurations are only templates, so run copies are excluded from
