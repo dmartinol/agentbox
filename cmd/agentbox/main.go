@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -131,7 +133,7 @@ func usage() {
 	fmt.Println("  skill list|show|create|delete|available")
 	fmt.Println("  skills install|update|remove|list|show|roles")
 	fmt.Println("  orchestrator config path|show|validate")
-	fmt.Println("  agent start|list|show|attach|logs|sleep|resume|finish|stop|sync|diff|delete")
+	fmt.Println("  agent start|list|show|attach|logs|denials|sleep|resume|finish|stop|sync|diff|delete")
 	fmt.Println("  gui [--address host:port]")
 }
 
@@ -1228,7 +1230,7 @@ func printRunState(ctx context.Context, a *app.App, id, message string) error {
 
 func agentCmd(ctx context.Context, a *app.App, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("agent start|list|show|attach|logs|sleep|resume|finish|stop|sync|diff|delete required")
+		return fmt.Errorf("agent start|list|show|attach|logs|denials|sleep|resume|finish|stop|sync|diff|delete required")
 	}
 	switch args[0] {
 	case "start":
@@ -1341,6 +1343,24 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		}
 		fmt.Print(string(b))
 		return nil
+	case "denials":
+		f := flags("agent denials")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		runID := f.Args()[0]
+		denials, err := a.RunDenials(ctx, runID)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(denials)
+		}
+		return runDenialsCommand(ctx, a, runID, denials, stdinIsInteractive(), os.Stdin)
 	case "sleep":
 		f := flags("agent sleep")
 		force := f.Bool("force", false, "interrupt a working agent before sleeping")
@@ -1419,4 +1439,105 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 	default:
 		return fmt.Errorf("unknown agent command %q", strings.Join(args, " "))
 	}
+}
+
+// stdinIsInteractive reports whether the command may prompt on stdin. Piped
+// and redirected invocations must never block on a prompt. Character-device
+// check plus an explicit /dev/null exclusion: go test and daemons run with
+// /dev/null on stdin, which Stat alone reports as a terminal-like device.
+func stdinIsInteractive() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
+		return false
+	}
+	if null, nullErr := os.Stat(os.DevNull); nullErr == nil && os.SameFile(info, null) {
+		return false
+	}
+	return true
+}
+
+// runDenialsCommand prints one run's network denials and, when interactive,
+// offers to turn a selection into run-only host rules through the same
+// verified flow as the GUI's Add host action.
+func runDenialsCommand(ctx context.Context, a *app.App, runID string, denials []app.PolicyDenial, interactive bool, input io.Reader) error {
+	if len(denials) == 0 {
+		fmt.Println("No network denials.")
+		return nil
+	}
+	name := runID
+	if run, err := a.Store.LoadRun(runID); err == nil && run.Name != "" {
+		name = fmt.Sprintf("%s (%s)", run.Name, runID)
+	}
+	fmt.Printf("Run %s — %d network denial(s)\n\n", name, len(denials))
+	printDenialTable(denials)
+	valid := 0
+	for _, denial := range denials {
+		if denial.Valid {
+			valid++
+		}
+	}
+	if valid == 0 {
+		fmt.Println("No denial can be turned into a host rule.")
+		return nil
+	}
+	if !interactive {
+		return nil
+	}
+	fmt.Print("Allow which? (e.g. 1,2 · all · Enter to skip): ")
+	line, err := bufio.NewReader(input).ReadString('\n')
+	if err != nil && line == "" {
+		fmt.Println()
+		return nil // end of input without a selection skips
+	}
+	selection, err := app.ResolveDenialSelection(line, denials)
+	if err != nil {
+		return err
+	}
+	if len(selection) == 0 {
+		fmt.Println("Skipped.")
+		return nil
+	}
+	failed := 0
+	for _, pick := range selection {
+		target := fmt.Sprintf("%s:%d", pick.Request.Host, pick.Request.Port)
+		result, err := a.ApplyDenial(ctx, runID, pick.Request)
+		if err != nil {
+			failed++
+			rollback := ""
+			if result.RolledBack {
+				rollback = " (rolled back)"
+			}
+			if result.Outcome != "" {
+				fmt.Printf("  %-2d %s %s%s: %v\n", pick.Row, target, result.Outcome, rollback, err)
+			} else {
+				fmt.Printf("  %-2d %s failed: %v\n", pick.Row, target, err)
+			}
+			continue
+		}
+		rollback := ""
+		if result.RolledBack {
+			rollback = " (rolled back)"
+		}
+		fmt.Printf("  %-2d %s %s%s\n", pick.Row, target, result.Outcome, rollback)
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d of %d host rule(s) failed", failed, len(selection))
+	}
+	fmt.Println("run-only: applies to this run; add the host to .agentbox/config.yaml for future runs")
+	return nil
+}
+
+// printDenialTable renders one row per denial with the columns an allow
+// decision needs: destination, calling binary, and why it was refused.
+func printDenialTable(denials []app.PolicyDenial) {
+	writer := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(writer, " #\tHOST\tPORT\tBINARY\tSTATUS\tREASON")
+	for i, denial := range denials {
+		status, reason := "ok", denial.Reason
+		if !denial.Valid {
+			status, reason = "invalid", denial.InvalidReason
+		}
+		fmt.Fprintf(writer, " %d\t%s\t%d\t%s\t%s\t%s\n", i+1, denial.Host, denial.Port, denial.Binary, status, reason)
+	}
+	_ = writer.Flush()
 }

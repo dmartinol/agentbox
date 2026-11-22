@@ -10,6 +10,7 @@ subcommands:
   - show
   - attach
   - logs
+  - denials
   - sleep
   - resume
   - finish
@@ -121,6 +122,42 @@ Print a run's captured logs.
 ```text
 agentbox agent logs ID
 ```
+
+## denials
+{: #agent-denials }
+
+Show a run's network denials and allow them interactively.
+
+```text
+agentbox agent denials [--json] ID
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--json` | `false` | Print the denials as JSON, using the same schema as the run logs API. |
+
+Reads the run's sandbox policy log and prints one row per denied network
+connection: host, port, calling binary, and deny reason. Rows that cannot be
+turned into a host rule are marked `invalid` with the reason.
+
+When the run has at least one valid denial and standard input is a terminal,
+the command ends with one prompt:
+
+```text
+Allow which? (e.g. 1,2 · all · Enter to skip):
+```
+
+Answer with row numbers (`1`, `1,3`) or `all` to add run-only host rules for
+the selected denials through the same verified flow as the Fleet **Add
+host** action. Each rule prints one outcome line (`live-applied`,
+`static-pending`, `no-live-sandbox`, or `openshell-rejected`), and the
+command exits non-zero when any rule failed. Empty input or end of file
+skips.
+
+The rules apply to the current run only. Piped input and `--json` never
+prompt: they print the listing and exit. To allow a host without a denial
+listing, or to persist a rule for future runs, use
+`agentbox policy edit --allow-host` or the GUI's persist option.
 
 ## sleep
 {: #agent-sleep }
