@@ -34,12 +34,11 @@ Run `agentbox doctor` to check the local setup.
 
 ## Install
 
-Install the source version that matches this documentation. The `v0.2` tag
-predates repository setup and orchestrator configuration, so use `@main` for
-the features described in those guides:
+Install the latest stable release, which matches this documentation. Use
+`@main` only when you need changes that have not been released yet:
 
 ```sh
-go install github.com/dmartinol/agentbox/cmd/agentbox@main
+go install github.com/dmartinol/agentbox/cmd/agentbox@latest
 ```
 
 Make sure Go's binary directory is on `PATH`, then verify the install:

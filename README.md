@@ -28,12 +28,12 @@ the sandbox and host checkout are not a live shared filesystem.
 
 ## Install and start
 
-The documentation site follows `main`. The `v0.2` tag predates the repository
-setup and orchestrator configuration commands in these guides. To use the
-documented features, install the current source with Go 1.26+:
+The documentation site follows `main`. Install the latest stable release with
+Go 1.26+; use `@main` only when you need changes that have not been released
+yet:
 
 ```sh
-go install github.com/dmartinol/agentbox/cmd/agentbox@main
+go install github.com/dmartinol/agentbox/cmd/agentbox@latest
 export PATH="$(go env GOPATH)/bin:$PATH"
 agentbox doctor
 agentbox gui
