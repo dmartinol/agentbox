@@ -14,7 +14,8 @@ import { formatSyncTimestamp } from '../src/lib/text';
 import type { ProjectCheckout, Run } from '../src/types';
 
 const xtermHooks = vi.hoisted(() => ({
-  resize: undefined as undefined | ((size: { cols: number; rows: number }) => void)
+  resize: undefined as undefined | ((size: { cols: number; rows: number }) => void),
+  writes: [] as unknown[]
 }));
 
 vi.mock('@xterm/xterm', () => ({
@@ -23,7 +24,9 @@ vi.mock('@xterm/xterm', () => ({
     rows = 36;
     open() {}
     focus() {}
-    write() {}
+    write(data: unknown) {
+      xtermHooks.writes.push(data);
+    }
     dispose() {}
     onData() {}
     loadAddon() {}
@@ -100,6 +103,7 @@ function defaultRoutes(): Record<string, unknown> {
 
 beforeEach(() => {
   mockRoutes(defaultRoutes());
+  xtermHooks.writes.length = 0;
 });
 
 afterEach(() => {
@@ -313,6 +317,102 @@ describe('fleet shell', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     await waitFor(() => expect(sockets).toHaveLength(1));
     expect(sockets[0]?.url).toBe('ws://localhost:3000/api/runs/run-active/attach?cols=120&rows=36');
+  });
+
+  it('writes binary terminal frames to xterm as bytes', async () => {
+    class MockWebSocket {
+      static readonly OPEN = 1;
+      readyState = 0;
+      binaryType = 'blob';
+      url: string;
+      onmessage: ((event: { data: string | ArrayBuffer }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number; reason: string }) => void) | null = null;
+
+      constructor(url: string) {
+        this.url = url;
+        sockets.push(this);
+      }
+
+      send() {}
+      close() {}
+    }
+    const sockets: MockWebSocket[] = [];
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /attach/i }))[0]);
+    await waitFor(() => expect(sockets).toHaveLength(1));
+
+    // A pty chunk can end mid-character; the browser only accepts it as a
+    // binary frame, and xterm needs the raw bytes.
+    const chunk = new Uint8Array([0x1b, 0x5b, 0x33, 0x32, 0x6d, 0xe2, 0x94]);
+    sockets[0]?.onmessage?.({ data: chunk.buffer });
+
+    expect(sockets[0]?.binaryType).toBe('arraybuffer');
+    const written = xtermHooks.writes.at(-1);
+    expect(written).toBeInstanceOf(Uint8Array);
+    expect(Array.from(written as Uint8Array)).toEqual(Array.from(chunk));
+  });
+
+  it('reconnects the agent terminal after the GUI restarts', async () => {
+    class MockWebSocket {
+      static readonly OPEN = 1;
+      readyState = 0;
+      url: string;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number; reason: string }) => void) | null = null;
+
+      constructor(url: string) {
+        this.url = url;
+        sockets.push(this);
+      }
+
+      send() {}
+      close() {}
+    }
+    const sockets: MockWebSocket[] = [];
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /attach/i }))[0]);
+    await waitFor(() => expect(sockets).toHaveLength(1));
+
+    sockets[0]?.onclose?.({ code: 1006, reason: '' });
+    expect(await screen.findByText(/Connection lost · reconnecting/i)).toBeInTheDocument();
+    await waitFor(() => expect(sockets).toHaveLength(2), { timeout: 3000 });
+    expect(sockets[1]?.url).toBe(sockets[0]?.url);
+  });
+
+  it('stops retrying when the server explains why attach failed', async () => {
+    class MockWebSocket {
+      static readonly OPEN = 1;
+      readyState = 0;
+      url: string;
+      onmessage: ((event: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((event: { code: number; reason: string }) => void) | null = null;
+
+      constructor(url: string) {
+        this.url = url;
+        sockets.push(this);
+      }
+
+      send() {}
+      close() {}
+    }
+    const sockets: MockWebSocket[] = [];
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click((await screen.findAllByRole('button', { name: /attach/i }))[0]);
+    await waitFor(() => expect(sockets).toHaveLength(1));
+
+    sockets[0]?.onclose?.({ code: 1011, reason: 'run is Unreachable; attach requires a live sandbox' });
+    expect(await screen.findByText('Terminal disconnected')).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(sockets).toHaveLength(1);
   });
 
   it('reports terminal resizes over the attach socket', async () => {

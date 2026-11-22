@@ -156,3 +156,5 @@ agentbox gui
 ```
 
 Open the address printed by the command (default `http://127.0.0.1:8080`). Fleet shows agents grouped by project; **Setup** contains providers, profiles, projects, images, gateways, MCP tools, skills, and advanced diagnostics. Policies are managed with `agentbox policy` or the `/api/policies` endpoints; Setup shows a profile's generated default or legacy path read-only and cannot select policies. Each run's derived policy is read-only under **View policy**.
+
+Keep one GUI process per address. `agentbox gui` refuses to start when another process already owns the port and reports the command that finds it; a GUI started before a rebuild keeps serving the previously embedded UI, so stop the old process before starting the new build. After `make build`, reload the browser tab so an already-open page picks up the new assets instead of its loaded copy.
