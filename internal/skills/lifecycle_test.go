@@ -1028,6 +1028,119 @@ func TestUpdateAddsTemplatesToLegacyManifestV1Install(t *testing.T) {
 	}
 }
 
+func TestUpdateDoesNotClaimByteIdenticalTemplateUnderUnownedSkill(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(home, ".agents", "skills")
+	target := "agentbox-orchestrator"
+	dir := filepath.Join(root, target)
+
+	manifest := loadManifest(root)
+	delete(manifest.Skills, target)
+	if err := saveManifest(root, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := []byte("foreign orchestrator skill\n")
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), foreign, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	template, err := EmbeddedFile(target, "issue.md", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	templatePath := filepath.Join(dir, "issue.md")
+	if err := os.WriteFile(templatePath, template, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := Update(Options{All: true, Version: "1.0.0", Home: home})
+	if err == nil {
+		t.Fatal("update accepted an unowned canonical SKILL.md")
+	}
+	var skillRefused, templateSkipped bool
+	for _, result := range results {
+		if result.Skill != target {
+			continue
+		}
+		if result.File == "SKILL.md" {
+			skillRefused = result.Action == "skipped"
+		}
+		if result.File == "issue.md" {
+			templateSkipped = result.Action == "skipped" &&
+				strings.Contains(result.Detail, "SKILL.md is not managed; use --force to install this file")
+		}
+	}
+	if !skillRefused || !templateSkipped {
+		t.Fatalf("unowned skill results = %+v", actionsOf(results, target))
+	}
+	if body := mustRead(t, filepath.Join(dir, "SKILL.md")); !bytes.Equal(body, foreign) {
+		t.Fatalf("foreign SKILL.md changed: %q", body)
+	}
+	if body := mustRead(t, templatePath); !bytes.Equal(body, template) {
+		t.Fatalf("byte-identical template changed: %q", body)
+	}
+	manifest = loadManifest(root)
+	if _, ok := manifest.Skills[target]; ok {
+		t.Fatalf("unowned skill was written to the manifest: %+v", manifest.Skills[target])
+	}
+}
+
+func TestRemovePreservesByteIdenticalTemplateAfterUnownedSkillUpdate(t *testing.T) {
+	home := prepareHome(t)
+	if _, err := Install(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(home, ".agents", "skills")
+	target := "agentbox-orchestrator"
+	dir := filepath.Join(root, target)
+
+	manifest := loadManifest(root)
+	delete(manifest.Skills, target)
+	if err := saveManifest(root, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := []byte("foreign orchestrator skill\n")
+	skillPath := filepath.Join(dir, "SKILL.md")
+	if err := os.WriteFile(skillPath, foreign, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	template, err := EmbeddedFile(target, "issue.md", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	templatePath := filepath.Join(dir, "issue.md")
+	if err := os.WriteFile(templatePath, template, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Update(Options{All: true, Version: "1.0.0", Home: home}); err == nil {
+		t.Fatal("expected update to refuse the unowned skill")
+	}
+
+	if _, err := Remove(Options{All: true, Version: "1.0.0", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	if body := mustRead(t, skillPath); !bytes.Equal(body, foreign) {
+		t.Fatalf("remove deleted or changed the foreign SKILL.md: %q", body)
+	}
+	if body := mustRead(t, templatePath); !bytes.Equal(body, template) {
+		t.Fatalf("remove deleted or changed the byte-identical template: %q", body)
+	}
+}
+
 // TestRemoveDeletesTemplatesAndKeepsForeignFiles proves remove deletes only
 // managed files and leaves unrelated user content and the directory behind.
 func TestRemoveDeletesTemplatesAndKeepsForeignFiles(t *testing.T) {

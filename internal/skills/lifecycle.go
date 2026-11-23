@@ -487,6 +487,11 @@ func ensureCanonicalFile(dir, skill string, spec SkillFile, content []byte, reco
 	existing, err := os.ReadFile(path)
 	switch {
 	case err == nil && bytes.Equal(existing, content):
+		if !allowCreate && spec.Name != "SKILL.md" {
+			res.Action = "skipped"
+			res.Detail = "SKILL.md is not managed; use --force to install this file"
+			return res, false, nil
+		}
 		res.Action = "unchanged"
 		return res, true, nil
 	case err == nil:
