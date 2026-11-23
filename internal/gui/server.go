@@ -437,7 +437,6 @@ type startRunRequest struct {
 	Name     string `json:"name"`
 	Gateway  string `json:"gateway"`
 	Image    string `json:"image"`
-	Mode     string `json:"mode"`
 	Model    string `json:"model"`
 	Approval string `json:"approval"`
 	Prompt   string `json:"prompt"`
@@ -456,7 +455,6 @@ func (s *Server) startRun(w http.ResponseWriter, r *http.Request) {
 		Name:     request.Name,
 		Gateway:  request.Gateway,
 		Image:    request.Image,
-		Mode:     request.Mode,
 		Model:    request.Model,
 		Approval: request.Approval,
 		Prompt:   request.Prompt,
@@ -1007,6 +1005,7 @@ type providerRecord struct {
 	Builtin           bool     `json:"builtin,omitempty"`
 	Registered        bool     `json:"registered"`
 	CredentialPresent bool     `json:"credential_present,omitempty"`
+	Mode              string   `json:"mode,omitempty"`
 	Error             string   `json:"error,omitempty"`
 }
 
@@ -1080,23 +1079,6 @@ type providerListPayload struct {
 	Providers []providerRecord `json:"providers"`
 }
 
-func normalizeProviderType(value string) string {
-	switch {
-	case value == "openai", value == "anthropic":
-		return value
-	case strings.HasPrefix(value, "agentbox-gateway-bearer-"):
-		return "gateway-bearer"
-	case strings.HasPrefix(value, "agentbox-gateway-header-"):
-		return "gateway-header"
-	case strings.HasPrefix(value, "agentbox-openai"):
-		return "openai"
-	case strings.HasPrefix(value, "agentbox-anthropic"):
-		return "anthropic"
-	default:
-		return value
-	}
-}
-
 func (r providerRecord) normalized(gateway string) providerRecord {
 	r.Registered = true
 	if r.Type == "" {
@@ -1113,7 +1095,16 @@ func (r providerRecord) normalized(gateway string) providerRecord {
 	if r.Profile == "" && r.ProfileID != "" {
 		r.Profile = r.ProfileID
 	}
-	r.Type = normalizeProviderType(r.Type)
+	r.Type = app.NormalizeProviderKind(r.Type)
+	mode, modeErr := app.ProviderKindMode(r.Type)
+	if modeErr != nil {
+		r.Mode = ""
+		if r.Error == "" {
+			r.Error = modeErr.Error()
+		}
+	} else {
+		r.Mode = mode
+	}
 	if r.Credential == "" && len(r.CredentialKeys) == 1 {
 		r.Credential = r.CredentialKeys[0]
 	}
@@ -1121,6 +1112,11 @@ func (r providerRecord) normalized(gateway string) providerRecord {
 		r.Gateway = gateway
 	}
 	return r
+}
+
+func providerModeForKind(kind string) string {
+	mode, _ := app.ProviderKindMode(kind)
+	return mode
 }
 
 func (s *Server) providerModels(w http.ResponseWriter, r *http.Request) {
@@ -1252,6 +1248,7 @@ func (s *Server) listProviders(w http.ResponseWriter, r *http.Request) {
 			Builtin:           true,
 			Registered:        status.Registered,
 			CredentialPresent: status.CredentialPresent,
+			Mode:              providerModeForKind(status.Kind),
 			Error:             status.Error,
 			UsedBy:            users,
 		})

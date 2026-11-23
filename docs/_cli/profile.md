@@ -47,6 +47,11 @@ when the run starts. `--api-key-env` takes an
 environment-variable name, never a key value. On success the command prints
 the saved profile path.
 
+Provider kind determines mode: direct `openai` and `anthropic` providers require
+`standard`, while `gateway-bearer` and `gateway-header` providers require
+`gateway`. The Setup Profiles dialog displays this derived mode as read-only.
+Run start rejects a mismatch before loading policy or creating a run.
+
 Every run policy starts from the AgentBox default, adds a binary-scoped
 provider rule, then adds network rules from a non-generated legacy policy and
 the active repository fragment. Legacy files cannot replace the default

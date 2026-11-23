@@ -702,6 +702,36 @@ func TestUsageListsAgentDenialsCommand(t *testing.T) {
 	}
 }
 
+func TestAgentStartRejectsRemovedModeFlag(t *testing.T) {
+	ctx := context.Background()
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	err := dispatch(ctx, a, []string{"agent", "start", "--mode", "gateway"})
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -mode") {
+		t.Fatalf("removed mode flag error = %v", err)
+	}
+
+	stderr, err := captureStderr(t, func() error {
+		return dispatch(ctx, a, []string{"agent", "start", "--help"})
+	})
+	if err != nil && !errors.Is(err, flag.ErrHelp) {
+		t.Fatal(err)
+	}
+	if strings.Contains(stderr, "--mode") || strings.Contains(stderr, "  -mode ") {
+		t.Fatalf("agent start help still mentions mode: %s", stderr)
+	}
+
+	usageOutput, err := captureStdout(t, func() error {
+		usage()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(usageOutput, "--mode") {
+		t.Fatalf("top-level help still mentions mode: %s", usageOutput)
+	}
+}
+
 func TestAgentStopWarnsAndDelegatesToSleep(t *testing.T) {
 	ctx := context.Background()
 	store := app.Store{Base: t.TempDir()}

@@ -1616,7 +1616,7 @@ endpoints:
 			selected = provider
 		}
 	}
-	if selected.Name != "model-gateway" || selected.Type != "gateway-bearer" || selected.Credential != "MY_GATEWAY_KEY" || selected.BaseURL != "https://models.example.com/v1" || selected.Gateway != "openshell" {
+	if selected.Name != "model-gateway" || selected.Type != "gateway-bearer" || selected.Mode != "gateway" || selected.Credential != "MY_GATEWAY_KEY" || selected.BaseURL != "https://models.example.com/v1" || selected.Gateway != "openshell" {
 		t.Fatalf("providers = %#v", providers)
 	}
 }

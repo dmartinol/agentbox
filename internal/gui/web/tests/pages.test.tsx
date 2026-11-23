@@ -13,6 +13,11 @@ import { mcps, overview, providers, runs, skillEntries, skillStatus } from './fi
 import { formatSyncTimestamp } from '../src/lib/text';
 import type { ProjectCheckout, Run } from '../src/types';
 
+const providersWithModes = providers.map((provider) => ({
+  ...provider,
+  mode: provider.name === 'openai' || provider.name === 'anthropic' ? 'standard' : 'gateway'
+}));
+
 const xtermHooks = vi.hoisted(() => ({
   resize: undefined as undefined | ((size: { cols: number; rows: number }) => void),
   writes: [] as unknown[]
@@ -78,8 +83,8 @@ function defaultRoutes(): Record<string, unknown> {
     'GET /api/doctor': overview.doctor,
     'GET /api/runs': runs,
     'GET /api/profiles': overview.profiles,
-    'GET /api/providers': providers,
-    'GET /api/providers?gateway=openshell': providers,
+    'GET /api/providers': providersWithModes,
+    'GET /api/providers?gateway=openshell': providersWithModes,
     'GET /api/providers/model-gateway/models?gateway=openshell': ['gpt-6-luna', 'model-x'],
     'GET /api/gateways': overview.gateways,
     'GET /api/images': overview.images,
@@ -209,7 +214,7 @@ describe('fleet shell', () => {
         profileCreated = true;
         return jsonResponse(newProfile);
       }
-      if (url === '/api/providers' && method === 'GET') return jsonResponse(providers);
+      if (url === '/api/providers' && method === 'GET') return jsonResponse(providersWithModes);
       if (url === '/api/gateways' && method === 'GET') return jsonResponse(overview.gateways);
       if (url === '/api/images' && method === 'GET') return jsonResponse(overview.images);
       throw new Error(`unmocked profile refresh request ${method} ${url}`);
@@ -230,7 +235,7 @@ describe('fleet shell', () => {
     expect(within(profileSelect).getByRole('option', { name: 'new-codex' })).toBeInTheDocument();
   });
 
-  it('shows start errors inside the new-agent dialog', async () => {
+  it('shows provider-mode start errors inside the new-agent dialog', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       const method = init?.method ?? 'GET';
@@ -239,7 +244,7 @@ describe('fleet shell', () => {
       if (url === '/api/skills' && method === 'GET') return jsonResponse(skillEntries);
       if (url === '/api/doctor' && method === 'GET') return jsonResponse(overview.doctor);
       if (url === '/api/runs' && method === 'POST') {
-        return jsonResponse({ error: 'profile "codex-enmaas" references missing policy file ~/.agentbox/policies/codex-enmaas.yaml; restore the policy or use the AgentBox default' }, 400);
+        return jsonResponse({ error: 'profile "codex-enmaas" declares mode "standard" but provider "enmaas" has kind "gateway-bearer"; set profile mode to "gateway"' }, 400);
       }
       throw new Error(`unmocked start request ${method} ${url}`);
     }));
@@ -249,7 +254,7 @@ describe('fleet shell', () => {
     await user.click(await screen.findByRole('button', { name: /new agent/i }));
     await user.click(await screen.findByRole('button', { name: 'Start' }));
     expect(await screen.findByText('Unable to start agent')).toBeInTheDocument();
-    expect(screen.getByText(/references missing policy file/)).toBeInTheDocument();
+    expect(screen.getByText(/set profile mode to "gateway"/)).toBeInTheDocument();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
@@ -922,6 +927,10 @@ describe('profiles', () => {
       'localhost/openshell:codex-0.9.0-r3'
     ]);
 
+    const mode = within(dialog).getByLabelText(/^Mode \(derived from provider kind\)/);
+    expect(mode).toHaveValue('gateway');
+    expect(mode).toHaveAttribute('readonly');
+
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Gateway mode requires an exact model ID.')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Discover' }));
@@ -938,12 +947,9 @@ describe('profiles', () => {
     expect(apiKeyEnv).toBeDisabled();
 
     await user.selectOptions(within(dialog).getByLabelText(/^Provider/), 'openai');
-    expect(within(dialog).getByLabelText(/^Mode\s*\*?$/)).toHaveValue('standard');
-    await user.selectOptions(within(dialog).getByLabelText(/^Mode\s*\*?$/), 'gateway');
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText('Direct OpenAI and Anthropic providers require standard mode.')).toBeInTheDocument();
+    expect(mode).toHaveValue('standard');
     await user.selectOptions(within(dialog).getByLabelText(/^Provider/), 'unused-gateway');
-    expect(within(dialog).getByLabelText(/^Mode\s*\*?$/)).toHaveValue('gateway');
+    expect(mode).toHaveValue('gateway');
     expect(baseURL).toHaveValue('https://unused.example.test/v1');
     expect(apiKeyEnv).toHaveValue('UNUSED_GATEWAY_KEY');
 
@@ -970,7 +976,7 @@ describe('image builds', () => {
       if (url === '/api/gateways' && method === 'GET') return jsonResponse(overview.gateways);
       if (url === '/api/mcps' && method === 'GET') return jsonResponse(mcps);
       if (url === '/api/skills' && method === 'GET') return jsonResponse(skillEntries);
-      if (url === '/api/providers?gateway=openshell' && method === 'GET') return jsonResponse(providers);
+      if (url === '/api/providers?gateway=openshell' && method === 'GET') return jsonResponse(providersWithModes);
       if (url === '/api/images' && method === 'GET') return jsonResponse(overview.images);
       if (url === '/api/projects' && method === 'GET') return jsonResponse(overview.projects);
       if (url === '/api/profiles' && method === 'GET') return jsonResponse(overview.profiles);

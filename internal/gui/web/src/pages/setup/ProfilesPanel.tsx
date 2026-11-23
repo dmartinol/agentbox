@@ -14,10 +14,9 @@ import { Modal } from '../../components/ui/dialog';
 import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/table';
 
 const agents = ['codex', 'claude', 'opencode'];
-const modes = ['standard', 'gateway'];
 
 const emptyProfile: Profile = {
-  version: 1, name: '', agent: 'codex', image: '', mode: 'gateway', model: '',
+  version: 1, name: '', agent: 'codex', image: '', mode: '', model: '',
   provider: '', policy: '', approval: defaultApproval, base_url: '', api_key_env: ''
 };
 
@@ -34,23 +33,6 @@ function providerValues(provider: Provider | undefined) {
     base_url: provider?.base_url ?? '',
     api_key_env: provider?.credential ?? provider?.credential_keys?.[0] ?? ''
   };
-}
-
-function providerMode(provider: Provider | undefined) {
-  switch (provider?.type) {
-    case 'openai':
-    case 'anthropic':
-      return 'standard';
-    case 'gateway-bearer':
-    case 'gateway-header':
-      return 'gateway';
-    default:
-      return undefined;
-  }
-}
-
-function isDirectProvider(provider: Provider | undefined) {
-  return providerMode(provider) === 'standard';
 }
 
 function usesProviderDefaults(profile: Profile, provider: Provider | undefined) {
@@ -124,6 +106,7 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
   }, [providers, form.provider]);
 
   const selectedProvider = providers.find((provider) => provider.name === form.provider);
+  const selectedProviderMode = selectedProvider?.mode;
   const modelOptions = useMemo(() => {
     const values = new Set(models);
     if (form.model) values.add(form.model);
@@ -142,7 +125,7 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
       ...emptyProfile,
       image: defaultImageFor(images, 'codex'),
       provider: provider?.name ?? '',
-      mode: providerMode(provider) ?? 'gateway',
+      mode: provider?.mode ?? '',
       ...providerValues(provider)
     });
     setUseProviderSettings(true);
@@ -156,7 +139,7 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
     const provider = providers.find((item) => item.name === profile.provider);
     setEditingProfile(true);
     const isDefaultPolicy = isDefaultProfilePolicy(profile);
-    setForm({ ...profile, policy: isDefaultPolicy ? '' : profile.policy });
+    setForm({ ...profile, policy: isDefaultPolicy ? '' : profile.policy, mode: provider?.mode ?? '' });
     setUseProviderSettings(usesProviderDefaults(profile, provider));
     setFormError('');
     setModels([]);
@@ -166,14 +149,13 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
 
   const selectProvider = (name: string) => {
     const provider = providers.find((item) => item.name === name);
-    const mode = providerMode(provider);
     setFormError('');
     setModels([]);
     setModelError('');
     setForm((current) => ({
       ...current,
       provider: name,
-      mode: mode ?? current.mode,
+      mode: provider?.mode ?? '',
       ...(useProviderSettings ? providerValues(provider) : {})
     }));
   };
@@ -211,10 +193,6 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
       setFormError('Gateway mode requires an exact model ID.');
       return;
     }
-    if (isDirectProvider(selectedProvider) && form.mode === 'gateway') {
-      setFormError('Direct OpenAI and Anthropic providers require standard mode.');
-      return;
-    }
     setFormError('');
     try {
       await api.saveProfile({ ...form, policy: form.policy || '' });
@@ -223,7 +201,7 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
       await load();
       onChanged?.();
     } catch (err) {
-      setError(err as Error);
+      setFormError((err as Error).message);
     }
   };
 
@@ -293,7 +271,7 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
         onOpenChange={setOpen}
         title={editingProfile ? `Edit ${form.name || 'profile'}` : 'Create profile'}
         description="Profiles reference an OpenShell provider and define agent defaults."
-        footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button onClick={() => void save()}>Save</Button></>}
+        footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button disabled={!selectedProviderMode} onClick={() => void save()}>Save</Button></>}
       >
         {formError ? <Alert variant="danger" title="Unable to save profile" className="mb-3">{formError}</Alert> : null}
         <div className="grid gap-3 sm:grid-cols-2">
@@ -316,10 +294,13 @@ export function ProfilesPanel({ onChanged }: { onChanged?: () => void }) {
                 : currentImageMissing ? null : <option value="">No matching image</option>}
             </Select>
           </Field>
-          <Field label="Mode" htmlFor="profile-mode" required>
-            <Select id="profile-mode" value={form.mode} onChange={(event) => setForm({ ...form, mode: event.target.value })}>
-              {modes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-            </Select>
+          <Field
+            label="Mode (derived from provider kind)"
+            htmlFor="profile-mode"
+            helper="The selected provider determines this mode."
+            error={selectedProviderMode ? undefined : 'This provider has an unsupported kind. Choose a supported provider before saving.'}
+          >
+            <Input id="profile-mode" readOnly value={selectedProviderMode ?? 'Unknown'} />
           </Field>
           <Field
             label="Model"

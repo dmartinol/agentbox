@@ -2,7 +2,10 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
 )
 
 // BuiltinProvider describes an inference provider whose endpoint and credential
@@ -59,6 +62,73 @@ func BuiltinProviderByKind(kind string) (BuiltinProvider, bool) {
 		}
 	}
 	return BuiltinProvider{}, false
+}
+
+// NormalizeProviderKind maps both direct OpenShell kinds and the generated
+// profile IDs that older OpenShell releases report in the provider type field.
+func NormalizeProviderKind(value string) string {
+	switch {
+	case value == "openai", value == "anthropic":
+		return value
+	case strings.HasPrefix(value, "agentbox-gateway-bearer-"):
+		return "gateway-bearer"
+	case strings.HasPrefix(value, "agentbox-gateway-header-"):
+		return "gateway-header"
+	case strings.HasPrefix(value, "agentbox-openai"):
+		return "openai"
+	case strings.HasPrefix(value, "agentbox-anthropic"):
+		return "anthropic"
+	default:
+		return value
+	}
+}
+
+// ProviderKindMode returns the only profile mode compatible with a provider
+// kind. Unknown kinds fail closed.
+func ProviderKindMode(kind string) (string, error) {
+	switch NormalizeProviderKind(kind) {
+	case "openai", "anthropic":
+		return "standard", nil
+	case "gateway-bearer", "gateway-header":
+		return "gateway", nil
+	default:
+		return "", fmt.Errorf("provider kind %q is unsupported; supported kinds are anthropic, gateway-bearer, gateway-header, and openai", kind)
+	}
+}
+
+type openShellProviderRecord struct {
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	ProviderType string `json:"provider_type"`
+}
+
+type openShellProviderList struct {
+	Providers []openShellProviderRecord `json:"providers"`
+}
+
+func (a *App) providerKind(ctx context.Context, provider string, gateway string) (string, error) {
+	if definition, ok := BuiltinProviderByName(provider); ok {
+		return definition.Kind, nil
+	}
+	data, err := a.ProviderList(ctx, gateway)
+	if err != nil {
+		return "", fmt.Errorf("provider %q kind could not be loaded from OpenShell: %w", provider, err)
+	}
+	var payload openShellProviderList
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return "", fmt.Errorf("provider %q kind could not be parsed from OpenShell: %w", provider, err)
+	}
+	for _, record := range payload.Providers {
+		if record.Name != provider {
+			continue
+		}
+		rawKind := record.Type
+		if rawKind == "" {
+			rawKind = record.ProviderType
+		}
+		return NormalizeProviderKind(rawKind), nil
+	}
+	return "", fmt.Errorf("provider %q was not found in the OpenShell provider list", provider)
 }
 
 // BuiltinProviderStatus reports whether a built-in provider is registered with
