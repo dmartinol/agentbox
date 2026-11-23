@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CircleHelp, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal, X } from 'lucide-react';
+import { Bot, CircleHelp, CircleSlash, Loader2, Monitor, RefreshCw, Search, Terminal, Trash2, X } from 'lucide-react';
 import { api } from '../api';
 import { approvalForProfile, approvalLabel, approvalOptions, defaultApproval } from '../approvals';
 import type { MCPTools, Overview, Profile, Run, SkillsEntry, StartRunRequest } from '../types';
@@ -160,7 +160,7 @@ function manageHint(agent: Run): string {
     case 'working':
       return 'Sleep and Finish are unavailable while the agent works. Wait for the turn, or run `agentbox agent sleep --force`.';
     case 'completed':
-      return 'Completed runs cannot be resumed. Delete removes the record and worktree; use Configuration → Delete agent.';
+      return 'Completed runs cannot be resumed. Delete removes the record and worktree; use the row Delete action.';
     case 'stopped':
       return 'Resume starts the sandbox and continues the last conversation in the same worktree.';
     case 'ready':
@@ -569,6 +569,7 @@ export function FleetView({
         const response = await api.logs(agent.id);
         updateLog({
           content: response.logs,
+          logSource: response.logSource,
           denials: response.denials ?? [],
           denialsError: response.denialsError,
           loading: false,
@@ -751,6 +752,15 @@ export function FleetView({
                                   <Terminal className="size-3" /> Logs
                                 </Button>
                               ) : null}
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                className="text-danger"
+                                aria-label={`Delete ${label}`}
+                                onClick={(event) => { event.stopPropagation(); setDeleteTarget(agent); }}
+                              >
+                                <Trash2 className="size-3" /> Delete
+                              </Button>
                             </div>
                           </TD>
                         </TR>
@@ -1096,19 +1106,6 @@ export function FleetView({
           : 'Read-only configuration for the selected agent.'}
         footer={configRun ? (
           <>
-            <Button
-              variant="danger"
-              className="mr-auto"
-              loading={pending[configRun.id] === 'delete'}
-              disabled={Boolean(pending[configRun.id])}
-              onClick={() => {
-                const target = configRun;
-                closeConfiguration(false);
-                setDeleteTarget(target);
-              }}
-            >
-              {pending[configRun.id] === 'delete' ? 'Deleting agent' : 'Delete agent'}
-            </Button>
             <Button variant="ghost" onClick={() => closeConfiguration()}>Done</Button>
             <Button onClick={() => {
               const target = configRun;

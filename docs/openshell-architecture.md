@@ -791,8 +791,16 @@ tab is a view over one run.
   client; tmux keeps its session alive, so the tab reattaches to the same
   session on return. Unfocused tabs are represented by their status rather
   than by a background terminal.
-- While a tab reattaches, the GUI shows the cached tail of
-  `/workspace/state/agent.log`, so the surface is never blank.
+- While a tab reattaches, the GUI shows the last rendered screen of the
+  `agent` pane, so the surface is never blank.
+- Log views read the rendered pane (`tmux capture-pane`), not the raw
+  `agent.log`. The pipe-pane stream is a full-screen TUI repaint trace with
+  cursor addressing and synchronized-output modes; replayed as text it
+  collapses into one unreadable blob with no line breaks. AgentBox saves the
+  rendered pane to `/workspace/state/agent.screen` when the session ends, so a
+  finished run still has a readable log. The raw stream remains only as a
+  fallback for records written before snapshots existed, and the GUI labels
+  that fallback instead of presenting it as normal output.
 - An attach issued while the sandbox bootstrap is still creating the tmux
   session waits for that session (up to 30 seconds) instead of failing with
   `no sessions`, and it fails immediately once `/workspace/finished` exists.
@@ -877,6 +885,12 @@ Precedence, highest first:
 8. idle marker or a shell in the tmux foreground → Ready;
 9. agent in the tmux foreground → Working;
 10. inspect error or unparsable response → Unreachable.
+
+A normal agent CLI exit is resumable, so it stays Ready with the detail
+`agent exited (code N); resume available` and Fleet labels that pair `Exited`.
+Finish records Completed for a run whose work is done; a stage loop must call
+`agentbox agent finish` after it captures a successful stage, or the run keeps
+looking interrupted even though the stage produced its artifact.
 
 A user-issued Finish records `status_detail: "finished by user"`. The exit
 marker alone cannot distinguish that from an agent exit, so Finish does not
@@ -971,9 +985,13 @@ including both mirror files, because a later sync reverses and re-applies the
 previous export. Delete removes every run-owned artifact only after sandbox,
 worktree, and branch cleanup succeed, and removes the record last.
 
-`agentbox agent prune` removes only artifacts whose run record is absent. Use
-`--dry-run` to list what would be removed and how many bytes would be freed;
-the real command rechecks each record immediately before removal.
+`agentbox agent prune` with no status selector removes only artifacts whose run
+record is absent. Use `--dry-run` to list what would be removed and how many
+bytes would be freed; the real command rechecks each record immediately before
+removal. With `--completed` and/or `--failed`, prune instead selects whole run
+records by derived status and deletes them through the normal delete path,
+which keeps the sandbox, worktree, branch, artifact, and record ordering. It
+lists the matches unless `--yes` is passed, and it never selects an active run.
 
 ### Sync state
 

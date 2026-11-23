@@ -56,6 +56,61 @@ func TestDoctorJSONIsParseable(t *testing.T) {
 	}
 }
 
+func TestAgentPruneRejectsDryRunWithYes(t *testing.T) {
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	err := dispatch(context.Background(), a, []string{"agent", "prune", "--completed", "--dry-run", "--yes"})
+	if err == nil || !strings.Contains(err.Error(), "--dry-run and --yes are mutually exclusive") {
+		t.Fatalf("flag conflict = %v", err)
+	}
+}
+
+func TestAgentPruneJSONListsSelectedRuns(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	a := &app.App{Store: store, Runner: &appfakeRunner{}}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(app.Run{ID: "run-failed1", Name: "failed-one", Project: "demo", Status: app.StatusFailed, Sandbox: "sandbox-failed1", Gateway: "gateway-one", Synced: true}); err != nil {
+		t.Fatal(err)
+	}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"agent", "prune", "--failed", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result app.RunPruneResult
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("prune output is not a result object: %s (%v)", output, err)
+	}
+	if !result.DryRun || result.Deleted || len(result.Runs) != 1 || result.Runs[0].ID != "run-failed1" {
+		t.Fatalf("prune result = %+v", result)
+	}
+	if _, err := store.LoadRun("run-failed1"); err != nil {
+		t.Fatalf("json dry-run removed the run: %v", err)
+	}
+}
+
+func TestAgentPruneTextAsksForConfirmation(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	a := &app.App{Store: store, Runner: &appfakeRunner{}}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(app.Run{ID: "run-failed1", Name: "failed-one", Project: "demo", Status: app.StatusFailed, Sandbox: "sandbox-failed1", Gateway: "gateway-one", Synced: true}); err != nil {
+		t.Fatal(err)
+	}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"agent", "prune", "--failed"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "Would delete 1 run(s)") || !strings.Contains(output, "Pass --yes to delete these runs.") {
+		t.Fatalf("prune text = %q", output)
+	}
+}
+
 func TestImageBuildPreviewReturnsRecipeAndExactVersionAsJSON(t *testing.T) {
 	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
 	output, err := captureStdout(t, func() error {

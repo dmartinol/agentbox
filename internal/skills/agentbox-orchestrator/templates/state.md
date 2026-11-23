@@ -31,7 +31,7 @@ configuration:
     review: <source>
     retro: <source>
 triage:
-  decision: <ready|needs-info|out-of-scope|blocked>
+  decision: <ready|ready-simple|needs-info|out-of-scope|blocked>
   reason: <one sentence>
 stages:
   - stage: triage
@@ -48,7 +48,7 @@ stages:
     commit: not-applicable
   - stage: plan
     iteration: 1
-    dispatch: <split|combined>
+    dispatch: <split|combined|skipped-simple>
     started: <RFC3339>
     ended: <RFC3339>
     runtime: <runtime>
@@ -160,7 +160,7 @@ Record the effort the worker actually ran with. Use `not-applicable` when the se
 
 `configuration.selection_note` records how a worker selection was resolved when the registry did not supply it, such as a configuration copied from a running agent: the recipe and the source run id. It stays empty when every stage resolved from the registry.
 
-Every dispatch appends a `stages[]` entry; never overwrite the previous one. `iteration` counts dispatches of the same stage from 1, so a correction run or a second fix cycle keeps its own commit. `started` and `ended` are the dispatch window in RFC3339 and the only source of a footer duration. `dispatch` is `split` or `combined`; a combined triage and plan pair carries the same window in both entries. `synced_commit` keeps the sandbox commit from before the squash, and `artifact` links the posted stage artifact, such as the verify comment.
+Every dispatch appends a `stages[]` entry; never overwrite the previous one. `iteration` counts dispatches of the same stage from 1, so a correction run or a second fix cycle keeps its own commit. `started` and `ended` are the dispatch window in RFC3339 and the only source of a footer duration. `dispatch` is `split`, `combined`, or `skipped-simple`; a combined triage and plan pair carries the same window in both entries, and a `skipped-simple` plan entry records the triage decision and gate list in place of a plan artifact. `synced_commit` keeps the sandbox commit from before the squash, and `artifact` links the posted stage artifact, such as the verify comment.
 
 Adoption rule: the state record wins. When the issue body marker disagrees — a different workflow id, worker, or agent — reuse the recorded identity, post one supersession note naming both identities, and update the body marker in place. Never run the same stage under two identities.
 

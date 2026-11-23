@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Dialog } from 'radix-ui';
 import { Loader2, ShieldAlert, Square, X } from 'lucide-react';
 import { api } from '../api';
@@ -8,7 +8,7 @@ import { CopyButton } from './ui/copy-value';
 import { Modal } from './ui/dialog';
 import { Input } from './ui/input';
 import { StatusBadge, canAttachRun } from './StatusBadge';
-import { normalizeTerminalText } from '../lib/text';
+import { logSourceNote, normalizeTerminalText } from '../lib/text';
 
 export interface LogDrawerState {
   open: boolean;
@@ -20,6 +20,8 @@ export interface LogDrawerState {
   taskStatus?: string;
   runId?: string;
   runStatus?: string;
+  /** Where the log text came from: rendered screen, snapshot, or raw stream. */
+  logSource?: string;
   denials?: PolicyDenial[];
   denialsError?: string;
 }
@@ -32,6 +34,15 @@ function entryYaml(denial: PolicyDenial): string {
   return `- host: ${denial.host}\n  port: ${denial.port}\n  binaries: [${denial.binary}]`;
 }
 
+// Keep the drawer scannable for long agent logs: render the newest lines and
+// reveal the rest on demand instead of loading a wall of text on open.
+const COLLAPSED_LINES = 200;
+
+// A live run's rendered screen is a few dozen lines, so refresh it while the
+// drawer is open and let the tail follow new output.
+const LIVE_TAIL_LINES = 400;
+const LIVE_REFRESH_MS = 2000;
+
 export function LogDrawer({
   state,
   onClose,
@@ -43,8 +54,15 @@ export function LogDrawer({
   onStop?: (taskId: string) => void;
   stopping?: boolean;
 }) {
+  const [showAll, setShowAll] = useState(false);
+  const [pinned, setPinned] = useState(true);
+  const [live, setLive] = useState<{ content: string; source?: string }>();
+  const scrollRef = useRef<HTMLDivElement>(null);
   // Render terminal-shaped text, not raw escape sequences.
-  const content = useMemo(() => normalizeTerminalText(state.content), [state.content]);
+  const rawContent = live?.content ?? state.content;
+  const content = useMemo(() => normalizeTerminalText(rawContent), [rawContent]);
+  const source = live?.source ?? state.logSource;
+  const note = logSourceNote(source);
   const empty = !content.trim();
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<PolicyDenial | null>(null);
@@ -58,6 +76,9 @@ export function LogDrawer({
   const [failedDiff, setFailedDiff] = useState('');
 
   useEffect(() => {
+    setShowAll(false);
+    setPinned(true);
+    setLive(undefined);
     setApplied(new Set());
     setSelected(null);
     setPersist(false);
@@ -67,6 +88,80 @@ export function LogDrawer({
     setRollback(undefined);
     setFailedDiff('');
   }, [state.runId, state.title, state.open]);
+
+  const lines = useMemo(() => content.split('\n'), [content]);
+  const hiddenLines = !showAll && lines.length > COLLAPSED_LINES ? lines.length - COLLAPSED_LINES : 0;
+  const visibleContent = hiddenLines > 0 ? lines.slice(lines.length - COLLAPSED_LINES).join('\n') : content;
+
+  // Follow the tail after the new text is in the DOM, then once more on the
+  // next frame in case a font or the drawer height settled late. A scroll event
+  // caused by this assignment is at the bottom, so it keeps pinned true.
+  useLayoutEffect(() => {
+    if (!pinned) return;
+    const element = scrollRef.current;
+    if (!element) return;
+    element.scrollTop = element.scrollHeight;
+    const frame = window.requestAnimationFrame(() => {
+      const current = scrollRef.current;
+      if (current) current.scrollTop = current.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [visibleContent, pinned, state.open]);
+
+  // Refresh a live run's rendered screen so the drawer is a tail, not a
+  // single snapshot taken when it opened.
+  useEffect(() => {
+    setLive(undefined);
+    if (!state.open || !state.runId || showAll || !canAttachRun(state.runStatus ?? '')) return;
+    let active = true;
+    let timer: number | undefined;
+    const runId = state.runId;
+    const refresh = async () => {
+      try {
+        const response = await api.logs(runId, LIVE_TAIL_LINES);
+        if (!active) return;
+        setLive({ content: response.logs, source: response.logSource });
+        // A saved snapshot means the session ended: stop polling until the run
+        // is resumed and the drawer is reopened.
+        if (response.logSource === 'snapshot') active = false;
+      } catch {
+        // Keep the last readable screen; the next tick retries.
+      }
+      if (active) timer = window.setTimeout(refresh, LIVE_REFRESH_MS);
+    };
+    void refresh();
+    return () => {
+      active = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [state.open, state.runId, state.runStatus, showAll]);
+
+  const trackScroll = () => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+    setPinned(distance <= 24);
+  };
+
+  const jumpToLatest = () => {
+    setPinned(true);
+    const element = scrollRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  };
+
+  const revealEarlier = () => {
+    setShowAll(true);
+    setPinned(false);
+    window.requestAnimationFrame(() => {
+      const element = scrollRef.current;
+      if (element) element.scrollTop = 0;
+    });
+  };
+
+  const collapseToLatest = () => {
+    setShowAll(false);
+    setPinned(true);
+  };
 
   const denials = (state.denials ?? []).filter((denial) => !applied.has(denialKey(denial)));
   const runIsLive = Boolean(state.runId) && canAttachRun(state.runStatus ?? '');
@@ -166,6 +261,9 @@ export function LogDrawer({
               ) : null}
             </div>
             <div className="flex items-center gap-1">
+              {!pinned && !empty ? (
+                <Button size="xs" variant="outline" onClick={jumpToLatest}>Jump to latest</Button>
+              ) : null}
               {!empty ? <CopyButton value={content} label="output" /> : null}
               {state.taskId && state.taskStatus === 'running' ? (
                 <Button size="xs" variant="danger" loading={stopping} onClick={() => onStop?.(state.taskId!)}>
@@ -177,7 +275,7 @@ export function LogDrawer({
               </Dialog.Close>
             </div>
           </div>
-          <div className="agentbox-scrollbar min-h-0 flex-1 overflow-auto bg-surface-2 p-3">
+          <div ref={scrollRef} onScroll={trackScroll} className="agentbox-scrollbar min-h-0 flex-1 overflow-auto bg-surface-2 p-3">
             {denials.length > 0 || state.denialsError ? (
               <section aria-label="Network denials" className="mb-3 space-y-2">
                 <div className="flex flex-wrap items-baseline justify-between gap-1">
@@ -229,6 +327,7 @@ export function LogDrawer({
                 })}
               </section>
             ) : null}
+            {note && !state.error ? <div className="mb-2 text-xs text-muted">{note}</div> : null}
             {state.error ? (
               <div role="alert" className="space-y-1 text-sm text-danger">
                 <div className="font-semibold">{state.taskStatus === 'failed' ? 'Task failed' : 'Unable to load output'}</div>
@@ -247,10 +346,21 @@ export function LogDrawer({
               )
             ) : (
               <>
+                {hiddenLines > 0 ? (
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background/70 px-2 py-1">
+                    <span className="text-xs text-muted">{hiddenLines} earlier line(s) hidden</span>
+                    <Button size="xs" variant="outline" onClick={revealEarlier}>Show earlier output</Button>
+                  </div>
+                ) : showAll && lines.length > COLLAPSED_LINES ? (
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-background/70 px-2 py-1">
+                    <span className="text-xs text-muted">Showing the full output</span>
+                    <Button size="xs" variant="outline" onClick={collapseToLatest}>Collapse to last {COLLAPSED_LINES} lines</Button>
+                  </div>
+                ) : null}
                 {denials.length > 0 || state.denialsError ? (
                   <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Raw output</h3>
                 ) : null}
-                <pre className={state.error ? 'agentbox-output mt-2 font-mono text-xs leading-5 text-foreground' : 'agentbox-output font-mono text-xs leading-5 text-foreground'}>{content}</pre>
+                <pre className={state.error ? 'agentbox-output mt-2 font-mono text-xs leading-5 text-foreground' : 'agentbox-output font-mono text-xs leading-5 text-foreground'}>{visibleContent}</pre>
               </>
             )}
           </div>

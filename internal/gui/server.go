@@ -680,12 +680,12 @@ func (s *Server) runLogs(w http.ResponseWriter, r *http.Request) {
 		tail = 0
 	}
 	runID := r.PathValue("id")
-	logs, err := s.app.TailLogs(r.Context(), runID, tail)
+	logs, err := s.app.TailLogOutput(r.Context(), runID, tail)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	response := runLogsResponse{Logs: string(logs), Denials: []app.PolicyDenial{}}
+	response := runLogsResponse{Logs: logs.Text, LogSource: logs.Source, Denials: []app.PolicyDenial{}}
 	denials, denialErr := s.app.RunDenials(r.Context(), runID)
 	if denialErr != nil {
 		response.DenialsError = denialErr.Error()
@@ -697,6 +697,7 @@ func (s *Server) runLogs(w http.ResponseWriter, r *http.Request) {
 
 type runLogsResponse struct {
 	Logs         string             `json:"logs"`
+	LogSource    string             `json:"logSource,omitempty"`
 	Denials      []app.PolicyDenial `json:"denials"`
 	DenialsError string             `json:"denialsError,omitempty"`
 }

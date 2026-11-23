@@ -86,6 +86,11 @@ func (r guiRunner) Output(_ context.Context, name string, args ...string) ([]byt
 		return nil, fmt.Errorf("sandbox not found")
 	case name == "openshell" && containsCommand(args, "sandbox", "exec"):
 		joined := strings.Join(args, " ")
+		// The log script also probes the session, so match it before the
+		// status probes below.
+		if strings.Contains(joined, "agentbox-source:screen") {
+			return []byte("agentbox-source:screen\n" + r.logs), nil
+		}
 		if strings.Contains(joined, "tmux has-session -t agent") {
 			for sandbox, probe := range r.probes {
 				if strings.Contains(joined, sandbox) {
@@ -515,11 +520,15 @@ func TestRunAttachWebSocketAppliesResizeMessages(t *testing.T) {
 func TestRunLogsEndpoint(t *testing.T) {
 	server := newTestServer(t)
 	var response struct {
-		Logs string `json:"logs"`
+		Logs      string `json:"logs"`
+		LogSource string `json:"logSource"`
 	}
 	requestJSON(t, http.MethodGet, server.URL+"/api/runs/run-active/logs", nil, &response)
 	if response.Logs != "agent log output\n" {
 		t.Fatalf("logs = %q", response.Logs)
+	}
+	if response.LogSource != "screen" {
+		t.Fatalf("logSource = %q, want screen", response.LogSource)
 	}
 }
 

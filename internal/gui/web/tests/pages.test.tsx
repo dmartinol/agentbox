@@ -88,7 +88,7 @@ function defaultRoutes(): Record<string, unknown> {
     'GET /api/runs/run-active/logs': { logs: 'agent log output' },
     'GET /api/runs/run-active/logs?tail=200': { logs: 'agent log output' },
     'GET /api/runs/run-finished/logs': { logs: 'finished output' },
-    'GET /api/runs/run-finished/logs?tail=400': { logs: 'finished output' },
+    'GET /api/runs/run-finished/logs?tail=200': { logs: 'finished output' },
     'GET /api/runs/run-active/shells': [],
     'POST /api/runs/run-active/shells': { name: 'shell-1' },
     'POST /api/runs/run-active/shells/shell-1/delete': { deleted: true },
@@ -506,9 +506,7 @@ describe('fleet shell', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByText('active-run'));
-    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
-    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
-    await user.click(screen.getByRole('button', { name: 'Delete agent' }));
+    await user.click(screen.getByRole('button', { name: 'Delete active-run' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -1407,9 +1405,7 @@ describe('fleet actions', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByText('active-run'));
-    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
-    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
-    await user.click(screen.getByRole('button', { name: 'Delete agent' }));
+    await user.click(screen.getByRole('button', { name: 'Delete active-run' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText('Delete active-run')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -1428,9 +1424,7 @@ describe('fleet actions', () => {
     const row = (await screen.findByText('active-run')).closest('tr');
     if (!row) throw new Error('agent row missing');
     await user.click(await screen.findByText('active-run'));
-    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
-    await user.click(within(panel).getByRole('button', { name: 'Configuration' }));
-    await user.click(screen.getByRole('button', { name: 'Delete agent' }));
+    await user.click(screen.getByRole('button', { name: 'Delete active-run' }));
     await user.click(screen.getByRole('button', { name: 'Delete' }));
     expect(within(row).getByText('Deleting', { selector: 'span' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: 'Configuration' })).toBeNull();

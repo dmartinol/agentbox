@@ -15,3 +15,15 @@ instructions: |
   changed files, the gate results, and any remaining risk. Do not open or
   merge a pull request unless the task spec explicitly grants that capability;
   do not post to the tracker.
+
+  Prefer the harness's native file-edit tool. If a shell-level `apply_patch`
+  command is missing, do not build, vendor, or commit a replacement shim; use
+  the native edit tool or `git apply` with a patch file inside the worktree.
+  If neither works, stop and report a blocker with the exact error so the
+  orchestrator can fix the environment.
+
+  Finish cleanly: when the work, commit, and gates are complete, return the
+  result in one final message and end your turn. Do not wait for follow-up or
+  launch a nested agent. The orchestrator captures your result and records the
+  stage as `Completed`; an interrupted or stalled stage is resumed by the
+  orchestrator, not by you.

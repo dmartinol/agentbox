@@ -1238,7 +1238,7 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		profile := f.String("profile", "", "saved profile name")
 		project := f.String("project", "", "registered project name")
 		name := f.String("name", "", "optional unique agent name")
-		source := f.String("source", ".", "Git source checkout (when --project is omitted)")
+		source := f.String("source", "", "Git source checkout; defaults to the project root with --project, otherwise .")
 		gateway := f.String("gateway", "", "OpenShell gateway name")
 		image := f.String("image", "", "image override tag, or `profile` to force the profile image")
 		mode := f.String("mode", "", "mode override")
@@ -1260,6 +1260,9 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 			return app.PrintJSON(r)
 		}
 		fmt.Printf("%s %s %s\n", r.ID, r.Agent, r.Worktree)
+		if r.Project == "" {
+			fmt.Fprintln(os.Stderr, "warning: run is not assigned to a project; pass --project to group it in Fleet")
+		}
 		for _, warning := range r.MCPWarnings {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
 		}
@@ -1438,13 +1441,53 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		return a.Delete(ctx, f.Args()[0], *discard)
 	case "prune":
 		f := flags("agent prune")
-		dryRun := f.Bool("dry-run", false, "list orphaned artifacts without removing them")
+		dryRun := f.Bool("dry-run", false, "list matches without removing them")
+		yes := f.Bool("yes", false, "delete the selected runs; without it the command only lists them")
+		completed := f.Bool("completed", false, "select completed runs")
+		failed := f.Bool("failed", false, "select failed runs")
 		jsonOut := f.Bool("json", false, "JSON output")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
 		if len(f.Args()) != 0 {
 			return fmt.Errorf("unexpected positional argument(s): %s", strings.Join(f.Args(), " "))
+		}
+		if *completed || *failed {
+			if *dryRun && *yes {
+				return fmt.Errorf("--dry-run and --yes are mutually exclusive")
+			}
+			result, err := a.PruneRuns(ctx, app.PruneRunsOptions{Completed: *completed, Failed: *failed, DryRun: !*yes})
+			if *jsonOut {
+				if err == nil || len(result.Runs) > 0 {
+					if printErr := app.PrintJSON(result); printErr != nil {
+						return printErr
+					}
+				}
+				return err
+			}
+			if err != nil && len(result.Runs) == 0 {
+				return err
+			}
+			if len(result.Runs) == 0 {
+				fmt.Println("No matching runs.")
+				return nil
+			}
+			if *yes {
+				if len(result.Failed) == 0 {
+					fmt.Printf("Deleted %d run(s):\n", len(result.Runs))
+				} else {
+					fmt.Printf("Deleted %d of %d run(s):\n", len(result.Runs)-len(result.Failed), len(result.Runs))
+				}
+			} else {
+				fmt.Printf("Would delete %d run(s):\n", len(result.Runs))
+			}
+			for _, run := range result.Runs {
+				fmt.Printf("%-24s %-20s %-12s %s\n", run.Name, run.ID, run.Project, run.Status)
+			}
+			if !*yes {
+				fmt.Println("Pass --yes to delete these runs.")
+			}
+			return err
 		}
 		result, err := a.PruneRunArtifacts(*dryRun)
 		if err != nil {

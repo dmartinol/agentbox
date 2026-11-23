@@ -125,7 +125,9 @@ func TestTailLogsForwardsLimit(t *testing.T) {
 		t.Fatal("no shell command recorded")
 	}
 	joined := strings.Join(call.args, " ")
-	if !strings.Contains(joined, "tail -n 250 /workspace/state/agent.log") {
-		t.Fatalf("expected bounded tail, got %v", call.args)
+	for _, want := range []string{"capture-pane", "tail -n 250", "/workspace/state/agent.screen", "/workspace/state/agent.log"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("expected %q in the bounded log script, got %v", want, call.args)
+		}
 	}
 }
