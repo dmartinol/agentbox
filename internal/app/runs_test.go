@@ -583,8 +583,14 @@ func TestFinishSyncsThenMarksCompleted(t *testing.T) {
 	}
 	finishIndex, syncDownloadIndex := -1, -1
 	for i, call := range runner.outputs {
-		if call.name == "openshell" && strings.Contains(strings.Join(call.args, " "), "/workspace/finished") {
+		if call.name == "openshell" && strings.Contains(strings.Join(call.args, " "), "touch /workspace/finished") {
 			finishIndex = i
+			// The rendered screen must be saved before the session disappears.
+			finishCall := strings.Join(call.args, " ")
+			capture, kill := strings.Index(finishCall, "capture-pane"), strings.Index(finishCall, "tmux kill-session -t agent")
+			if capture < 0 || kill < 0 || capture > kill {
+				t.Fatalf("finish must capture the pane before killing the session: %s", finishCall)
+			}
 		}
 		if call.name == "openshell" && commandHasArg(call, "download") {
 			syncDownloadIndex = i
@@ -791,6 +797,62 @@ func TestStartApprovalPrecedence(t *testing.T) {
 				t.Fatalf("run approval = %q; want %q", run.Approval, tc.want)
 			}
 		})
+	}
+}
+
+func TestStartKeepsProjectAttributionWithExplicitSource(t *testing.T) {
+	ctx := context.Background()
+	source := filepath.Join(t.TempDir(), "pinned-checkout")
+	if err := os.MkdirAll(source, 0700); err != nil {
+		t.Fatal(err)
+	}
+	store := Store{Base: t.TempDir()}
+	policy, err := store.CreatePolicyConfiguration("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProject(Project{Version: 1, Name: "demo", Root: filepath.Join(t.TempDir(), "project")}); err != nil {
+		t.Fatal(err)
+	}
+	profile := testProfile("codex", "standard", "unattended")
+	profile.Policy = policy.Path
+	if err := store.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		switch {
+		case call.name == "git":
+			return []byte(source), nil
+		case call.name == "openshell" && commandHasArg(call, "gateway"):
+			return []byte(`{"type":"podman"}`), nil
+		case call.name == "openshell" && commandHasArg(call, "provider"):
+			return []byte(`{}`), nil
+		case call.name == "podman" && commandHasArg(call, "inspect"):
+			return []byte(`{}`), nil
+		}
+		return []byte(`{}`), nil
+	}}
+	app := App{Store: store, Runner: runner}
+
+	run, err := app.Start(ctx, StartOptions{
+		Profile: profile.Name,
+		Gateway: "openshell",
+		Project: "demo",
+		Source:  source,
+		Dry:     true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Project != "demo" {
+		t.Fatalf("run project = %q; want demo", run.Project)
+	}
+	wantSource := source
+	if resolved, err := filepath.EvalSymlinks(source); err == nil {
+		wantSource = filepath.Clean(resolved)
+	}
+	if run.Source != wantSource {
+		t.Fatalf("run source = %q; want the explicit checkout %q", run.Source, wantSource)
 	}
 }
 
@@ -1269,5 +1331,108 @@ func TestInspectClearsAsleepWhenSandboxRuns(t *testing.T) {
 	}
 	if got.Asleep {
 		t.Fatal("a running sandbox must clear the asleep flag")
+	}
+}
+
+func logFixture(t *testing.T, output func(recordedCommand) ([]byte, error)) (App, Run) {
+	t.Helper()
+	store := Store{Base: t.TempDir()}
+	run := Run{ID: "run-logs", Sandbox: "sandbox-1", Gateway: "gw-1", Status: StatusReady}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	return App{Store: store, Runner: &fakeRunner{output: output}}, run
+}
+
+// lastSandboxScript returns the most recent sandbox exec shell script, which is
+// where log source selection lives.
+func lastSandboxScript(t *testing.T, runner *fakeRunner) string {
+	t.Helper()
+	for index := len(runner.outputs) - 1; index >= 0; index-- {
+		call := runner.outputs[index]
+		if call.name == "openshell" && containsCommand(call.args, "sandbox", "exec") {
+			return strings.Join(call.args, " ")
+		}
+	}
+	t.Fatal("no sandbox exec recorded")
+	return ""
+}
+
+func TestLogOutputPrefersTheRenderedPane(t *testing.T) {
+	app, run := logFixture(t, func(recordedCommand) ([]byte, error) {
+		return []byte("agentbox-source:screen\n\n  >_ OpenAI Codex  \n  ready   \n\n"), nil
+	})
+	logs, err := app.LogOutput(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if logs.Source != LogSourceScreen {
+		t.Fatalf("source = %q, want %q", logs.Source, LogSourceScreen)
+	}
+	if logs.Text != "  >_ OpenAI Codex\n  ready\n" {
+		t.Fatalf("rendered text = %q", logs.Text)
+	}
+	script := lastSandboxScript(t, app.Runner.(*fakeRunner))
+	for _, want := range []string{"capture-pane", "has-session -t agent", "/workspace/state/agent.screen", "/workspace/state/agent.log"} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("log script missing %q: %s", want, script)
+		}
+	}
+}
+
+func TestLogOutputReportsTheSnapshotSource(t *testing.T) {
+	app, run := logFixture(t, func(recordedCommand) ([]byte, error) {
+		return []byte("agentbox-source:snapshot\nfinal screen\n"), nil
+	})
+	logs, err := app.LogOutput(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if logs.Source != LogSourceSnapshot || logs.Text != "final screen\n" {
+		t.Fatalf("snapshot log = %+v", logs)
+	}
+}
+
+func TestLogOutputKeepsTheRawStreamUntrimmed(t *testing.T) {
+	raw := "\u001b[?2026h\u001b[37;3H>_ OpenAI Codex\u001b[?2026l"
+	app, run := logFixture(t, func(recordedCommand) ([]byte, error) {
+		return []byte("agentbox-source:stream\n" + raw), nil
+	})
+	logs, err := app.LogOutput(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if logs.Source != LogSourceStream || logs.Text != raw {
+		t.Fatalf("raw stream = %+v", logs)
+	}
+}
+
+func TestParseAgentLogOutputWithoutMarkerKeepsTheText(t *testing.T) {
+	logs := parseAgentLogOutput([]byte("plain output\n"))
+	if logs.Source != "" || logs.Text != "plain output\n" {
+		t.Fatalf("unmarked output = %+v", logs)
+	}
+}
+
+func TestTailLogOutputBoundsTheLimit(t *testing.T) {
+	app, run := logFixture(t, func(recordedCommand) ([]byte, error) {
+		return []byte("agentbox-source:screen\nscreened\n"), nil
+	})
+	if _, err := app.TailLogOutput(context.Background(), run.ID, 9000); err != nil {
+		t.Fatal(err)
+	}
+	if script := lastSandboxScript(t, app.Runner.(*fakeRunner)); !strings.Contains(script, "tail -n 2000") {
+		t.Fatalf("expected the limit to be clamped, got %s", script)
+	}
+}
+
+func TestBootstrapSavesTheRenderedScreenBeforeRemovingTheSession(t *testing.T) {
+	if strings.Count(bootstrapScript, "capture-pane") != 1 {
+		t.Fatalf("bootstrap should capture the pane once:\n%s", bootstrapScript)
+	}
+	capture := strings.Index(bootstrapScript, "capture-pane")
+	kill := strings.Index(bootstrapScript, "tmux kill-session -t agent")
+	if capture < 0 || kill < 0 || capture > kill {
+		t.Fatalf("bootstrap must capture the pane before killing the session:\n%s", bootstrapScript)
 	}
 }

@@ -238,20 +238,41 @@ func TestOrchestratorSkillStageDispatch(t *testing.T) {
 	)
 }
 
+// TestOrchestratorSkillFeedbackFollowUps pins the flow changes made after the
+// first long orchestration run: a simple-fix fast path, completed stage
+// records, concurrent verify and review, and the state comment's purpose.
+func TestOrchestratorSkillFeedbackFollowUps(t *testing.T) {
+	wantAll(t, collapsed(t),
+		"`ready-simple`",
+		"`dispatch: skipped-simple`",
+		"at most three files and roughly 150 changed lines",
+		"no schema, API-contract, migration, or security change",
+		"every successful stage ends `Completed`",
+		"agentbox agent finish RUN_ID",
+		"gates 4 and 6 may overlap once the pull request exists",
+		"it must not post a verdict until the verify result at the reviewed commit is recorded and green",
+		"machine-readable state record, not a narrative status update",
+		"Explain this to the user once when the first state comment appears",
+		"Codex provisions its helper aliases under `$CODEX_HOME/tmp`",
+		"Do not accept a hand-built patch shim as the fix",
+	)
+}
+
 // TestOrchestratorSkillAgentBoxVerifyAndReviewUsePRHead pins the AgentBox
 // dispatch rule for verify and review: a fresh detached worktree at the full
-// PR head SHA passed with --source, never the project checkout.
+// PR head SHA passed with --source, while --project keeps the run attributed.
 func TestOrchestratorSkillAgentBoxVerifyAndReviewUsePRHead(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
-		"For verify and review, never dispatch with `--project`",
-		"registered project's current checkout, whose HEAD may not be the pull request head",
-		"Create one fresh detached worktree per stage at the full head SHA and pass it with `--source`",
+		"For verify and review, pin the checkout at the pull request head with `--source`",
+		"`--project` alone would use the registered project's current checkout",
+		"`--source` supplies the checkout while `--project` supplies attribution",
+		"Create one fresh detached worktree per stage at the full head SHA",
 		"HEAD_SHA=$(gh api repos/OWNER/REPO/pulls/PR --jq .head.sha)",
 		`git -C REPO worktree add --detach VERIFY_WORKTREE "$HEAD_SHA"`,
 		`git -C REPO worktree add --detach REVIEW_WORKTREE "$HEAD_SHA"`,
-		"agentbox agent start --profile PROFILE --source VERIFY_WORKTREE --gateway GATEWAY",
-		"agentbox agent start --profile PROFILE --source REVIEW_WORKTREE --gateway GATEWAY",
+		"agentbox agent start --profile PROFILE --project PROJECT --source VERIFY_WORKTREE --gateway GATEWAY",
+		"agentbox agent start --profile PROFILE --project PROJECT --source REVIEW_WORKTREE --gateway GATEWAY",
 		"Record the same full SHA in each stage entry",
 		"Keep both worktrees until the verify and review evidence is captured and the final report is delivered",
 		"clean up afterwards unless the user asked to keep them",
@@ -1084,13 +1105,15 @@ func TestOrchestratorSkillUsesShippedRoles(t *testing.T) {
 }
 
 // TestOrchestratorSkillChecksRoleAvailabilityAtTriage covers the blocked
-// outcome for a missing role: harnesses scan agent directories only at session
-// start, so the recovery is a session restart after installing.
+// outcome for any role that is not current: stale copies are refreshed, and a
+// harness restart is required because roles are scanned at session start.
 func TestOrchestratorSkillChecksRoleAvailabilityAtTriage(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
 		"agentbox skills list",
-		"restart the harness session after `agentbox skills install`",
+		"`stale` means the installed copy is byte-identical to an older AgentBox binary",
+		"agentbox skills update",
+		"harness restart",
 		"harness agent definition",
 	)
 }
@@ -1202,14 +1225,15 @@ func TestOrchestratorSkillNormalizeBeforePush(t *testing.T) {
 }
 
 // TestOrchestratorSkillFixerRecipeStartsAtPRHead keeps the fixer on the pull
-// request head instead of the project's default branch.
+// request head instead of the project's default branch while retaining project
+// attribution.
 func TestOrchestratorSkillFixerRecipeStartsAtPRHead(t *testing.T) {
 	wantAll(t, collapsed(t),
 		"#### Fixer launch",
-		"`agentbox agent start --project PROJECT` checks out the registered project's current branch",
+		"`agentbox agent start --project PROJECT` alone checks out the registered project's current branch",
 		"would silently lose the implementation",
 		`git -C REPO worktree add --detach FIX_WORKTREE "$HEAD_SHA"`,
-		"agentbox agent start --profile PROFILE --source FIX_WORKTREE --gateway GATEWAY",
+		"agentbox agent start --profile PROFILE --project PROJECT --source FIX_WORKTREE --gateway GATEWAY",
 	)
 }
 

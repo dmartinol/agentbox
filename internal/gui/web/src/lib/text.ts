@@ -1,9 +1,11 @@
-// Terminal streams arrive with SGR color codes, cursor controls, and carriage
-// returns. The drawer is a text view, so keep the content and drop the control
-// bytes instead of rendering escape sequences verbatim.
+// Terminal streams arrive with SGR color codes, cursor controls, private
+// modes (synchronized output, kitty keyboard reports), window titles, and
+// carriage returns. The drawer is a text view, so keep the content and drop
+// every control sequence instead of showing escape fragments verbatim.
 const OSC = /\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)/g;
-const CSI = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:[;:]\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
-const CHARSET = /\u001B[()][A-Za-z0-9]/g;
+const STRING = /\u001B[P^_X][^\u001B]*(?:\u001B\\)?/g;
+const CSI = /(?:\u001B\[|\u009B)[0-?]*[ -/]*[@-~]/g;
+const ESCAPE = /\u001B[()*+#%][0-9A-Za-z@]|\u001B[=>78cDEHMNOZ\\]/g;
 
 function applyCarriageReturns(line: string): string {
   const parts = line.split('\r');
@@ -28,13 +30,24 @@ export function normalizeTerminalText(input: string | undefined): string {
   const text = input
     .replace(/\r\n/g, '\n')
     .replace(OSC, '')
-    .replace(CHARSET, '')
+    .replace(STRING, '')
     .replace(CSI, '')
+    .replace(ESCAPE, '')
     .split('\n')
     .map((line) => applyBackspaces(applyCarriageReturns(line)))
     .join('\n');
-  // Drop remaining control characters except tab and newline.
-  return text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+  // Drop remaining control and C1 characters except tab and newline.
+  return text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u0080-\u009F]/g, '');
+}
+
+/**
+ * Explains non-rendered log text. Rendered tmux captures need no note; the
+ * fallbacks do, so a garbled raw stream is not mistaken for agent output.
+ */
+export function logSourceNote(source?: string): string {
+  if (source === 'snapshot') return 'Last rendered screen; the agent session has ended.';
+  if (source === 'stream') return 'Raw terminal stream; this run has no rendered screen, so the text may be garbled.';
+  return '';
 }
 
 export function middleEllipsis(value: string, max = 44): string {

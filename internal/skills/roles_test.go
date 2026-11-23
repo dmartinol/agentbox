@@ -314,15 +314,32 @@ func TestEmbeddedRoleContracts(t *testing.T) {
 		"tracker-blind",
 		"Never call a tracker or forge API",
 		"`ready`",
+		"`ready-simple`",
 		"`needs-info`",
 		"`out-of-scope`",
 		"`blocked`",
+		"`acceptance_criteria`",
+		"`gates`",
 		"`evidence`",
 		"`questions`",
 		"`risks`",
 		"The orchestrator, not you, applies every label and state change",
 		"without adding another workflow label",
 		"single action that unblocks it",
+	)
+
+	implementer, err := RoleByName("agentbox-implementer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !implementer.Write || !implementer.Shell {
+		t.Fatalf("implementer cannot work in its worktree: %+v", implementer)
+	}
+	wantAll(t, flat(implementer.Instructions),
+		"do not build, vendor, or commit a replacement shim",
+		"use the native edit tool or `git apply`",
+		"records the stage as `Completed`",
+		"resumed by the orchestrator, not by you",
 	)
 
 	fixer, err := RoleByName("agentbox-fixer")

@@ -61,12 +61,16 @@ agentbox agent diff RUN_ID
 agentbox agent sync RUN_ID
 agentbox agent delete --discard RUN_ID
 agentbox agent prune --dry-run
+agentbox agent prune --completed --dry-run
+agentbox agent prune --completed --failed --yes
 ```
 
 Replace `RUN_ID` with the ID printed at startup. `agent denials` lists the
 network connections the sandbox refused and can turn a selected denial into a
 run-only host rule. Sync brings work into the run's local worktree;
-integrating it into your main branch is a separate step.
+integrating it into your main branch is a separate step. `agent prune` alone
+removes orphaned artifacts; with `--completed` and/or `--failed` it lists
+finished runs by default and deletes them only when you add `--yes`.
 
 ## Agentic development lifecycle
 

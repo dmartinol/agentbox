@@ -31,7 +31,7 @@ Start an agent run.
 
 ```text
 agentbox agent start \
-  [--project NAME | --source PATH] [--profile NAME] [--gateway NAME] \
+  [--project NAME] [--source PATH] [--profile NAME] [--gateway NAME] \
   [--name NAME] [--image IMAGE] [--mode MODE] [--model MODEL] \
   [--approval MODE] [--prompt TEXT] [--mcp NAME] [--dry-run] [--json]
 ```
@@ -39,7 +39,7 @@ agentbox agent start \
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--project` | — | Registered project name. |
-| `--source` | `.` | Git source checkout, when `--project` is omitted. |
+| `--source` | project root, else `.` | Git source checkout; overrides the project checkout. |
 | `--profile` | — | Saved profile name. |
 | `--gateway` | — | OpenShell gateway name. |
 | `--name` | — | Unique run name. |
@@ -53,9 +53,14 @@ agentbox agent start \
 | `--json` | `false` | Print structured start output. |
 
 A run needs a registered project or a source checkout, and a profile or
-explicit configuration overrides. On success the command prints the run ID,
-agent, and worktree path. `--dry-run` previews the startup plan and returns
-JSON output. `--mcp` selects an MCP tools entry; missing server names produce
+explicit configuration overrides. Pass both flags to attribute the run to a
+project while still checking out a specific path: `--project` groups the run in
+Fleet and supplies the default worktree root, and `--source` replaces that
+default checkout. This is how a verify, review, or fix run stays grouped under
+its project without losing a pinned pull-request head. On success the command
+prints the run ID, agent, and worktree path, and warns on standard error when
+the run has no project. `--dry-run` previews the startup plan and returns JSON
+output. `--mcp` selects an MCP tools entry; missing server names produce
 warnings on standard error, not failures.
 
 **Examples**
@@ -63,6 +68,7 @@ warnings on standard error, not failures.
 ```sh
 agentbox agent start --profile codex --project demo --prompt "Fix the flaky test"
 agentbox agent start --profile codex --project demo --mcp codex-tools
+agentbox agent start --profile codex --project demo --source ../demo-fix --prompt "Address review"
 agentbox agent start --profile codex --project demo --dry-run
 ```
 
@@ -118,7 +124,12 @@ Detaching from the session does not finish the run.
 ## logs
 {: #agent-logs }
 
-Print a run's captured logs.
+Print a run's rendered output.
+
+The command reads the rendered tmux pane, which is what an attach shows, so
+terminal escape sequences and repaint frames never reach the output. If the
+session is gone it reads the snapshot saved when the session ended, and only
+then falls back to the raw `/workspace/state/agent.log` stream.
 
 ```text
 agentbox agent logs ID
@@ -271,16 +282,29 @@ Without `--discard`, delete refuses an active run and any run whose derived
 ## prune
 {: #agent-prune }
 
-Remove orphaned run artifacts.
+Remove finished runs or orphaned run artifacts.
 
 ```text
-agentbox agent prune [--dry-run] [--json]
+agentbox agent prune [--completed] [--failed] [--dry-run] [--yes] [--json]
 ```
 
 | Flag | Default | Description |
 | --- | --- | --- |
-| `--dry-run` | `false` | List orphaned artifacts without removing them. |
-| `--json` | `false` | Print the planned or removed artifacts as JSON. |
+| `--completed` | `false` | Select completed runs. |
+| `--failed` | `false` | Select failed runs. |
+| `--dry-run` | `false` | List matches without removing them. |
+| `--yes` | `false` | Delete the selected runs instead of only listing them. |
+| `--json` | `false` | Print the result as JSON. |
+
+With `--completed` or `--failed`, the command selects whole run records by
+derived status and deletes them through the normal delete path. Pass both to
+select both statuses; only completed and failed runs are selectable, so an
+active run is never matched. Without `--yes` the command only lists the matches
+and tells you to pass `--yes`; `--dry-run` and `--yes` are mutually exclusive.
+Deleting a run removes its sandbox, worktree, branch, artifacts, policies, and
+record, and a run whose cleanup fails keeps its record and is reported.
+
+Without a status selector the command removes orphaned run artifacts.
 
 An artifact is orphaned only when its matching `runs/<id>.json` record is
 absent. Existing records always win, and unrelated files in `runs/` are never

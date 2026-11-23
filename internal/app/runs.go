@@ -14,6 +14,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// captureAgentScreen renders the agent pane to a readable snapshot. The
+// agent.log stream is raw terminal output: a full-screen TUI repaints it with
+// cursor addressing and escape sequences, so replaying it as text produces one
+// unreadable blob. Capture the rendered pane before the session disappears so
+// finished runs still have a readable log. The temporary file protects an older
+// snapshot from being truncated when the session is already gone.
+const captureAgentScreen = `tmux capture-pane -p -S - -t agent > /workspace/state/agent.screen.tmp 2>/dev/null && mv /workspace/state/agent.screen.tmp /workspace/state/agent.screen || rm -f /workspace/state/agent.screen.tmp`
+
 const bootstrapScript = `#!/bin/sh
 set -eu
 export LANG=C.UTF-8
@@ -44,6 +52,9 @@ while tmux has-session -t agent 2>/dev/null; do
   fi
   sleep 1
 done
+# Keep a rendered snapshot before the session is removed; the raw stream stays
+# only as a fallback for records written before snapshots existed.
+` + captureAgentScreen + `
 tmux kill-session -t agent 2>/dev/null || true
 exec sleep infinity
 `
@@ -115,9 +126,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 		}
 		skillSelection = &resolved
 	}
-	if opt.Source == "" {
-		opt.Source = "."
-	}
+	source := strings.TrimSpace(opt.Source)
 	projectName := ""
 	useWorktree := true
 	if opt.Project != "" {
@@ -126,9 +135,19 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 			return Run{}, fmt.Errorf("project %q not found; create it from the Projects page or with `agentbox project create`", opt.Project)
 		}
 		projectName = project.Name
-		opt.Source = project.Root
+		// A project supplies attribution and the worktree root. An explicit
+		// source still wins so a pinned checkout, such as a detached worktree
+		// at a pull request head, keeps its commit while the run stays grouped
+		// under the project.
+		if source == "" {
+			source = project.Root
+		}
 		useWorktree = project.UseWorktree()
 	}
+	if source == "" {
+		source = "."
+	}
+	opt.Source = source
 	sourceRoot, err := a.ProjectRoot(ctx, opt.Source)
 	if err != nil {
 		return Run{}, err
@@ -647,28 +666,137 @@ func (a *App) AttachSessionStream(ctx context.Context, id, session string, in io
 	return a.Runner.Stream(ctx, in, out, errOut, "openshell", attachArgs(r, session)...)
 }
 
-func (a *App) Logs(ctx context.Context, id string) ([]byte, error) {
-	r, err := a.Store.LoadRun(id)
-	if err != nil {
-		return nil, err
-	}
-	return a.sandboxExec(ctx, r, "/bin/sh", "-c", "cat /workspace/state/agent.log 2>/dev/null || true")
+// Log sources reported with the text. Only LogSourceStream is raw terminal
+// output; the other two are already rendered by tmux.
+const (
+	LogSourceScreen   = "screen"
+	LogSourceSnapshot = "snapshot"
+	LogSourceStream   = "stream"
+)
+
+// RunLogs is a log response plus the source it came from, so the GUI can
+// explain a raw stream instead of presenting it as normal output.
+type RunLogs struct {
+	Text   string
+	Source string
 }
 
-// TailLogs returns the last lines of the agent log. Unfocused workspace tabs
+const logSourceMarker = "agentbox-source:"
+
+// logSourcePrint reports the source the log script chose. The GUI splits this
+// line from the text so it can label a fallback instead of presenting it as
+// normal output.
+func logSourcePrint(source string) string {
+	return "echo " + logSourceMarker + source
+}
+
+// agentLogScript picks the most readable log a run has. A live or retained
+// tmux session is rendered first, then the snapshot saved when the session
+// ended, and finally the raw agent.log stream for records older than the
+// snapshot.
+func agentLogScript(limit int) string {
+	emit := "cat"
+	if limit > 0 {
+		emit = fmt.Sprintf("tail -n %d", limit)
+	}
+	return fmt.Sprintf(`set -u
+screen=/tmp/agentbox-screen.$$
+if tmux has-session -t agent 2>/dev/null && tmux capture-pane -p -S - -t agent >"$screen" 2>/dev/null; then
+  %[1]s
+  %[2]s "$screen"
+  rm -f "$screen"
+  exit 0
+fi
+rm -f "$screen"
+if [ -s /workspace/state/agent.screen ]; then
+  %[3]s
+  %[2]s /workspace/state/agent.screen
+  exit 0
+fi
+%[4]s
+if [ -s /workspace/state/agent.log ]; then
+  %[2]s /workspace/state/agent.log
+fi
+`, logSourcePrint(LogSourceScreen), emit, logSourcePrint(LogSourceSnapshot), logSourcePrint(LogSourceStream))
+}
+
+// parseAgentLogOutput splits the source marker from the script output. Output
+// without a marker is treated as plain text so older callers keep working.
+func parseAgentLogOutput(out []byte) RunLogs {
+	text := string(out)
+	if !strings.HasPrefix(text, logSourceMarker) {
+		return RunLogs{Text: text}
+	}
+	line, rest, found := strings.Cut(text, "\n")
+	if !found {
+		return RunLogs{Text: ""}
+	}
+	return RunLogs{Text: rest, Source: strings.TrimPrefix(line, logSourceMarker)}
+}
+
+// trimRenderedLog drops the padding tmux adds and the blank lines around the
+// rendered screen. It is not applied to the raw stream, which is not
+// line-oriented.
+func trimRenderedLog(text string) string {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	for index := range lines {
+		lines[index] = strings.TrimRight(lines[index], " \t\r")
+	}
+	for len(lines) > 0 && lines[0] == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func (a *App) runLogs(ctx context.Context, id string, limit int) (RunLogs, error) {
+	r, err := a.Store.LoadRun(id)
+	if err != nil {
+		return RunLogs{}, err
+	}
+	out, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", agentLogScript(limit))
+	if err != nil {
+		return RunLogs{}, err
+	}
+	logs := parseAgentLogOutput(out)
+	if logs.Source != "" && logs.Source != LogSourceStream {
+		logs.Text = trimRenderedLog(logs.Text)
+	}
+	return logs, nil
+}
+
+// Logs returns the run's rendered output, falling back to the raw stream.
+func (a *App) Logs(ctx context.Context, id string) ([]byte, error) {
+	logs, err := a.LogOutput(ctx, id)
+	return []byte(logs.Text), err
+}
+
+// LogOutput is Logs with the source that produced the text.
+func (a *App) LogOutput(ctx context.Context, id string) (RunLogs, error) {
+	return a.runLogs(ctx, id, 0)
+}
+
+// TailLogs returns the last lines of the run's log. Unfocused workspace tabs
 // render this snapshot instead of holding a live terminal.
 func (a *App) TailLogs(ctx context.Context, id string, lines int) ([]byte, error) {
+	logs, err := a.TailLogOutput(ctx, id, lines)
+	return []byte(logs.Text), err
+}
+
+// TailLogOutput is TailLogs with the source that produced the text.
+func (a *App) TailLogOutput(ctx context.Context, id string, lines int) (RunLogs, error) {
 	if lines <= 0 {
-		return a.Logs(ctx, id)
+		return a.LogOutput(ctx, id)
 	}
 	if lines > 2000 {
 		lines = 2000
 	}
-	r, err := a.Store.LoadRun(id)
-	if err != nil {
-		return nil, err
-	}
-	return a.sandboxExec(ctx, r, "/bin/sh", "-c", fmt.Sprintf("tail -n %d /workspace/state/agent.log 2>/dev/null || true", lines))
+	return a.runLogs(ctx, id, lines)
 }
 
 // Sleep syncs outstanding work and stops the sandbox while keeping the run,
@@ -735,7 +863,7 @@ func (a *App) Resume(ctx context.Context, id string) error {
 			// A record created before resumable runs cannot continue its
 			// conversation; its bootstrap replays the original task prompt.
 			// Stop that session and put the sandbox back to sleep.
-			_, _ = a.sandboxExec(ctx, r, "/bin/sh", "-c", "tmux kill-session -t agent 2>/dev/null || true")
+			_, _ = a.sandboxExec(ctx, r, "/bin/sh", "-c", captureAgentScreen+"; tmux kill-session -t agent 2>/dev/null || true")
 			if _, stopErr := a.Runner.Output(ctx, "openshell", "sandbox", "stop", r.Sandbox, "--gateway", r.Gateway); stopErr == nil {
 				r.Asleep = true
 				_ = a.Store.SaveRun(r)
@@ -803,7 +931,7 @@ func (a *App) Finish(ctx context.Context, id string) error {
 		if err := a.Sync(ctx, id); err != nil {
 			return fmt.Errorf("sync before finish failed; the run was not finished: %w", err)
 		}
-		if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", "touch /workspace/finished; tmux kill-session -t agent 2>/dev/null || true"); err != nil {
+		if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", captureAgentScreen+"; touch /workspace/finished; tmux kill-session -t agent 2>/dev/null || true"); err != nil {
 			return err
 		}
 	case StatusStopped:

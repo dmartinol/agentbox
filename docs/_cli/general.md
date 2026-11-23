@@ -57,7 +57,9 @@ reported as unreadable and repaired with `agentbox skills install --force`.
 The repair moves the link or blocker entry itself into the backup and leaves a
 symlink target untouched; `update --force` backs the blocker up but then skips
 the skill. A failed check is reported without stopping the remaining checks;
-use the output to decide what to install or start.
+use the output to decide what to install or start. After repairing an installed
+agent role, restart the harness session: harnesses scan agent directories only
+when a session starts, so a running session keeps the old role until then.
 
 **Examples**
 

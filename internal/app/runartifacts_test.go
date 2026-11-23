@@ -1,8 +1,11 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -121,5 +124,163 @@ func TestPruneRunArtifactsRemovesOnlyOrphansAndIsIdempotent(t *testing.T) {
 	}
 	if len(again.Artifacts) != 0 || again.Artifacts == nil || again.FreedBytes != 0 {
 		t.Fatalf("second prune result = %+v; want an initialized empty list", again)
+	}
+}
+
+func savePruneRun(t *testing.T, app *App, id, project string, status RunStatus) {
+	t.Helper()
+	run := Run{
+		ID:          id,
+		Name:        id,
+		Project:     project,
+		Status:      status,
+		Sandbox:     "sandbox-" + id,
+		Gateway:     "gateway-one",
+		Agent:       "codex",
+		ProfileName: "codex",
+		Mode:        "worktree",
+		Synced:      true,
+	}
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func pruneRunner() *fakeRunner {
+	runner := &fakeRunner{}
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		joined := strings.Join(call.args, " ")
+		switch {
+		case call.name == "openshell" && containsCommand(call.args, "sandbox", "get"):
+			switch {
+			case strings.Contains(joined, "sandbox-run-done"):
+				return []byte(`{"phase":"completed"}`), nil
+			case strings.Contains(joined, "sandbox-run-stopped"):
+				return []byte(`{"phase":"stopped"}`), nil
+			case strings.Contains(joined, "sandbox-run-working"):
+				return []byte(`{"phase":"running"}`), nil
+			default:
+				return nil, errors.New("sandbox not found")
+			}
+		case call.name == "openshell" && strings.Contains(joined, probeMarker):
+			if strings.Contains(joined, "sandbox-run-working") {
+				return []byte(workingProbe), nil
+			}
+			return []byte(exitedProbe), nil
+		case call.name == "openshell" && containsCommand(call.args, "sandbox", "delete"):
+			return nil, errors.New("sandbox not found")
+		case call.name == "git":
+			return (OSRunner{}).Output(context.Background(), "git", call.args...)
+		}
+		return nil, nil
+	}
+	return runner
+}
+
+func TestPruneRunsRequiresAStatusSelector(t *testing.T) {
+	app := &App{Store: Store{Base: t.TempDir()}, Runner: pruneRunner()}
+	if _, err := app.PruneRuns(context.Background(), PruneRunsOptions{DryRun: true}); err == nil {
+		t.Fatal("prune without a status selector did not fail")
+	}
+}
+
+func TestPruneRunsDryRunSelectsOnlyFinishedRuns(t *testing.T) {
+	app := &App{Store: Store{Base: t.TempDir()}, Runner: pruneRunner()}
+	if err := app.Store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	savePruneRun(t, app, "run-working", "beta", StatusWorking)
+	savePruneRun(t, app, "run-stopped", "alpha", StatusStopped)
+	savePruneRun(t, app, "run-done", "beta", StatusCompleted)
+	savePruneRun(t, app, "run-failed", "alpha", StatusFailed)
+
+	result, err := app.PruneRuns(context.Background(), PruneRunsOptions{Completed: true, Failed: true, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DryRun || result.Deleted {
+		t.Fatalf("dry-run flags = %+v", result)
+	}
+	want := []PrunedRunTarget{
+		{ID: "run-failed", Name: "run-failed", Project: "alpha", Status: string(StatusFailed)},
+		{ID: "run-done", Name: "run-done", Project: "beta", Status: string(StatusCompleted)},
+	}
+	if len(result.Runs) != len(want) {
+		t.Fatalf("selected runs = %+v; want %+v", result.Runs, want)
+	}
+	for index, target := range want {
+		if result.Runs[index] != target {
+			t.Fatalf("selected run %d = %+v; want %+v", index, result.Runs[index], target)
+		}
+	}
+	for _, id := range []string{"run-done", "run-failed", "run-working", "run-stopped"} {
+		if _, err := app.Store.LoadRun(id); err != nil {
+			t.Fatalf("dry-run removed %s: %v", id, err)
+		}
+	}
+}
+
+func TestPruneRunsDeletesSelectedRunsAndIsIdempotent(t *testing.T) {
+	app := &App{Store: Store{Base: t.TempDir()}, Runner: pruneRunner()}
+	if err := app.Store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	savePruneRun(t, app, "run-failed-one", "alpha", StatusFailed)
+	savePruneRun(t, app, "run-failed-two", "alpha", StatusFailed)
+	savePruneRun(t, app, "run-working", "alpha", StatusWorking)
+
+	result, err := app.PruneRuns(context.Background(), PruneRunsOptions{Failed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Deleted || result.DryRun || len(result.Runs) != 2 {
+		t.Fatalf("delete result = %+v", result)
+	}
+	for _, id := range []string{"run-failed-one", "run-failed-two"} {
+		if _, err := app.Store.LoadRun(id); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s record still present: %v", id, err)
+		}
+	}
+	if _, err := app.Store.LoadRun("run-working"); err != nil {
+		t.Fatalf("active run was removed: %v", err)
+	}
+	again, err := app.PruneRuns(context.Background(), PruneRunsOptions{Failed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again.Runs) != 0 {
+		t.Fatalf("second prune selected %+v; want none", again.Runs)
+	}
+}
+
+func TestPruneRunsReportsPartialFailureAndKeepsTheRecord(t *testing.T) {
+	app := &App{Store: Store{Base: t.TempDir()}}
+	if err := app.Store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	savePruneRun(t, app, "run-failed-one", "alpha", StatusFailed)
+	savePruneRun(t, app, "run-failed-two", "alpha", StatusFailed)
+	runner := pruneRunner()
+	base := runner.output
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && containsCommand(call.args, "sandbox", "delete") && strings.Contains(strings.Join(call.args, " "), "sandbox-run-failed-two") {
+			return nil, errors.New("business error: sandbox locked")
+		}
+		return base(call)
+	}
+	app.Runner = runner
+
+	result, err := app.PruneRuns(context.Background(), PruneRunsOptions{Failed: true})
+	if err == nil || !strings.Contains(err.Error(), "deleted 1 of 2 selected runs") || !strings.Contains(err.Error(), "run-failed-two") {
+		t.Fatalf("partial failure = %v", err)
+	}
+	if !result.Deleted || len(result.Runs) != 2 || len(result.Failed) != 1 || result.Failed[0].ID != "run-failed-two" {
+		t.Fatalf("partial result = %+v", result)
+	}
+	if _, err := app.Store.LoadRun("run-failed-two"); err != nil {
+		t.Fatalf("failed cleanup removed the record: %v", err)
+	}
+	if _, err := app.Store.LoadRun("run-failed-one"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("successful cleanup kept the record: %v", err)
 	}
 }

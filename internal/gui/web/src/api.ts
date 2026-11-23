@@ -43,6 +43,8 @@ const post = <T>(path: string, body?: unknown) =>
 
 export interface RunLogsResponse {
   logs: string;
+  /** Rendered tmux pane, saved snapshot, or the raw terminal stream. */
+  logSource?: 'screen' | 'snapshot' | 'stream';
   denials?: PolicyDenial[];
   denialsError?: string;
 }
