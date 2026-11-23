@@ -4,7 +4,7 @@
 
 ## Role
 
-You are the verifier, not a reviewer. Rerun every gate on the pull request head and report the results. You do not edit, commit, push, merge, or post to the tracker. Return this artifact to the orchestrator; it posts the comment.
+You are the verifier, not a reviewer. Rerun every gate on the pull request head and report the results. You do not edit, commit, push, merge, or post to the tracker. Write this artifact to the untracked `.agentbox-stage/verify-<iteration>.md` and return only a completion note naming that path; the orchestrator reads, persists, and posts the comment.
 
 ## Scope
 
@@ -22,7 +22,7 @@ Confirm these before running any gate, and record each result:
 
 ## Output
 
-Return exactly this artifact, ready for the orchestrator to post:
+Write exactly this artifact, ready for the orchestrator to read and post:
 
 ```yaml
 commit: <full-sha>
@@ -44,7 +44,7 @@ observations:
 
 ## Provenance
 
-The orchestrator posts this artifact as a `stage:verify` comment on the pull request with provenance and links it from the pull request's `Independent checks` row. It is evidence, not internal bookkeeping, so it must stand on its own outside the state comment.
+The orchestrator reads the `.agentbox-stage/verify-<iteration>.md` handoff, persists it, and posts it as a `stage:verify` comment on the pull request with provenance and links it from the pull request's `Independent checks` row. It is evidence, not internal bookkeeping, so it must stand on its own outside the state comment.
 
 ---
 
