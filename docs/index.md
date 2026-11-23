@@ -26,6 +26,10 @@ fix a defect, run checks, or review a change.
 [Explore the ADLC]({{ '/adlc/' | relative_url }}) ·
 [Copy an example prompt]({{ '/prompts/' | relative_url }})
 
+<p align="center">
+  <img src="{{ '/screenshots/flow.gif' | relative_url }}" alt="Animated AgentBox tour: monitor the fleet, configure profiles and projects in Setup, inspect a sandbox network denial, and add the blocked host to the run policy" width="100%">
+</p>
+
 ## Build the agent environment
 
 Build a revisioned OpenShell image for the harness you use: Codex, Claude Code,

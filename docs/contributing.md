@@ -65,6 +65,11 @@ npm --prefix internal/gui/web run test
 npm --prefix internal/gui/web run build
 ```
 
+The Fleet and Setup screenshots are generated, not hand-edited. After a layout
+change, refresh the tour with `npm --prefix internal/gui/web run tour:capture`;
+the procedure and its fixtures are documented in
+[Screenshot capture]({{ '/screenshot-capture/' | relative_url }}).
+
 ## Live OpenShell checks
 
 Live integration checks are opt-in and use the active local OpenShell gateway:
