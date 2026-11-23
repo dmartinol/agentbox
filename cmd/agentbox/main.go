@@ -1241,7 +1241,6 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		source := f.String("source", "", "Git source checkout; defaults to the project root with --project, otherwise .")
 		gateway := f.String("gateway", "", "OpenShell gateway name")
 		image := f.String("image", "", "image override tag, or `profile` to force the profile image")
-		mode := f.String("mode", "", "mode override")
 		model := f.String("model", "", "model override")
 		approval := f.String("approval", "", "approval override")
 		prompt := f.String("prompt", "", "task prompt; empty opens interactive agent")
@@ -1252,7 +1251,7 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
-		r, err := a.Start(ctx, app.StartOptions{Profile: *profile, Project: *project, Name: *name, Source: *source, Gateway: *gateway, Image: *image, Mode: *mode, Model: *model, Approval: *approval, Prompt: *prompt, MCP: *mcp, Skills: *skills, Dry: *dry})
+		r, err := a.Start(ctx, app.StartOptions{Profile: *profile, Project: *project, Name: *name, Source: *source, Gateway: *gateway, Image: *image, Model: *model, Approval: *approval, Prompt: *prompt, MCP: *mcp, Skills: *skills, Dry: *dry})
 		if err != nil {
 			return err
 		}

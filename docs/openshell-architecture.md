@@ -168,6 +168,17 @@ references one. If the matching credential environment is absent, the provider
 is reported as unregistered rather than created. Built-in providers cannot use
 a custom name and cannot be edited or deleted through AgentBox.
 
+Provider kind determines profile mode:
+
+- `openai` and `anthropic` require profile mode `standard`;
+- `gateway-bearer` and `gateway-header` require profile mode `gateway`.
+
+At run start, after the gateway and provider are validated but before legacy
+policy loading, worktree creation, image inspection, or agent preparation,
+AgentBox normalizes the provider kind and rejects unknown kinds and mode
+mismatches. This check fails closed; there is no warning-and-continue path, and
+the profile remains the sole source of run mode.
+
 Images ship a local-work toolset (git, git-lfs, curl, jq, ripgrep, unzip, less,
 procps) and deliberately omit `gh` and `openssh-client`. AgentBox therefore adds
 no forge credential, no git credential helper, and no generated `.gitconfig` to a

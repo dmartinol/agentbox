@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -737,7 +738,16 @@ func TestListAndReconcileAttemptsSyncWhenCompletedMarkerExists(t *testing.T) {
 func TestStartReportsMissingProfileAndPolicy(t *testing.T) {
 	ctx := context.Background()
 	store := Store{Base: t.TempDir()}
-	app := App{Store: store, Runner: &fakeRunner{}}
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && len(call.args) > 0 && call.args[0] == "gateway" {
+			return []byte(`{"type":"podman"}`), nil
+		}
+		if call.name == "openshell" && len(call.args) > 0 && call.args[0] == "provider" && call.args[1] == "list" {
+			return []byte(`{"providers":[{"name":"unit-provider","type":"gateway-bearer"}]}`), nil
+		}
+		return []byte(`{}`), nil
+	}}
+	app := App{Store: store, Runner: runner}
 
 	if _, err := app.Start(ctx, StartOptions{Profile: "mycodex", Gateway: "openshell"}); err == nil || !strings.Contains(err.Error(), `profile "mycodex" not found`) {
 		t.Fatalf("missing profile error = %v", err)
@@ -750,7 +760,7 @@ func TestStartReportsMissingProfileAndPolicy(t *testing.T) {
 		Agent:     "codex",
 		Image:     "localhost/openshell-codex:1.2.3-r3",
 		Mode:      "gateway",
-		Provider:  "provider",
+		Provider:  "unit-provider",
 		Model:     "unit-model",
 		BaseURL:   "https://models.example.test/v1",
 		APIKeyEnv: "UNIT_KEY",
@@ -759,11 +769,135 @@ func TestStartReportsMissingProfileAndPolicy(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.Start(ctx, StartOptions{Profile: "mycodex", Gateway: "openshell", Mode: "bogus"}); err == nil || !strings.Contains(err.Error(), `profile "mycodex" is invalid: mode must be standard or gateway`) {
-		t.Fatalf("invalid profile error = %v", err)
-	}
 	if _, err := app.Start(ctx, StartOptions{Profile: "mycodex", Gateway: "openshell"}); err == nil || !strings.Contains(err.Error(), "references missing legacy policy file") {
 		t.Fatalf("missing policy error = %v", err)
+	}
+}
+
+func TestStartEnforcesProviderKindProfileModeInvariant(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name     string
+		provider string
+		kind     string
+		mode     string
+		want     string
+	}{
+		{name: "openai standard", provider: "openai", kind: "openai", mode: "standard", want: "standard"},
+		{name: "openai gateway", provider: "openai", kind: "openai", mode: "gateway", want: "standard"},
+		{name: "anthropic standard", provider: "anthropic", kind: "anthropic", mode: "standard", want: "standard"},
+		{name: "anthropic gateway", provider: "anthropic", kind: "anthropic", mode: "gateway", want: "standard"},
+		{name: "bearer standard", provider: "unit-bearer", kind: "gateway-bearer", mode: "standard", want: "gateway"},
+		{name: "bearer gateway", provider: "unit-bearer", kind: "gateway-bearer", mode: "gateway", want: "gateway"},
+		{name: "header standard", provider: "unit-header", kind: "gateway-header", mode: "standard", want: "gateway"},
+		{name: "header gateway", provider: "unit-header", kind: "gateway-header", mode: "gateway", want: "gateway"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := Store{Base: t.TempDir()}
+			profile := Profile{
+				Version: 1, Name: "unit-profile", Agent: "codex",
+				Image: "localhost/openshell-codex:1.2.3-r3", Mode: tc.mode,
+				Model: "unit-model", Provider: tc.provider,
+				Policy:   filepath.Join(store.PolicyDir(), "unit-profile.yaml"),
+				Approval: "prompted", BaseURL: "https://models.example.test/v1",
+				APIKeyEnv: "UNIT_MODEL_KEY",
+			}
+			if err := store.SaveProfile(profile); err != nil {
+				t.Fatal(err)
+			}
+			source := t.TempDir()
+			runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+				switch {
+				case call.name == "git":
+					return []byte(source), nil
+				case call.name == "openshell" && len(call.args) > 0 && call.args[0] == "gateway":
+					return []byte(`{"type":"podman"}`), nil
+				case call.name == "openshell" && len(call.args) > 0 && call.args[0] == "provider":
+					if len(call.args) > 1 && call.args[1] == "list" {
+						return []byte(`{"providers":[{"name":"unit-bearer","type":"gateway-bearer"},{"name":"unit-header","type":"gateway-header"}]}`), nil
+					}
+					return []byte(`{}`), nil
+				case call.name == "podman":
+					return []byte(`{}`), nil
+				}
+				return []byte(`{}`), nil
+			}}
+			application := App{Store: store, Runner: runner}
+			run, err := application.Start(ctx, StartOptions{Profile: profile.Name, Gateway: "openshell", Source: source, Dry: true})
+			if tc.mode != tc.want {
+				if err == nil {
+					t.Fatal("invalid provider/mode pair started")
+				}
+				want := fmt.Sprintf("profile %q declares mode %q but provider %q has kind %q; set profile mode to %q", profile.Name, tc.mode, tc.provider, tc.kind, tc.want)
+				if err.Error() != want {
+					t.Fatalf("error = %v; want %s", err, want)
+				}
+				assertNoStartSideEffects(t, runner, store)
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if run.Mode != tc.want {
+				t.Fatalf("run mode = %q; want %q", run.Mode, tc.want)
+			}
+		})
+	}
+}
+
+func TestStartRejectsUnknownProviderKindBeforeRunSideEffects(t *testing.T) {
+	ctx := context.Background()
+	store := Store{Base: t.TempDir()}
+	profile := Profile{
+		Version: 1, Name: "unit-profile", Agent: "codex",
+		Image: "localhost/openshell-codex:1.2.3-r3", Mode: "gateway",
+		Model: "unit-model", Provider: "unit-provider",
+		Policy:   filepath.Join(store.PolicyDir(), "missing-legacy.yaml"),
+		Approval: "prompted", BaseURL: "https://models.example.test/v1",
+		APIKeyEnv: "UNIT_MODEL_KEY",
+	}
+	if err := store.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && len(call.args) > 0 && call.args[0] == "gateway" {
+			return []byte(`{"type":"podman"}`), nil
+		}
+		if call.name == "openshell" && len(call.args) > 1 && call.args[0] == "provider" && call.args[1] == "list" {
+			return []byte(`{"providers":[{"name":"unit-provider","type":"mystery-provider"}]}`), nil
+		}
+		return []byte(`{}`), nil
+	}}
+	application := App{Store: store, Runner: runner}
+	_, err := application.Start(ctx, StartOptions{Profile: profile.Name, Gateway: "openshell", Dry: true})
+	if err == nil || !strings.Contains(err.Error(), `provider "unit-provider" has unsupported kind "mystery-provider"`) || !strings.Contains(err.Error(), "supported kinds are") {
+		t.Fatalf("unknown provider error = %v", err)
+	}
+	if strings.Contains(err.Error(), "missing legacy policy file") {
+		t.Fatalf("unknown provider error reported policy loading instead: %v", err)
+	}
+	assertNoStartSideEffects(t, runner, store)
+}
+
+func assertNoStartSideEffects(t *testing.T, runner *fakeRunner, store Store) {
+	t.Helper()
+	for _, call := range runner.outputs {
+		if call.name == "git" {
+			t.Fatalf("rejected start issued a git command: %#v", call)
+		}
+		if call.name == "podman" {
+			t.Fatalf("rejected start issued a Podman command: %#v", call)
+		}
+		if call.name == "openshell" && (containsCommand(call.args, "sandbox", "create") || containsCommand(call.args, "policy", "get")) {
+			t.Fatalf("rejected start issued an OpenShell side effect: %#v", call)
+		}
+	}
+	runs, err := store.ListRuns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("rejected start created run records: %#v", runs)
 	}
 }
 

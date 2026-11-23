@@ -166,6 +166,7 @@ export interface Provider {
   builtin?: boolean;
   registered?: boolean;
   credential_present?: boolean;
+  mode?: string;
   error?: string;
 }
 
@@ -320,7 +321,6 @@ export interface StartRunRequest {
   name?: string;
   gateway: string;
   image?: string;
-  mode?: string;
   model?: string;
   approval?: string;
   prompt?: string;

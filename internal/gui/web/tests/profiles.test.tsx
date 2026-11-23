@@ -2,8 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProfilesPanel } from '../src/pages/setup/ProfilesPanel';
-import type { Profile } from '../src/types';
-import { overview, providers } from './fixtures';
+import type { Profile, Provider } from '../src/types';
+import { overview, providers as baseProviders } from './fixtures';
+
+const providers: Provider[] = baseProviders.map((provider) => ({
+  ...provider,
+  mode: provider.name === 'openai' || provider.name === 'anthropic' ? 'standard' : 'gateway'
+}));
 
 const profile: Profile = {
   version: 1,
@@ -28,7 +33,11 @@ function jsonResponse(value: unknown, status = 200) {
   };
 }
 
-function setupApi({ profiles = [profile], saveError }: { profiles?: Profile[]; saveError?: string } = {}) {
+function setupApi({
+  profiles = [profile],
+  providers: providerList = providers,
+  saveError
+}: { profiles?: Profile[]; providers?: Provider[]; saveError?: string } = {}) {
   let currentProfiles = profiles;
   const savedProfiles: Profile[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -36,7 +45,7 @@ function setupApi({ profiles = [profile], saveError }: { profiles?: Profile[]; s
     const method = init?.method ?? 'GET';
     if (method === 'GET' && url === '/api/profiles') return jsonResponse(currentProfiles);
     if (method === 'GET' && url === '/api/images') return jsonResponse(overview.images);
-    if (method === 'GET' && url === '/api/providers') return jsonResponse(providers);
+    if (method === 'GET' && url === '/api/providers') return jsonResponse(providerList);
     if (method === 'POST' && url === '/api/profiles') {
       if (saveError) return jsonResponse({ error: saveError }, 400);
       const body = JSON.parse(String(init?.body)) as Profile;
@@ -137,6 +146,49 @@ describe('profile policy', () => {
 
     expect(await screen.findByText(/references missing policy file/)).toBeInTheDocument();
     expect(screen.getByText(/use the AgentBox default/)).toBeInTheDocument();
+  });
+});
+
+describe('profile provider mode', () => {
+  it('renders the derived provider mode as read-only', async () => {
+    const unsupportedProvider = { ...providers[0], name: 'unsupported-provider', type: 'mystery-provider', mode: undefined };
+    const { savedProfiles } = setupApi({ profiles: [], providers: [...providers, unsupportedProvider] });
+    const user = await openCreate();
+    const mode = screen.getByRole('textbox', { name: /Mode \(derived from provider kind\)/ });
+
+    expect(mode).toHaveValue('gateway');
+    expect(mode).toHaveAttribute('readonly');
+    expect(screen.getByText('The selected provider determines this mode.')).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Provider' }), 'openai');
+    expect(mode).toHaveValue('standard');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Provider' }), 'unused-gateway');
+    expect(mode).toHaveValue('gateway');
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Provider' }), 'unsupported-provider');
+    expect(mode).toHaveValue('Unknown');
+    expect(screen.getByText('This provider has an unsupported kind. Choose a supported provider before saving.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Provider' }), 'unused-gateway');
+    await fillRequiredFields(user);
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(savedProfiles).toHaveLength(1));
+    expect(savedProfiles[0]?.mode).toBe('gateway');
+    expect(screen.queryByRole('combobox', { name: /Mode \(derived from provider kind\)/ })).not.toBeInTheDocument();
+  });
+
+  it('surfaces profile save errors inside the profile dialog', async () => {
+    setupApi({
+      saveError: 'profile "codex-default" cannot derive its provider host; choose a supported provider or fix base_url'
+    });
+    const user = await openEdit(profile);
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Unable to save profile')).toBeInTheDocument();
+    expect(within(dialog).getByText(/choose a supported provider or fix base_url/)).toBeInTheDocument();
+    expect(screen.queryByText('Unable to load profiles')).not.toBeInTheDocument();
   });
 });
 

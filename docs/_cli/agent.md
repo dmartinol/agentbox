@@ -32,7 +32,7 @@ Start an agent run.
 ```text
 agentbox agent start \
   [--project NAME] [--source PATH] [--profile NAME] [--gateway NAME] \
-  [--name NAME] [--image IMAGE] [--mode MODE] [--model MODEL] \
+  [--name NAME] [--image IMAGE] [--model MODEL] \
   [--approval MODE] [--prompt TEXT] [--mcp NAME] [--dry-run] [--json]
 ```
 
@@ -44,7 +44,6 @@ agentbox agent start \
 | `--gateway` | — | OpenShell gateway name. |
 | `--name` | — | Unique run name. |
 | `--image` | — | Image override. |
-| `--mode` | — | Mode override. |
 | `--model` | — | Model override. |
 | `--approval` | — | Approval override. |
 | `--prompt` | — | Task prompt; empty starts the agent interactively. |
@@ -62,6 +61,10 @@ prints the run ID, agent, and worktree path, and warns on standard error when
 the run has no project. `--dry-run` previews the startup plan and returns JSON
 output. `--mcp` selects an MCP tools entry; missing server names produce
 warnings on standard error, not failures.
+
+The selected profile is the sole source of run mode. The former
+`agent start --mode` flag is unsupported; edit the profile when its provider
+kind requires `standard` or `gateway`.
 
 **Examples**
 

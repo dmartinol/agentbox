@@ -67,7 +67,6 @@ type StartOptions struct {
 	Gateway  string
 	Image    string
 	Model    string
-	Mode     string
 	Approval string
 	Prompt   string
 	MCP      string
@@ -94,14 +93,48 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if opt.Model != "" {
 		p.Model = opt.Model
 	}
-	if opt.Mode != "" {
-		p.Mode = opt.Mode
-	}
 	if opt.Approval != "" {
 		p.Approval = opt.Approval
 	}
 	if err := p.Validate(); err != nil {
 		return Run{}, fmt.Errorf("profile %q is invalid: %w", p.Name, err)
+	}
+	if opt.Gateway == "" {
+		return Run{}, fmt.Errorf("explicit gateway name required")
+	}
+	gw, err := a.GatewayInfo(ctx, opt.Gateway)
+	if err != nil {
+		return Run{}, err
+	}
+	if !strings.Contains(strings.ToLower(string(gw)), "podman") {
+		return Run{}, fmt.Errorf("selected gateway does not report the Podman driver")
+	}
+	if definition, ok := BuiltinProviderByName(p.Provider); ok {
+		status := a.ensureBuiltinProvider(ctx, definition, opt.Gateway)
+		if !status.Registered {
+			if !status.CredentialPresent {
+				return Run{}, fmt.Errorf("provider %q is built in but %s is not set in the environment where AgentBox and the OpenShell gateway run", p.Provider, definition.Credential)
+			}
+			detail := status.Error
+			if detail == "" {
+				detail = "not registered with OpenShell"
+			}
+			return Run{}, fmt.Errorf("provider %q is built in but could not be registered: %s", p.Provider, detail)
+		}
+	}
+	if _, err := a.Runner.Output(ctx, "openshell", "provider", "get", p.Provider, "--gateway", opt.Gateway); err != nil {
+		return Run{}, fmt.Errorf("provider %q unavailable: %w", p.Provider, err)
+	}
+	providerKind, err := a.providerKind(ctx, p.Provider, opt.Gateway)
+	if err != nil {
+		return Run{}, err
+	}
+	expectedMode, err := ProviderKindMode(providerKind)
+	if err != nil {
+		return Run{}, fmt.Errorf("provider %q has unsupported kind %q; supported kinds are anthropic, gateway-bearer, gateway-header, and openai", p.Provider, providerKind)
+	}
+	if p.Mode != expectedMode {
+		return Run{}, fmt.Errorf("profile %q declares mode %q but provider %q has kind %q; set profile mode to %q", p.Name, p.Mode, p.Provider, providerKind, expectedMode)
 	}
 	if _, err := deriveProviderEndpoint(p); err != nil {
 		return Run{}, err
@@ -167,32 +200,6 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 		if err := a.requireDirectRunAvailable(ctx, sourceRoot); err != nil {
 			return Run{}, err
 		}
-	}
-	if opt.Gateway == "" {
-		return Run{}, fmt.Errorf("explicit gateway name required")
-	}
-	gw, err := a.GatewayInfo(ctx, opt.Gateway)
-	if err != nil {
-		return Run{}, err
-	}
-	if !strings.Contains(strings.ToLower(string(gw)), "podman") {
-		return Run{}, fmt.Errorf("selected gateway does not report the Podman driver")
-	}
-	if definition, ok := BuiltinProviderByName(p.Provider); ok {
-		status := a.ensureBuiltinProvider(ctx, definition, opt.Gateway)
-		if !status.Registered {
-			if !status.CredentialPresent {
-				return Run{}, fmt.Errorf("provider %q is built in but %s is not set in the environment where AgentBox and the OpenShell gateway run", p.Provider, definition.Credential)
-			}
-			detail := status.Error
-			if detail == "" {
-				detail = "not registered with OpenShell"
-			}
-			return Run{}, fmt.Errorf("provider %q is built in but could not be registered: %s", p.Provider, detail)
-		}
-	}
-	if _, err := a.Runner.Output(ctx, "openshell", "provider", "get", p.Provider, "--gateway", opt.Gateway); err != nil {
-		return Run{}, fmt.Errorf("provider %q unavailable: %w", p.Provider, err)
 	}
 	runImage := RunImage{Image: p.Image, BaseImage: p.Image, Source: ImageSourceProfile}
 	switch {
