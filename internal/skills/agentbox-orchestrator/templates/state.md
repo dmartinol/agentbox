@@ -148,4 +148,4 @@ blocked_reason: ""
 updated: <RFC3339 timestamp>
 -->
 
-**<img src="https://raw.githubusercontent.com/dmartinol/agentbox/main/docs/assets/agentbox-icon.svg" width="14" height="14" align="absmiddle" alt="AgentBox"> Orchestrator state: <state>** · <issue or pull request link> · <current stage and commit> · updated <RFC3339 timestamp> · AgentBox orchestrator {{VERSION_DISPLAY}}
+**<img src="https://raw.githubusercontent.com/dmartinol/agentbox/main/docs/assets/agentbox-icon.svg" width="14" height="14" align="absmiddle" alt="AgentBox"> Orchestrator state: <state>** · AgentBox orchestrator {{VERSION_DISPLAY}}

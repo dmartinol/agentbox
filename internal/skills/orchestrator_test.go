@@ -808,7 +808,8 @@ func TestOrchestratorSkillStateSchema(t *testing.T) {
 	wantAll(t, body,
 		"<!-- orchestrator-state",
 		"one visible status line",
-		"renders one status line and hides the record",
+		"renders one status line carrying only the state and the version, and hides the record",
+		"must not repeat the issue, pull request, commit, or timing",
 		"schema: 3",
 		"workflow_id:",
 		"orchestrator: {runtime:",
@@ -1313,7 +1314,7 @@ func TestOrchestratorStateTemplateExpressesSelectionAndIterations(t *testing.T) 
 	wantAll(t, collapsed(t),
 		"Every dispatch appends a new `stages[]` entry and never overwrites the previous one",
 		"`iteration` counts dispatches of the same stage, starting at 1",
-		"They are the source of every `took` and `elapsed` duration in a footer",
+		"They are the source of every `took` duration in a footer",
 	)
 	wantAll(t, collapsed(t),
 		"**Workflow identity adoption.** The state record wins over every other copy of the identity",

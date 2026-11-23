@@ -365,7 +365,7 @@ In the table below, `<icon>` is the literal mark, kept identical in every artifa
 | --- | --- |
 | Triage issue body | `**<icon> Triaged by AgentBox (<agent>)** · workflow <workflow-id> · [#<issue>](<repo-url>/issues/<issue>) · took <duration>` |
 | Plan comment | `**<icon> Planned by AgentBox orchestrator (<agent>)** · base [<short-sha>](<repo-url>/commit/<full-sha>) · [#<issue>](<repo-url>/issues/<issue>) · took <duration>` |
-| State comment | `**<icon> Orchestrator state: <state>** · <issue or pull request link> · <current stage and commit> · updated <time> · AgentBox orchestrator <version>` |
+| State comment | `**<icon> Orchestrator state: <state>** · AgentBox orchestrator <version>` |
 | Pull request body | `**<icon> Implemented by AgentBox (<agent>)** · reviewed [<short-sha>](<repo-url>/commit/<full-sha>) · [#<pr>](<repo-url>/pull/<pr>) closes [#<issue>](<repo-url>/issues/<issue>) · took <duration>` |
 | Verify artifact | `**<icon> Verified [<short-sha>](<repo-url>/commit/<full-sha>) by AgentBox verifier (<agent>)** · gates <result> · [#<pr>](<repo-url>/pull/<pr>) · took <duration>` |
 | Review verdict | `**<icon> Reviewed [<short-sha>](<repo-url>/commit/<full-sha>) by AgentBox reviewer (<agent>)** · <verdict> · <n> findings · independence: <basis> · [#<pr>](<repo-url>/pull/<pr>) · took <duration>` |
@@ -374,7 +374,7 @@ In the table below, `<icon>` is the literal mark, kept identical in every artifa
 
 - Precede the footer with `---` on its own line. A footer that runs straight into the description reads as body text.
 - Start the line with the AgentBox mark and bold the clause up to the first `·`. Keep the rest plain so the facts stay scannable.
-- End with `took <duration>` on a stage artifact, or `elapsed <duration>` on the state comment. Write it the way a human reads it: `45s`, `2m 17s`, `1h 04m 56s` — two-digit seconds once minutes appear, two-digit minutes once hours appear. Measure a stage from dispatch to artifact post, and the state comment from the first workflow artifact to the latest one.
+- End with `took <duration>` on a stage artifact. Write it the way a human reads it: `45s`, `2m 17s`, `1h 04m 56s` — two-digit seconds once minutes appear, two-digit minutes once hours appear. Measure a stage from dispatch to artifact post.
 - Omit the duration segment rather than guess when the stage start is not recorded; never invent a timing.
 - The marker keeps the full machine-readable record: `workflow`, `stage`, `worker`, `worker_id`, `model`, `commit`, and `pr`. Never shorten a footer by dropping a marker field, and use `null` only where a value genuinely does not exist yet.
 - Never print a full registry model id in visible text, whether that is a footer, an evidence table, or narrative prose. Use the short name from the close rule, such as `codex/DeepSeek-V4.1`, and add the effort when the runtime recorded one, as in `codex/GLM5.3/high`. The full id belongs only in the marker and in the state ledger.
@@ -383,7 +383,7 @@ In the table below, `<icon>` is the literal mark, kept identical in every artifa
 - Fill `reviewed` or `merged` only after that check happened at that commit. Until then, omit the segment rather than naming a commit that was not reviewed or merged.
 - The review footer states the independence basis so a reader can judge the verdict without opening the marker.
 - Post exactly one footer, as the last line of the artifact. Never repeat it in the body or in a later comment.
-- The state comment renders one status line and hides the record; never print the YAML record or its explanatory prose in a rendered comment.
+- The state comment renders one status line carrying only the state and the version, and hides the record; never repeat the issue, pull request, commit, or timing already shown by the stage artifacts and the close footer.
 - The marker is the source of truth for resuming: read the orchestrator's own comments by marker to reconstruct the workflow instead of relying on prose.
 - Refuse a second verdict for the same `(workflow, stage, commit)`. If a matching verdict already exists, report it and stop that attempt rather than posting a duplicate.
 - Provenance never implies a human author. It names the agent and the commit the content applies to.
@@ -448,7 +448,7 @@ Transitions are add-before-remove: add the new label, confirm it is applied, the
 
 ## State record
 
-Maintain exactly one issue comment whose body holds a single hidden `<!-- orchestrator-state` … `-->` HTML comment containing the YAML record below, followed by one visible status line: the state, the issue or pull request, the current stage and commit, the last update time, and the running orchestrator version. Upsert it in place after every state change; never leave duplicates. Do not render the YAML record or its explanatory prose: no tool parses it, and the thread already carries the plan, verify, verdict, and close artifacts. On resume or context loss, read this comment first through the same issue-scoped paginated lookup and target validation, never a repository-wide comment listing, and continue from the record in its API body. The `state.md` template is the canonical shape. This is not a narrative status update: the single visible line carries the status, and the hidden record carries the resume data.
+Maintain exactly one issue comment whose body holds a single hidden `<!-- orchestrator-state` … `-->` HTML comment containing the YAML record below, followed by one visible status line that carries only the current state and the running orchestrator version. Upsert it in place after every state change; never leave duplicates. Do not render the YAML record or its explanatory prose: no tool parses it, and the thread already carries the plan, verify, verdict, and close artifacts. The visible line exists because a comment containing only an HTML comment renders blank; it must not repeat the issue, pull request, commit, or timing that those artifacts already show. On resume or context loss, read this comment first through the same issue-scoped paginated lookup and target validation, never a repository-wide comment listing, and continue from the record in its API body. The `state.md` template is the canonical shape.
 
 ```yaml
 schema: 3
@@ -515,7 +515,7 @@ The record may contain model and effort identifiers. It must never contain crede
 Every dispatch appends a new `stages[]` entry and never overwrites the previous one:
 
 - `iteration` counts dispatches of the same stage, starting at 1. A pre-pull-request correction run, a second `implement`, or a second `fix` cycle is a new entry with the next number, so intermediate commits stay traceable instead of living only in a terminal.
-- `started` and `ended` are the dispatch window in RFC3339. They are the source of every `took` and `elapsed` duration in a footer; never estimate a duration that is not recorded here.
+- `started` and `ended` are the dispatch window in RFC3339. They are the source of every `took` duration in a footer; never estimate a duration that is not recorded here.
 - `dispatch` is `split` or `combined`. A combined triage and plan dispatch records both stages with the same `started` and `ended` values and `dispatch: combined`.
 - `synced_commit` on a sandbox implement or fix stage records the commit the worker returned before the squash, so the normalization step cannot hide history. `commit` is the pushed, squashed commit.
 - `artifact` is the URL of the posted stage artifact, such as the verify comment. Record it so the pull request's `Independent checks` table never links into the state comment as a substitute for evidence.
