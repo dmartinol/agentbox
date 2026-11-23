@@ -80,6 +80,29 @@ func seedRunPolicies(t *testing.T, store Store, run Run) (policy, pending, fragm
 	return policy, pending, fragment
 }
 
+func TestDeleteMissingRunRecordIsActionableWithoutCleanup(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	app := App{Store: store, Runner: runner}
+
+	err := app.Delete(context.Background(), "run-missing123", true)
+	if err == nil {
+		t.Fatal("delete with a missing run record succeeded")
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("delete error is not os.ErrNotExist: %v", err)
+	}
+	if !strings.Contains(err.Error(), "run-missing123") || !strings.Contains(err.Error(), "agentbox agent prune") {
+		t.Fatalf("delete error is not actionable: %v", err)
+	}
+	if len(runner.outputs) != 0 || len(runner.streams) != 0 {
+		t.Fatalf("cleanup commands attempted: outputs=%#v streams=%#v", runner.outputs, runner.streams)
+	}
+}
+
 func TestDeleteToleratesWorktreeRemovedOutOfBand(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
