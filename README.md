@@ -22,6 +22,7 @@ AgentBox is an experimental OpenShell utility, not a supported product release.
 3. Start an agent with a task. By default, each run has its own branch and worktree.
 4. Inspect progress, logs, and diffs; attach when the agent needs input.
 5. Sync the results to the local run worktree and review them before integration.
+6. Delete the run after review to clean up its sandbox, worktree, branch, run artifacts, run policies, and record.
 
 The sandbox works on a copy of the repository. Changes return through sync;
 the sandbox and host checkout are not a live shared filesystem.
@@ -58,6 +59,8 @@ agentbox agent list
 agentbox agent denials RUN_ID
 agentbox agent diff RUN_ID
 agentbox agent sync RUN_ID
+agentbox agent delete --discard RUN_ID
+agentbox agent prune --dry-run
 ```
 
 Replace `RUN_ID` with the ID printed at startup. `agent denials` lists the

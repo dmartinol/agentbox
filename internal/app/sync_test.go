@@ -256,6 +256,32 @@ func TestSyncTransfersCommitAndUncommittedFilesToRunWorktree(t *testing.T) {
 	}
 }
 
+func TestSyncRetainsMirrorArtifactsForReapply(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	artifacts, sandbox := createAgentExportWithRepo(t, run, t.TempDir())
+	app.Runner = newSyncRunnerWithProbe(t, artifacts, sandboxProbeJSON(t, sandbox))
+	if err := app.Sync(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	patchPath := filepath.Join(app.Store.RunsDir(), run.ID+"-mirror.patch")
+	tarPath := filepath.Join(app.Store.RunsDir(), run.ID+"-mirror.tar")
+	for _, path := range []string{patchPath, tarPath} {
+		info, err := os.Stat(path)
+		if err != nil || info.Size() == 0 {
+			t.Fatalf("mirror artifact missing or empty: %s (%v)", path, err)
+		}
+	}
+	if err := app.Sync(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{patchPath, tarPath} {
+		info, err := os.Stat(path)
+		if err != nil || info.Size() == 0 {
+			t.Fatalf("mirror artifact not retained for re-apply: %s (%v)", path, err)
+		}
+	}
+}
+
 func TestSyncRefusesLocallyChangedRunWorktreeBeforeRemoteTransfer(t *testing.T) {
 	app, run, _ := createSyncFixture(t)
 	if err := os.WriteFile(filepath.Join(run.Worktree, "tracked.txt"), []byte("local conflict\n"), 0600); err != nil {

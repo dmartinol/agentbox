@@ -36,6 +36,50 @@ func newDeleteRunner() *fakeRunner {
 	return runner
 }
 
+func seedRunArtifacts(t *testing.T, store Store, id string) []string {
+	t.Helper()
+	paths := []string{
+		filepath.Join(store.RunsDir(), id+"-source.bundle"),
+		filepath.Join(store.RunsDir(), id+"-config.tar"),
+		filepath.Join(store.RunsDir(), id+"-initial.patch"),
+		filepath.Join(store.RunsDir(), id+"-mirror.patch"),
+		filepath.Join(store.RunsDir(), id+"-mirror.tar"),
+	}
+	for _, path := range paths {
+		if err := os.WriteFile(path, []byte("run artifact\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	configDir := filepath.Join(store.RunsDir(), id+"-config")
+	if err := os.MkdirAll(filepath.Join(configDir, "nested"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "nested", "file.txt"), []byte("config\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return append(paths, configDir)
+}
+
+func seedRunPolicies(t *testing.T, store Store, run Run) (policy, pending, fragment string) {
+	t.Helper()
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	policy = filepath.Join(store.PolicyDir(), run.ID+".yaml")
+	pending = filepath.Join(store.PolicyDir(), run.ID+"-pending.yaml")
+	fragment = filepath.Join(store.PolicyDir(), run.ID+"-fragment.yaml")
+	for path, body := range map[string]string{
+		policy:   "policy: run\n",
+		pending:  "policy: pending\n",
+		fragment: "policy: shared\n",
+	} {
+		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return policy, pending, fragment
+}
+
 func TestDeleteToleratesWorktreeRemovedOutOfBand(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -46,6 +90,7 @@ func TestDeleteToleratesWorktreeRemovedOutOfBand(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			app, run, _ := createSyncFixture(t)
+			artifactPaths := seedRunArtifacts(t, app.Store, run.ID)
 			// Simulate cleanup that happened outside AgentBox: worktree and
 			// branch are gone but the run record still references them.
 			cmd(t, run.Source, "git", "worktree", "remove", "--force", run.Worktree)
@@ -81,6 +126,137 @@ func TestDeleteToleratesWorktreeRemovedOutOfBand(t *testing.T) {
 			}
 			if branches := cmd(t, run.Source, "git", "branch", "--list", run.Branch); strings.TrimSpace(branches) != "" {
 				t.Fatalf("branch still present: %s", branches)
+			}
+			for _, path := range artifactPaths {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatalf("run artifact still present after delete: %s (%v)", path, err)
+				}
+			}
+		})
+	}
+}
+
+func TestDeleteRemovesAllRunArtifactsPoliciesAndRecord(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	policy, pending, fragment := seedRunPolicies(t, app.Store, run)
+	run.Status = StatusStopped
+	run.Policy = policy
+	run.PendingPolicy = pending
+	run.PolicyFragment = fragment
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	artifactPaths := seedRunArtifacts(t, app.Store, run.ID)
+	unrelated := filepath.Join(app.Store.RunsDir(), "unrelated.txt")
+	if err := os.WriteFile(unrelated, []byte("keep\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	app.Runner = newDeleteRunner()
+	if err := app.Delete(context.Background(), run.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range artifactPaths {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("run artifact still present: %s (%v)", path, err)
+		}
+	}
+	for _, path := range []string{policy, pending} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("run policy still present: %s (%v)", path, err)
+		}
+	}
+	for _, path := range []string{fragment, unrelated} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("shared path was removed: %s (%v)", path, err)
+		}
+	}
+	if _, err := app.Store.LoadRun(run.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("run record still present: %v", err)
+	}
+}
+
+func TestDeleteRetainsRunArtifactsWhenSandboxDeleteFails(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	policy, pending, _ := seedRunPolicies(t, app.Store, run)
+	run.Status = StatusStopped
+	run.Policy = policy
+	run.PendingPolicy = pending
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	artifactPaths := seedRunArtifacts(t, app.Store, run.ID)
+	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, run.Worktree))
+	base := runner.output
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && containsCommand(call.args, "sandbox", "delete") {
+			return nil, errors.New("simulated sandbox delete failure")
+		}
+		return base(call)
+	}
+	app.Runner = runner
+	err := app.Delete(context.Background(), run.ID, true)
+	if err == nil || !strings.Contains(err.Error(), "sandbox cleanup failed") {
+		t.Fatalf("sandbox failure was unclear: %v", err)
+	}
+	if !strings.Contains(err.Error(), "run record retained") || !strings.Contains(err.Error(), "every run artifact retained") {
+		t.Fatalf("retention was not named: %v", err)
+	}
+	for _, path := range append([]string{app.Store.RunPath(run.ID)}, artifactPaths...) {
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Fatalf("path was removed after sandbox failure: %s (%v)", path, statErr)
+		}
+		if !strings.Contains(err.Error(), path) {
+			t.Fatalf("retained path was not named in error: %s", path)
+		}
+	}
+	for _, path := range []string{policy, pending} {
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Fatalf("policy was removed after sandbox failure: %s (%v)", path, statErr)
+		}
+	}
+}
+
+func TestDeleteRetainsRunArtifactsWhenWorktreeOrBranchCleanupFails(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		first  string
+		second string
+		stage  string
+	}{
+		{name: "worktree", first: "worktree", second: "remove", stage: "worktree cleanup failed"},
+		{name: "branch", first: "branch", second: "-D", stage: "branch cleanup failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app, run, _ := createSyncFixture(t)
+			policy, pending, _ := seedRunPolicies(t, app.Store, run)
+			run.Status = StatusStopped
+			run.Policy = policy
+			run.PendingPolicy = pending
+			if err := app.Store.SaveRun(run); err != nil {
+				t.Fatal(err)
+			}
+			artifactPaths := seedRunArtifacts(t, app.Store, run.ID)
+			runner := newDeleteRunner()
+			base := runner.output
+			runner.output = func(call recordedCommand) ([]byte, error) {
+				if call.name == "git" && containsCommand(call.args, tc.first, tc.second) {
+					return nil, errors.New("simulated git cleanup failure")
+				}
+				return base(call)
+			}
+			app.Runner = runner
+			err := app.Delete(context.Background(), run.ID, true)
+			if err == nil || !strings.Contains(err.Error(), tc.stage) {
+				t.Fatalf("cleanup failure was unclear: %v", err)
+			}
+			retained := append([]string{app.Store.RunPath(run.ID), policy, pending}, artifactPaths...)
+			for _, path := range retained {
+				if _, statErr := os.Stat(path); statErr != nil {
+					t.Fatalf("path was removed after %s: %s (%v)", tc.stage, path, statErr)
+				}
+				if !strings.Contains(err.Error(), path) {
+					t.Fatalf("retained path was not named: %s", path)
+				}
 			}
 		})
 	}

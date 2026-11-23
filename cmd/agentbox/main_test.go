@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -109,6 +110,74 @@ func TestImagePruneOutputCountsNamedAndDanglingImages(t *testing.T) {
 	want := "Removed 2 AgentBox image(s):\nlocalhost/openshell:codex-1.0.0-r4\nimage-dangling"
 	if output != want {
 		t.Fatalf("prune output = %q; want %q", output, want)
+	}
+}
+
+func TestAgentPruneDryRunJSONAndIdempotence(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	a := &app.App{Store: store, Runner: &appfakeRunner{}}
+	path := filepath.Join(store.RunsDir(), "run-cli123-source.bundle")
+	body := []byte("orphan\n")
+	if err := os.WriteFile(path, body, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"agent", "prune", "--dry-run"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("Would remove 1 orphaned run artifact(s), freeing %d bytes:\n%s", len(body), path)
+	if output != want {
+		t.Fatalf("dry-run text = %q; want %q", output, want)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("dry-run removed artifact: %v", err)
+	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"agent", "prune", "--json", "--dry-run"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result app.RunArtifactPruneResult
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("dry-run JSON is invalid: %s (%v)", output, err)
+	}
+	if !result.DryRun || result.FreedBytes != int64(len(body)) || len(result.Artifacts) != 1 {
+		t.Fatalf("dry-run JSON = %+v", result)
+	}
+	if result.Artifacts[0].Path != path || result.Artifacts[0].Bytes != int64(len(body)) {
+		t.Fatalf("dry-run JSON artifact = %+v", result.Artifacts[0])
+	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"agent", "prune"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = fmt.Sprintf("Removed 1 orphaned run artifact(s), freeing %d bytes:\n%s", len(body), path)
+	if output != want {
+		t.Fatalf("real prune text = %q; want %q", output, want)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("real prune left artifact: %v", err)
+	}
+
+	output, err = captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"agent", "prune"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output != "No orphaned run artifacts to remove." {
+		t.Fatalf("second prune text = %q", output)
 	}
 }
 

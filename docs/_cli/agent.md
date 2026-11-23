@@ -18,6 +18,7 @@ subcommands:
   - sync
   - diff
   - delete
+  - prune
 ---
 
 Agent runs execute a profile in an isolated OpenShell sandbox, with the
@@ -258,10 +259,39 @@ agentbox agent delete [--discard] ID
 | --- | --- | --- |
 | `--discard` | `false` | Acknowledge discarding the agent's results. |
 
-Deletes the run record and its sandbox. Use `--discard` to confirm deleting a
+Deletes the sandbox, isolated worktree and branch, run-owned artifacts, run
+policies, and run record, in that order. Use `--discard` to confirm deleting a
 run whose results have not been synced. The flag must come before the run id:
 `agentbox agent delete --discard RUN_ID`. A flag written after the id is read
 as a second argument, and the command then waits for confirmation.
 
 Without `--discard`, delete refuses an active run and any run whose derived
 `sync_state` is `needs_sync` or `unknown`.
+
+## prune
+{: #agent-prune }
+
+Remove orphaned run artifacts.
+
+```text
+agentbox agent prune [--dry-run] [--json]
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--dry-run` | `false` | List orphaned artifacts without removing them. |
+| `--json` | `false` | Print the planned or removed artifacts as JSON. |
+
+An artifact is orphaned only when its matching `runs/<id>.json` record is
+absent. Existing records always win, and unrelated files in `runs/` are never
+removed. Dry-run output looks like this:
+
+```text
+Would remove 1 orphaned run artifact(s), freeing 7 bytes:
+/home/user/.agentbox/runs/run-example123-source.bundle
+```
+
+Real output uses `Removed` in place of `Would remove`. With no orphans,
+dry-run prints `No orphaned run artifacts found.` and real mode prints `No
+orphaned run artifacts to remove.` JSON output includes `dry_run`, every
+planned or removed path, each path's byte count, and `freed_bytes`.

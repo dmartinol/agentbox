@@ -297,7 +297,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	if err := a.upload(ctx, r, bundle, "/workspace/source.bundle"); err != nil {
 		return failRun(err)
 	}
-	tarPath := filepath.Join(a.Store.RunsDir(), id+"-config.tar")
+	tarPath := runArtifactPath(a.Store, id, runArtifactConfigTar)
 	if _, err := a.Runner.Output(ctx, "tar", "-C", config, "-cf", tarPath, "."); err != nil {
 		return failRun(err)
 	}
@@ -1000,19 +1000,46 @@ func (a *App) Delete(ctx context.Context, id string, discard bool) error {
 	// so a partially created sandbox is not orphaned.
 	if !(r.Status == StatusCreating && r.Synced) {
 		if err := a.deleteSandboxAndWait(ctx, r); err != nil {
-			return err
+			return fmt.Errorf("sandbox cleanup failed: %v; run record retained: %s; every run artifact retained: %s", err, a.Store.RunPath(id), strings.Join(runArtifactPaths(a.Store, id), ", "))
 		}
 	}
 	if r.Isolated() {
 		if err := a.removeRunWorktree(ctx, r); err != nil {
-			return fmt.Errorf("sandbox removed but worktree cleanup failed: %w", err)
+			return a.deleteCleanupFailure("worktree cleanup failed", err, r)
 		}
 		if err := a.removeRunBranch(ctx, r); err != nil {
-			return fmt.Errorf("sandbox removed but branch cleanup failed: %w", err)
+			return a.deleteCleanupFailure("branch cleanup failed", err, r)
 		}
 	}
-	_ = os.RemoveAll(filepath.Join(a.Store.RunsDir(), id+"-config"))
-	_ = os.Remove(r.Policy)
+	cleanupPaths := runArtifactPaths(a.Store, id)
+	cleanupPaths = append(cleanupPaths, retainedPolicyPaths(r)...)
+	for _, path := range cleanupPaths {
+		if path == "" {
+			continue
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("failed to remove run-owned path %q: %w; run record retained: %s", path, err, a.Store.RunPath(id))
+		}
+	}
 	a.invalidateSyncProbe(id)
-	return os.Remove(a.Store.RunPath(id))
+	if err := os.Remove(a.Store.RunPath(id)); err != nil {
+		return fmt.Errorf("failed to remove run record %q: %w", a.Store.RunPath(id), err)
+	}
+	return nil
+}
+
+func (a *App) deleteCleanupFailure(stage string, cause error, r Run) error {
+	paths := append([]string{a.Store.RunPath(r.ID)}, runArtifactPaths(a.Store, r.ID)...)
+	paths = append(paths, retainedPolicyPaths(r)...)
+	return fmt.Errorf("%s: %w; retained paths: %s", stage, cause, strings.Join(paths, ", "))
+}
+
+func retainedPolicyPaths(r Run) []string {
+	paths := make([]string, 0, 2)
+	for _, path := range []string{r.Policy, r.PendingPolicy} {
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths
 }

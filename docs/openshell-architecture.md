@@ -942,9 +942,11 @@ look like human-in-the-loop prompts: Codex runs with
   deleting the record, worktree, or transcript. Working is refused.
 - Delete: refuses active runs unless `--discard`, and refuses `needs_sync` or
   `unknown` sync states. The persisted `synced` flag is not used as proof that
-  newer sandbox work does not exist. Cleanup is idempotent: a worktree or branch
-  that was already removed out of band is treated as clean instead of blocking
-  removal of the run record.
+  newer sandbox work does not exist. Delete removes the sandbox first, then the
+  isolated worktree and branch, then all run-owned artifacts and run policies,
+  and removes the run record last. Cleanup is idempotent: a sandbox, worktree,
+  branch, artifact, policy, or record that was already removed is treated as
+  clean instead of blocking a retry.
 - Reconcile syncs a run that reached Completed and an exited-but-Ready run whose
   derived sync state is `needs_sync`.
 
@@ -959,6 +961,19 @@ a local mirror worktree for each run.
 - Sync does not merge changes into the original project branch.
 - Sleep, resume, and finish sync pending work before they change the sandbox
   lifecycle. A failed sync is reported and leaves the run in its prior state.
+
+### Run artifact lifetime
+
+Each run can own a source bundle, configuration tar, configuration directory,
+initial patch, mirror patch, and mirror tar under `runs/`. The run record is the
+liveness authority: while `run-<id>.json` exists, AgentBox keeps the artifacts,
+including both mirror files, because a later sync reverses and re-applies the
+previous export. Delete removes every run-owned artifact only after sandbox,
+worktree, and branch cleanup succeed, and removes the record last.
+
+`agentbox agent prune` removes only artifacts whose run record is absent. Use
+`--dry-run` to list what would be removed and how many bytes would be freed;
+the real command rechecks each record immediately before removal.
 
 ### Sync state
 
@@ -1017,3 +1032,7 @@ Default AgentBox state is stored under:
 ```
 
 Set `AGENTBOX_HOME` to use another state root.
+
+`runs/<id>.json` is the liveness authority for a run. A run's mirror patch and
+mirror tar remain for the full lifetime of that record so sync can reverse and
+re-apply the previous export.
