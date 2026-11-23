@@ -826,6 +826,16 @@ func TestOrchestratorSkillDurableArtifacts(t *testing.T) {
 	)
 }
 
+// TestOrchestratorSkillRefusalExemptsBodyStages pins the body-return
+// exemption so handoff-stage refusal rules cannot cover tracker-blind stages.
+func TestOrchestratorSkillRefusalExemptsBodyStages(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"For plan, implement, fix, verify, and review — the stages with a `.agentbox-stage/<stage>-<iteration>.md` handoff — refuse a worker result that returns an artifact body, uses the wrong handoff path, leaves the handoff empty, or otherwise violates the handoff contract",
+		"Triage and retro are exempt from that body-return refusal, including a combined triage+plan dispatch: they return their complete artifact body because they are tracker-blind and shell-less; the orchestrator persists that returned body as the durable artifact and validates it before advancing.",
+	)
+}
+
 // TestOrchestratorSkillStalledFollowUpQueueRecovery keeps follow-up creation
 // idempotent after a queue stalls between an artifact and tracker write.
 func TestOrchestratorSkillStalledFollowUpQueueRecovery(t *testing.T) {
@@ -1436,6 +1446,18 @@ func TestOrchestratorReviewTaskTemplateDurableArtifacts(t *testing.T) {
 		if strings.Contains(body, superseded) {
 			t.Fatalf("review task still contains superseded instruction %q", superseded)
 		}
+	}
+
+	verdictContent, err := EmbeddedFile("agentbox-orchestrator", "verdict.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verdictBody := string(verdictContent)
+	wantAll(t, verdictBody,
+		"The `.agentbox-stage/review-<iteration>.md` handoff is the verdict artifact; the orchestrator reads, persists, and posts it with provenance.",
+	)
+	if strings.Contains(verdictBody, "The reviewer returns this artifact to the orchestrator.") {
+		t.Fatal("verdict template still tells the reviewer to return the artifact")
 	}
 }
 
