@@ -251,8 +251,9 @@ func TestOrchestratorSkillFeedbackFollowUps(t *testing.T) {
 		"agentbox agent finish RUN_ID",
 		"gates 4 and 6 may overlap once the pull request exists",
 		"it must not post a verdict until the verify result at the reviewed commit is recorded and green",
-		"machine-readable state record, not a narrative status update",
-		"Explain this to the user once when the first state comment appears",
+		"single hidden `<!-- orchestrator-state",
+		"followed by one visible status line",
+		"no tool parses it",
 		"Codex provisions its helper aliases under `$CODEX_HOME/tmp`",
 		"Do not accept a hand-built patch shim as the fix",
 	)
@@ -805,7 +806,9 @@ func TestOrchestratorSkillReviewerDiversity(t *testing.T) {
 func TestOrchestratorSkillStateSchema(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
-		"<!-- orchestrator-state -->",
+		"<!-- orchestrator-state",
+		"one visible status line",
+		"renders one status line and hides the record",
 		"schema: 3",
 		"workflow_id:",
 		"orchestrator: {runtime:",
@@ -852,7 +855,7 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 		"issue.md":       {"## At a glance", "## Summary", "## Current behavior", "## Proposed design", "<summary>Design detail", "## Acceptance criteria", "## Test plan", "## Risks", "## Out of scope", "## Related"},
 		"pr.md":          {"## At a glance", "## What changed", "## Reviewer guide", "<summary>Full change list", "## Evidence", "**Independent checks**", "Closes #<issue>", "## AGENTS.md check", "## Risks", "## Follow-ups", "## Provenance"},
 		"verdict.md":     {"## Verdict", "## Severity bar", "## Review scope", "## Independence", "## Findings", "## Evidence at commit", "## Required changes", "## Follow-ups", "## Provenance"},
-		"state.md":       {"<!-- orchestrator-state -->", "schema: 3", "workflow_id:", "configuration:", "selection_sources:", "selection_note:", "findings:", "review_cycles_max:", "tests_added:", "diff_stat:"},
+		"state.md":       {"<!-- orchestrator-state", "schema: 3", "workflow_id:", "configuration:", "selection_sources:", "selection_note:", "findings:", "review_cycles_max:", "tests_added:", "diff_stat:"},
 		"plan.md":        {"## Plan at a glance", "<details>", "<summary>Full plan", "## Acceptance criteria", "## Implementation slices", "## Gate list", "## Task spec for the implementer", "## Risks", "## Out of scope", "## Provenance"},
 		"review-task.md": {"## Role", "## Scope", "## Severity bar", "## Checklist", "## Output", "## Provenance"},
 		"verify-task.md": {"## Role", "## Scope", "## Output", "## Provenance"},
@@ -861,7 +864,7 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 		"issue.md":       "**" + testFooterIcon + " Triaged by AgentBox (<agent>)**",
 		"pr.md":          "**" + testFooterIcon + " Implemented by AgentBox (<agent>)** · reviewed [<short-sha>]",
 		"verdict.md":     "**" + testFooterIcon + " Reviewed [<short-sha>]",
-		"state.md":       "**" + testFooterIcon + " State maintained by AgentBox orchestrator 9.9.9** ·",
+		"state.md":       "**" + testFooterIcon + " Orchestrator state: <state>**",
 		"plan.md":        "**" + testFooterIcon + " Planned by AgentBox orchestrator (<agent>)** · base [<short-sha>]",
 		"review-task.md": "**" + testFooterIcon + " Reviewed [<short-sha>]",
 		"verify-task.md": "**" + testFooterIcon + " Verified [<short-sha>]",
@@ -885,7 +888,14 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 		if last := lines[len(lines)-1]; !strings.HasPrefix(last, "**"+testFooterIcon) {
 			t.Fatalf("%s footer is not the last line: %q", file, last)
 		}
-		if len(lines) < 3 || lines[len(lines)-2] != "" || lines[len(lines)-3] != "---" {
+		if len(lines) < 2 || lines[len(lines)-2] != "" {
+			t.Fatalf("%s footer lacks a blank line before it", file)
+		}
+		if file == "state.md" {
+			if len(lines) >= 3 && lines[len(lines)-3] == "---" {
+				t.Fatalf("state.md status line must stand alone without a --- rule")
+			}
+		} else if len(lines) < 3 || lines[len(lines)-3] != "---" {
 			t.Fatalf("%s footer lacks its --- separator: %q", file, lines[len(lines)-3:])
 		}
 		wantAll(t, body, wants...)
@@ -908,13 +918,13 @@ func TestVersionDisplayRendersDirtyBuild(t *testing.T) {
 	if strings.Contains(body, "-dirty") {
 		t.Fatalf("dirty state footer still prints -dirty: %s", body)
 	}
-	wantAll(t, body, "**"+testFooterIcon+" State maintained by AgentBox orchestrator v0.2-162-gf230faa (dirty build)** ·")
+	wantAll(t, body, "AgentBox orchestrator v0.2-162-gf230faa (dirty build)")
 
 	clean, err := EmbeddedFile("agentbox-orchestrator", "state.md", "v0.3.0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantAll(t, string(clean), "**"+testFooterIcon+" State maintained by AgentBox orchestrator v0.3.0** ·")
+	wantAll(t, string(clean), "AgentBox orchestrator v0.3.0")
 }
 
 // TestOrchestratorSkillStateRecordExampleIsClean enforces the sensitive-data
@@ -966,10 +976,10 @@ func TestOrchestratorStateTemplateRecordsVerifyWorkerID(t *testing.T) {
 	if !strings.Contains(verify, "worker_id: <id>") {
 		t.Fatalf("verify stage entry lacks worker_id:\n%s", verify)
 	}
-	wantAll(t, strings.Join(strings.Fields(body), " "),
-		"Record the effort the worker actually ran with",
-		"Use `not-applicable` when the selected runtime cannot apply a reasoning effort",
-		"never record an effort that was requested but not applied",
+	wantAll(t, collapsed(t),
+		"`effort` records what the worker actually ran with",
+		"Use `not-applicable` when the selected runtime cannot apply one",
+		"never record a requested effort that the worker did not apply",
 	)
 }
 
@@ -1299,10 +1309,11 @@ func TestOrchestratorStateTemplateExpressesSelectionAndIterations(t *testing.T) 
 		"artifact: <comment-url>",
 		"tests_added:",
 		"diff_stat:",
-		"Every dispatch appends a `stages[]` entry; never overwrite the previous one",
-		"`iteration` counts dispatches of the same stage from 1",
-		"the only source of a footer duration",
-		"Adoption rule: the state record wins",
+	)
+	wantAll(t, collapsed(t),
+		"Every dispatch appends a new `stages[]` entry and never overwrites the previous one",
+		"`iteration` counts dispatches of the same stage, starting at 1",
+		"They are the source of every `took` and `elapsed` duration in a footer",
 	)
 	wantAll(t, collapsed(t),
 		"**Workflow identity adoption.** The state record wins over every other copy of the identity",

@@ -349,7 +349,7 @@ Create a stable `workflow_id` at triage, for example `orchestrator-<repo>-<issue
 <!-- orchestrator-workflow: {"workflow":"orchestrator-owner-name-35-a1b2c3","issue":35,"stage":"review","worker":"orca","worker_id":"worker-7","model":"model-id","commit":"0123456789abcdef0123456789abcdef01234567","pr":42} -->
 ```
 
-and exactly one visible footer. Separate it from the body with a `---` rule on its own line, with a blank line above and below; this applies to comment bodies, the pull request description, and the issue body alike. The footer is one compact line for a human reader: the AgentBox mark opens it, the leading clause is bold, then only the facts that line needs. It carries no model id and, except for the state footer, no version.
+and exactly one visible footer. Separate it from the body with a `---` rule on its own line, with a blank line above and below; this applies to comment bodies, the pull request description, and the issue body alike. The state comment is the one exception: its body is a hidden record, so its single status line stands alone without a `---` rule. The footer is one compact line for a human reader: the AgentBox mark opens it, the leading clause is bold, then only the facts that line needs. It carries no model id and, except for the state footer, no version.
 
 ```text
 ---
@@ -365,7 +365,7 @@ In the table below, `<icon>` is the literal mark, kept identical in every artifa
 | --- | --- |
 | Triage issue body | `**<icon> Triaged by AgentBox (<agent>)** · workflow <workflow-id> · [#<issue>](<repo-url>/issues/<issue>) · took <duration>` |
 | Plan comment | `**<icon> Planned by AgentBox orchestrator (<agent>)** · base [<short-sha>](<repo-url>/commit/<full-sha>) · [#<issue>](<repo-url>/issues/<issue>) · took <duration>` |
-| State comment | `**<icon> State maintained by AgentBox orchestrator <version>** · [#<issue>](<repo-url>/issues/<issue>) · workflow <workflow-id> · elapsed <duration>` |
+| State comment | `**<icon> Orchestrator state: <state>** · <issue or pull request link> · <current stage and commit> · updated <time> · AgentBox orchestrator <version>` |
 | Pull request body | `**<icon> Implemented by AgentBox (<agent>)** · reviewed [<short-sha>](<repo-url>/commit/<full-sha>) · [#<pr>](<repo-url>/pull/<pr>) closes [#<issue>](<repo-url>/issues/<issue>) · took <duration>` |
 | Verify artifact | `**<icon> Verified [<short-sha>](<repo-url>/commit/<full-sha>) by AgentBox verifier (<agent>)** · gates <result> · [#<pr>](<repo-url>/pull/<pr>) · took <duration>` |
 | Review verdict | `**<icon> Reviewed [<short-sha>](<repo-url>/commit/<full-sha>) by AgentBox reviewer (<agent>)** · <verdict> · <n> findings · independence: <basis> · [#<pr>](<repo-url>/pull/<pr>) · took <duration>` |
@@ -383,6 +383,7 @@ In the table below, `<icon>` is the literal mark, kept identical in every artifa
 - Fill `reviewed` or `merged` only after that check happened at that commit. Until then, omit the segment rather than naming a commit that was not reviewed or merged.
 - The review footer states the independence basis so a reader can judge the verdict without opening the marker.
 - Post exactly one footer, as the last line of the artifact. Never repeat it in the body or in a later comment.
+- The state comment renders one status line and hides the record; never print the YAML record or its explanatory prose in a rendered comment.
 - The marker is the source of truth for resuming: read the orchestrator's own comments by marker to reconstruct the workflow instead of relying on prose.
 - Refuse a second verdict for the same `(workflow, stage, commit)`. If a matching verdict already exists, report it and stop that attempt rather than posting a duplicate.
 - Provenance never implies a human author. It names the agent and the commit the content applies to.
@@ -447,7 +448,7 @@ Transitions are add-before-remove: add the new label, confirm it is applied, the
 
 ## State record
 
-Maintain exactly one issue comment whose body contains `<!-- orchestrator-state -->` followed by a fenced YAML block. Upsert it in place after every state change; never leave duplicates. On resume or context loss, read this comment first through the same issue-scoped paginated lookup and target validation, never a repository-wide comment listing, then continue from the recorded state. The `state.md` template is the canonical shape. This comment is the durable, machine-readable state record, not a narrative status update: that is why it is titled `State maintained by AgentBox orchestrator`, carries the workflow marker, and is edited in place instead of growing a progress thread. Stage artifacts such as the plan, verify evidence, and verdict are posted as their own comments and linked from the pull request; the state comment only records that they exist. Explain this to the user once when the first state comment appears.
+Maintain exactly one issue comment whose body holds a single hidden `<!-- orchestrator-state` … `-->` HTML comment containing the YAML record below, followed by one visible status line: the state, the issue or pull request, the current stage and commit, the last update time, and the running orchestrator version. Upsert it in place after every state change; never leave duplicates. Do not render the YAML record or its explanatory prose: no tool parses it, and the thread already carries the plan, verify, verdict, and close artifacts. On resume or context loss, read this comment first through the same issue-scoped paginated lookup and target validation, never a repository-wide comment listing, and continue from the record in its API body. The `state.md` template is the canonical shape. This is not a narrative status update: the single visible line carries the status, and the hidden record carries the resume data.
 
 ```yaml
 schema: 3
@@ -839,7 +840,7 @@ gh api "repos/$OWNER/$REPO/pulls/$PR" --jq .head.sha
 gh pr checks "$PR"
 ```
 
-Resolve and validate the state-comment target before every PATCH. Choose a candidate only from `gh api --paginate "repos/$OWNER/$REPO/issues/$ISSUE/comments"` by finding a comment whose `body` contains `<!-- orchestrator-state -->`; never use the repository-wide `repos/$OWNER/$REPO/issues/comments` listing for this lookup. Then read the candidate with `gh api "repos/$OWNER/$REPO/issues/comments/$COMMENT_ID"` and require `.issue_url` to equal `"https://api.github.com/repos/$OWNER/$REPO/issues/$ISSUE"` before any PATCH. If a valid foreign comment id is found—a comment that exists but belongs to another issue—do not PATCH it, do not create a replacement, and leave the foreign comment untouched. Exit non-zero and print an actionable error naming both issues, for example: `state comment target mismatch: expected issue https://api.github.com/repos/owner/name/issues/35, resolved issue https://api.github.com/repos/owner/name/issues/36`.
+Resolve and validate the state-comment target before every PATCH. Choose a candidate only from `gh api --paginate "repos/$OWNER/$REPO/issues/$ISSUE/comments"` by finding a comment whose `body` contains `<!-- orchestrator-state`; never use the repository-wide `repos/$OWNER/$REPO/issues/comments` listing for this lookup. Then read the candidate with `gh api "repos/$OWNER/$REPO/issues/comments/$COMMENT_ID"` and require `.issue_url` to equal `"https://api.github.com/repos/$OWNER/$REPO/issues/$ISSUE"` before any PATCH. If a valid foreign comment id is found—a comment that exists but belongs to another issue—do not PATCH it, do not create a replacement, and leave the foreign comment untouched. Exit non-zero and print an actionable error naming both issues, for example: `state comment target mismatch: expected issue https://api.github.com/repos/owner/name/issues/35, resolved issue https://api.github.com/repos/owner/name/issues/36`.
 
 | Operation | Command |
 | --- | --- |
@@ -847,7 +848,7 @@ Resolve and validate the state-comment target before every PATCH. Choose a candi
 | List ready | `gh issue list --state open --label orchestrator:ready --json number,title` |
 | Create issue | `gh issue create --title "<title>" --body-file <spec>` |
 | Set labels | `gh issue edit <number> --add-label <new>` then `gh issue edit <number> --remove-label <old>` |
-| Upsert state | resolve only from `gh api --paginate repos/<owner>/<repo>/issues/<issue>/comments`, matching a comment whose body contains `<!-- orchestrator-state -->`; never use `repos/<owner>/<repo>/issues/comments` for state-comment resolution; after target validation, `gh api --method PATCH repos/{owner}/{repo}/issues/comments/<id> -F body=@<file>`; create with `gh issue comment <number> --body-file <file>` when absent |
+| Upsert state | resolve only from `gh api --paginate repos/<owner>/<repo>/issues/<issue>/comments`, matching a comment whose body contains `<!-- orchestrator-state`; never use `repos/<owner>/<repo>/issues/comments` for state-comment resolution; after target validation, `gh api --method PATCH repos/{owner}/{repo}/issues/comments/<id> -F body=@<file>`; create with `gh issue comment <number> --body-file <file>` when absent |
 | Link PR | `gh pr create --base <base> --head <branch> --title "<title>" --body-file <file>` with `Closes #<issue>` in the body |
 | Close | `gh issue close <number> --comment "<outcome>"` |
 
