@@ -447,7 +447,7 @@ Transitions are add-before-remove: add the new label, confirm it is applied, the
 
 ## State record
 
-Maintain exactly one issue comment that starts with `<!-- orchestrator-state -->` followed by a fenced YAML block. Upsert it in place after every state change; never leave duplicates. On resume or context loss, read this comment first and continue from the recorded state. The `state.md` template is the canonical shape. This comment is the durable, machine-readable state record, not a narrative status update: that is why it is titled `State maintained by AgentBox orchestrator`, carries the workflow marker, and is edited in place instead of growing a progress thread. Stage artifacts such as the plan, verify evidence, and verdict are posted as their own comments and linked from the pull request; the state comment only records that they exist. Explain this to the user once when the first state comment appears.
+Maintain exactly one issue comment whose body contains `<!-- orchestrator-state -->` followed by a fenced YAML block. Upsert it in place after every state change; never leave duplicates. On resume or context loss, read this comment first through the same issue-scoped paginated lookup and target validation, never a repository-wide comment listing, then continue from the recorded state. The `state.md` template is the canonical shape. This comment is the durable, machine-readable state record, not a narrative status update: that is why it is titled `State maintained by AgentBox orchestrator`, carries the workflow marker, and is edited in place instead of growing a progress thread. Stage artifacts such as the plan, verify evidence, and verdict are posted as their own comments and linked from the pull request; the state comment only records that they exist. Explain this to the user once when the first state comment appears.
 
 ```yaml
 schema: 3
@@ -839,13 +839,15 @@ gh api "repos/$OWNER/$REPO/pulls/$PR" --jq .head.sha
 gh pr checks "$PR"
 ```
 
+Resolve and validate the state-comment target before every PATCH. Choose a candidate only from `gh api --paginate "repos/$OWNER/$REPO/issues/$ISSUE/comments"` by finding a comment whose `body` contains `<!-- orchestrator-state -->`; never use the repository-wide `repos/$OWNER/$REPO/issues/comments` listing for this lookup. Then read the candidate with `gh api "repos/$OWNER/$REPO/issues/comments/$COMMENT_ID"` and require `.issue_url` to equal `"https://api.github.com/repos/$OWNER/$REPO/issues/$ISSUE"` before any PATCH. If a valid foreign comment id is found—a comment that exists but belongs to another issue—do not PATCH it, do not create a replacement, and leave the foreign comment untouched. Exit non-zero and print an actionable error naming both issues, for example: `state comment target mismatch: expected issue https://api.github.com/repos/owner/name/issues/35, resolved issue https://api.github.com/repos/owner/name/issues/36`.
+
 | Operation | Command |
 | --- | --- |
 | Read issue | `gh api repos/<owner>/<repo>/issues/<number>`; comments with `gh api --paginate repos/<owner>/<repo>/issues/<number>/comments` |
 | List ready | `gh issue list --state open --label orchestrator:ready --json number,title` |
 | Create issue | `gh issue create --title "<title>" --body-file <spec>` |
 | Set labels | `gh issue edit <number> --add-label <new>` then `gh issue edit <number> --remove-label <old>` |
-| Upsert state | find the `<!-- orchestrator-state -->` comment in the issue comments, then `gh api --method PATCH repos/{owner}/{repo}/issues/comments/<id> -F body=@<file>`; create with `gh issue comment <number> --body-file <file>` when absent |
+| Upsert state | resolve only from `gh api --paginate repos/<owner>/<repo>/issues/<issue>/comments`, matching a comment whose body contains `<!-- orchestrator-state -->`; never use `repos/<owner>/<repo>/issues/comments` for state-comment resolution; after target validation, `gh api --method PATCH repos/{owner}/{repo}/issues/comments/<id> -F body=@<file>`; create with `gh issue comment <number> --body-file <file>` when absent |
 | Link PR | `gh pr create --base <base> --head <branch> --title "<title>" --body-file <file>` with `Closes #<issue>` in the body |
 | Close | `gh issue close <number> --comment "<outcome>"` |
 
