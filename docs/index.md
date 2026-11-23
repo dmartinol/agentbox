@@ -27,7 +27,7 @@ fix a defect, run checks, or review a change.
 [Copy an example prompt]({{ '/prompts/' | relative_url }})
 
 <p align="center">
-  <img src="{{ '/screenshots/flow.gif' | relative_url }}" alt="Animated AgentBox tour: monitor the fleet, configure profiles and projects in Setup, inspect a sandbox network denial, and add the blocked host to the run policy" width="100%">
+  <img src="{{ '/screenshots/flow.gif' | relative_url }}" alt="Animated AgentBox tour: monitor the fleet, configure profiles and projects in Setup, start an agent from a prompt, run it in the project workspace, inspect a sandbox network denial, and add the blocked host to the run policy" width="100%">
 </p>
 
 ## Build the agent environment

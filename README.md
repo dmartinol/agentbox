@@ -21,7 +21,7 @@ The animated tour uses sample data and shows the current Fleet and Setup
 layout, including the Add host dialog for a blocked network request.
 
 <p align="center">
-  <img src="docs/screenshots/flow.gif" alt="Animated AgentBox tour: monitor the fleet, configure profiles and projects in Setup, inspect a sandbox network denial, and add the blocked host to the run policy" width="100%">
+  <img src="docs/screenshots/flow.gif" alt="Animated AgentBox tour: monitor the fleet, configure profiles and projects in Setup, start an agent from a prompt, run it in the project workspace, inspect a sandbox network denial, and add the blocked host to the run policy" width="100%">
 </p>
 
 ## How it works

@@ -22,16 +22,18 @@ layout changes.
 
 ## What the tour shows
 
-The capture renders six stills, each held about one second:
+The capture renders eight stills, each held about one second:
 
 | Step | Scene | What it proves |
 | --- | --- | --- |
 | 01 | Fleet | Agents grouped by project with status, sync state, and branch. |
 | 02 | Setup → Profiles | The current Setup sheet, whose tabs no longer include Policies. |
 | 03 | Setup → Projects | Project registration with checkout and isolation state. |
-| 04 | Logs drawer | A structured network denial above the raw agent output. |
-| 05 | Add host dialog | The scoped host, port, binary, and run policy diff. |
-| 06 | Applied result | The confirmation that the rule reached the live run. |
+| 04 | New agent dialog | Starting a run from a project, profile, and task prompt. |
+| 05 | Project workspace | The agent tab bar, its live terminal, and the sandbox branch. |
+| 06 | Logs drawer | A structured network denial above the raw agent output. |
+| 07 | Add host dialog | The scoped host, port, binary, and run policy diff. |
+| 08 | Applied result | The confirmation that the rule reached the live run. |
 
 Each frame is 1440×768 of application plus a 132px caption strip, for a final
 1440×900 GIF at 5 frames per second.
@@ -44,8 +46,9 @@ Each frame is 1440×768 of application plus a 132px caption strip, for a final
 - `ffmpeg` on `PATH`, used for palette generation and GIF encoding.
 - Installed frontend dependencies: `make web-install`.
 
-The capture mocks `/api/**` with Playwright route interception, so it needs no
-OpenShell gateway, project checkout, or live agent. The fixtures live in
+The capture mocks `/api/**` with Playwright route interception and stubs the
+attach WebSocket, so it needs no OpenShell gateway, project checkout, or live
+agent. The fixtures live in
 [`internal/gui/web/tests/fixtures.ts`](https://github.com/dmartinol/agentbox/blob/main/internal/gui/web/tests/fixtures.ts).
 
 ## Capture
@@ -57,8 +60,8 @@ npm --prefix internal/gui/web run tour:capture
 The npm script builds the GUI into `internal/gui/web/dist` and then runs
 [`internal/gui/web/scripts/capture-tour.mjs`](https://github.com/dmartinol/agentbox/blob/main/internal/gui/web/scripts/capture-tour.mjs).
 The script serves the built assets on an ephemeral local port, drives the real
-components through the six scenes, writes the frames to a temporary directory,
-and replaces `docs/screenshots/flow.gif`.
+components through the eight scenes, writes the frames to a temporary
+directory, and replaces `docs/screenshots/flow.gif`.
 
 Optional environment variables:
 
@@ -72,8 +75,11 @@ Optional environment variables:
 
 Scenes are declared in order in `capture-tour.mjs` with `captureApp` and
 `scene`. Each scene sets the UI state through normal Playwright interactions
-(clicking Setup, selecting an agent, opening logs, opening the Add host
-dialog), then composes the application frame with its caption strip.
+(clicking Setup, filling the New agent form, typing in the workspace terminal,
+selecting an agent, opening logs, opening the Add host dialog), then composes
+the application frame with its caption strip. The workspace scene replies to
+terminal input from `installTerminalMock`; extend that stub when the scene
+needs more output.
 
 When the GUI changes:
 
@@ -89,6 +95,6 @@ When the GUI changes:
 
 - Open the rendered README and documentation home page and confirm the
   animation plays and every scene shows the current layout.
-- Confirm the GIF is still 1440×900 at 5 fps and roughly 7 seconds long.
+- Confirm the GIF is still 1440×900 at 5 fps and roughly 9 seconds long.
 - Keep the file near its previous size so the README stays cheap to load;
   prefer fewer palette colors over dropping scenes.

@@ -170,7 +170,7 @@ function apiResponse(method, pathname, searchParams) {
       ].join('\n')
     };
   }
-  if (key === `GET /api/runs/${liveRun.id}/shells`) return ['shell-1'];
+  if (key === `GET /api/runs/${liveRun.id}/shells`) return [];
   if (key === `GET /api/runs/${liveRun.id}/policy/content`) {
     return { path: '/policies/run-active.yaml', content: 'version: 1\nnetwork_policies: []\n' };
   }
@@ -193,6 +193,26 @@ async function installApiMocks(context) {
       return;
     }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+}
+
+async function installTerminalMock(context) {
+  await context.routeWebSocket(/\/api\/runs\/[^/]+\/attach/, (ws) => {
+    ws.send('\x1b[1;36mcodex\x1b[0m v0.4.2 · model-x · /repo\r\n');
+    ws.send('\x1b[2mType a task, then press Enter. Ctrl-b d detaches.\x1b[0m\r\n\r\n');
+    ws.send('\x1b[1;32m>\x1b[0m ');
+    ws.onMessage(async (message) => {
+      const text = typeof message === 'string' ? message : message.toString('utf8');
+      if (!text.includes('\r')) return;
+      await new Promise((done) => setTimeout(done, 120));
+      ws.send('\r\n\x1b[2m● Working\x1b[0m\r\n');
+      ws.send('  \x1b[36minternal/api/health.go\x1b[0m\r\n');
+      ws.send('  \x1b[36minternal/api/health_test.go\x1b[0m\r\n\r\n');
+      await new Promise((done) => setTimeout(done, 150));
+      ws.send('\x1b[2m$\x1b[0m go test ./internal/api/...\r\n');
+      ws.send('\x1b[32mok\x1b[0m  github.com/example/demo/internal/api\t1.8s\r\n\r\n');
+      ws.send('\x1b[1;32m>\x1b[0m ');
+    });
   });
 }
 
@@ -221,6 +241,7 @@ async function main() {
   try {
     const context = await browser.newContext({ viewport: { width: appWidth, height: appHeight }, deviceScaleFactor: 1, colorScheme: 'light' });
     await installApiMocks(context);
+    await installTerminalMock(context);
     const app = await context.newPage();
     await app.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle' });
     await app.getByText('active-run', { exact: true }).first().waitFor();
@@ -258,9 +279,30 @@ async function main() {
     await captureApp('app-03.png');
     await scene('03', 'Register projects', 'Each project keeps isolated checkouts and a shared worker image ready for a run.', 'app-03.png');
 
-    // 04 Fleet with the live agent selected.
+    // 04 New agent dialog with a task prompt.
     await app.keyboard.press('Escape');
     await app.getByRole('dialog').waitFor({ state: 'detached' });
+    await app.getByRole('button', { name: 'New agent' }).first().click();
+    await app.locator('#new-agent-name').fill('profile-endpoint');
+    await app.locator('#new-agent-prompt').fill('Add a health endpoint that reports the build version, and run the API tests.');
+    await captureApp('app-04.png');
+    await scene('04', 'Start an agent with a prompt', 'Pick a project, profile, and gateway, then describe the task in the prompt.', 'app-04.png');
+
+    // 05 Project workspace with the prompt running in the agent terminal.
+    await app.keyboard.press('Escape');
+    await app.getByRole('dialog').waitFor({ state: 'detached' });
+    await app.getByRole('button', { name: 'Workspace' }).click();
+    await app.locator('.xterm').waitFor();
+    await app.locator('.xterm').click();
+    await app.keyboard.type('Add a health endpoint and run the tests');
+    await app.keyboard.press('Enter');
+    await app.waitForTimeout(900);
+    await captureApp('app-05.png');
+    await scene('05', 'Work in the project workspace', 'One tab per agent, a live terminal, and the sandbox branch at the bottom.', 'app-05.png');
+
+    // 06 Fleet with the live agent selected.
+    await app.getByRole('button', { name: 'Fleet' }).click();
+    await app.getByText('active-run', { exact: true }).first().waitFor();
     await app.getByText('active-run', { exact: true }).first().click();
     await app.getByRole('complementary', { name: 'Agent details' }).getByRole('button', { name: 'View logs' }).waitFor();
     await app.getByRole('button', { name: 'View logs' }).click();
@@ -271,20 +313,20 @@ async function main() {
       if (scroller) scroller.scrollTop = 0;
     });
     await app.waitForTimeout(150);
-    await captureApp('app-04.png');
-    await scene('04', 'Inspect a sandbox denial', 'Blocked network requests appear as structured events above the raw agent output.', 'app-04.png');
+    await captureApp('app-06.png');
+    await scene('06', 'Inspect a sandbox denial', 'Blocked network requests appear as structured events above the raw agent output.', 'app-06.png');
 
-    // 05 Add-host dialog with the scoped diff.
+    // 07 Add-host dialog with the scoped diff.
     await app.getByRole('button', { name: `Add host ${denial.host}:${denial.port}` }).click();
     await app.getByText('Run policy diff').waitFor();
-    await captureApp('app-05.png');
-    await scene('05', 'Allow the host', 'Review the exact host, port, binary, and policy diff before changing the run.', 'app-05.png');
+    await captureApp('app-07.png');
+    await scene('07', 'Allow the host', 'Review the exact host, port, binary, and policy diff before changing the run.', 'app-07.png');
 
-    // 06 Applied result.
+    // 08 Applied result.
     await app.getByRole('button', { name: 'Add host', exact: true }).click();
     await app.getByText('Network rule applied').waitFor();
-    await captureApp('app-06.png');
-    await scene('06', 'Rule applied', 'The agent can retry immediately; persist the rule when it should outlive this run.', 'app-06.png');
+    await captureApp('app-08.png');
+    await scene('08', 'Rule applied', 'The agent can retry immediately; persist the rule when it should outlive this run.', 'app-08.png');
 
     const list = join(work, 'scenes.txt');
     writeFileSync(list, scenes.map((file) => `file '${file}'\nduration 1.0`).join('\n') + `\nfile '${scenes.at(-1)}'\n`);
