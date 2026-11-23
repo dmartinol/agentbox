@@ -1,7 +1,7 @@
 <!-- orchestrator-workflow: {"workflow":"<workflow-id>","issue":<issue>,"stage":"state","worker":"orchestrator","worker_id":"<runtime>","model":"<model-id>","commit":"<full-sha>","pr":<pr>} -->
 
 <!-- orchestrator-state
-schema: 3
+schema: 4
 workflow_id: <workflow-id>
 repo: owner/name
 issue: <issue>
@@ -44,6 +44,8 @@ stages:
     worker_id: <id>
     worktree: <id>
     commit: not-applicable
+    artifact_path: orchestrator/<workflow-id>/triage-1.md
+    artifact_sha256: <64-lowercase-hex-characters>
   - stage: plan
     iteration: 1
     dispatch: <split|combined|skipped-simple>
@@ -57,6 +59,8 @@ stages:
     worktree: <id>
     commit: <full-sha>
     pr: null
+    artifact_path: orchestrator/<workflow-id>/plan-1.md
+    artifact_sha256: <64-lowercase-hex-characters>
   - stage: implement
     iteration: 1
     dispatch: split
@@ -72,6 +76,8 @@ stages:
     synced_commit: <full-sha>
     commit: <full-sha>
     pr: null
+    artifact_path: orchestrator/<workflow-id>/implement-1.md
+    artifact_sha256: <64-lowercase-hex-characters>
   - stage: fix
     iteration: 1
     dispatch: split
@@ -86,6 +92,8 @@ stages:
     branch: orchestrator/<issue>-<slug>
     commit: <full-sha>
     pr: <number>
+    artifact_path: orchestrator/<workflow-id>/fix-1.md
+    artifact_sha256: <64-lowercase-hex-characters>
   - stage: verify
     iteration: 1
     dispatch: split
@@ -99,6 +107,8 @@ stages:
     worktree: <id>
     commit: <full-sha>
     pr: <number>
+    artifact_path: orchestrator/<workflow-id>/verify-1.md
+    artifact_sha256: <64-lowercase-hex-characters>
     artifact: <comment-url>
   - stage: review
     iteration: 1
@@ -113,6 +123,8 @@ stages:
     worktree: <id>
     commit: <full-sha>
     pr: <number>
+    artifact_path: orchestrator/<workflow-id>/review-1.md
+    artifact_sha256: <64-lowercase-hex-characters>
     artifact: <comment-url>
   - stage: retro
     iteration: 1
@@ -126,6 +138,8 @@ stages:
     worker_id: <id>
     worktree: <id>
     commit: not-applicable
+    artifact_path: orchestrator/<workflow-id>/retro-1.md
+    artifact_sha256: <64-lowercase-hex-characters>
 gates:
   - command: <command>
     result: <pass|fail|pending>

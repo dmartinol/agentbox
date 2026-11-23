@@ -70,7 +70,7 @@ Self-contained: the implementer never sees this conversation.
 
 ## Provenance
 
-The planner returns this artifact to the orchestrator. The orchestrator posts it with provenance; the planner never posts to the tracker.
+The planner writes the full artifact to the untracked `.agentbox-stage/plan-<iteration>.md` and returns only a completion note naming that path; the orchestrator reads, persists, and posts it with provenance.
 
 ---
 

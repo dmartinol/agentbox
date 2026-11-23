@@ -87,8 +87,7 @@ the issue and PR carry the workflow state and evidence.
 
 > Resume the orchestrator run on issue 42. Use the existing configuration.
 
-A resumed flow reads the recorded state and dispatches the required stage
-again. It preserves the verification/review gates before merge.
+Durable stage artifacts live under `$AGENTBOX_HOME/orchestrator/<workflow-id>/`; a stage is not complete until its artifact exists and is non-empty, and a resumed flow re-renders the next stage spec from the persisted artifact rather than the previous worker session. It preserves the verification/review gates before merge.
 
 ## Detailed reference
 

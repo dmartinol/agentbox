@@ -58,7 +58,7 @@ Mandatory for `approve-with-follow-ups`; otherwise `none`. List one group per de
 
 ## Provenance
 
-The reviewer returns this artifact to the orchestrator. The orchestrator posts it, so a review verdict always has one writer and one provenance path.
+The `.agentbox-stage/review-<iteration>.md` handoff is the verdict artifact; the orchestrator reads, persists, and posts it with provenance. A review verdict always has one writer and one provenance path.
 
 ---
 

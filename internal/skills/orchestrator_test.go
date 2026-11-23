@@ -351,8 +351,8 @@ func TestOrchestratorSkillStageForgeMatrix(t *testing.T) {
 		"| implement (host) | Orca child worktree or harness host worker | yes | yes, only `orchestrator/<issue>-<slug>` | yes, with `pr.md` | no | no | no |",
 		"| fix (sandbox) | fixer |",
 		"| fix (host) | fixer | yes | yes, only the existing pull request branch | no |",
-		"| verify | fresh worker | no | no | no | no; it returns the artifact the orchestrator posts as `stage:verify` |",
-		"| review | fresh worker | no | no | no | no; it returns the verdict artifact |",
+		"| verify | fresh worker | no | no | no | no; it writes the `stage:verify` artifact handoff that the orchestrator posts |",
+		"| review | fresh worker | no | no | no | no; it writes the verdict artifact handoff that the orchestrator posts |",
 		"| merge / close | orchestrator | no | no | no | yes | yes | yes |",
 		"| retro | tracker-blind worker | no | no | no | no | no | no |",
 		"the orchestrator syncs the run into the host worktree, verifies the branch head, pushes it, and opens the pull request",
@@ -770,8 +770,8 @@ func TestOrchestratorSkillFindingLedger(t *testing.T) {
 func TestOrchestratorSkillVerifyIsNotAReviewer(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
-		"returns only `gates` and `observations`",
-		"it never returns required changes, findings, or a verdict",
+		"reports only `gates` and `observations`",
+		"it never reports required changes, findings, or a verdict",
 		"it is not a second reviewer",
 		"MUST NOT forward a verifier observation to the reviewer as a requirement",
 		"observations enter the ledger only after the reviewer classifies them",
@@ -801,6 +801,59 @@ func TestOrchestratorSkillReviewerDiversity(t *testing.T) {
 	)
 }
 
+// TestOrchestratorSkillDurableArtifacts pins the durability, delivery,
+// completion, retry, and resume contract that must survive context loss.
+func TestOrchestratorSkillDurableArtifacts(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"## Durable stage artifacts",
+		"Every stage artifact has one canonical durable root: `$AGENTBOX_HOME/orchestrator/<workflow-id>/<stage>-<iteration>.md`",
+		"`artifact_path` in the state record is always `orchestrator/<workflow-id>/<stage>-<iteration>.md`, interpreted relative to `$AGENTBOX_HOME`",
+		"it is never a bare filename and never an absolute host path",
+		"the digest is the lowercase 64-character SHA-256 hex digest of the exact persisted artifact bytes",
+		"The existing `artifact` field remains reserved for the URL of a posted stage comment and is never a filesystem path or digest",
+		"Plan, implement, fix, verify, and review workers write their complete stage artifact to the untracked `.agentbox-stage/<stage>-<iteration>.md` handoff in their assigned worktree and return only a completion note naming that path",
+		"Triage and retro workers return their complete artifact body because they are tracker-blind and shell-less; the orchestrator persists that body as their durable artifact",
+		"A stage is not complete until the canonical artifact exists and is non-empty, its digest is recorded, and the state entry records the durable location",
+		"Post the stage comment or dispatch the next stage only after that ordering succeeds",
+		"Redispatch that stage once as the next iteration",
+		"a second violation sets `blocked` with the exact violation and one recovery action instead of prompting indefinitely",
+		"require a non-empty file, recompute SHA-256, and block on any digest mismatch rather than trusting altered evidence or silently rerunning a stage recorded as complete",
+		"re-render the next stage spec from the persisted artifact and state record, never from a previous worker session, chat transcript, or in-memory worker result",
+		"An AgentBox worker that writes the correct non-empty handoff but stalls before its final completion note is recoverable from that recorded run, worktree, and handoff",
+		"do not resume the worker merely to manufacture a note",
+		"A retry is a new dispatch and therefore a new iteration; it never overwrites an earlier stage entry or artifact",
+	)
+}
+
+// TestOrchestratorSkillRefusalExemptsBodyStages pins the body-return
+// exemption so handoff-stage refusal rules cannot cover tracker-blind stages.
+func TestOrchestratorSkillRefusalExemptsBodyStages(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"For plan, implement, fix, verify, and review — the stages with a `.agentbox-stage/<stage>-<iteration>.md` handoff — refuse a worker result that returns an artifact body, uses the wrong handoff path, leaves the handoff empty, or otherwise violates the handoff contract",
+		"Triage and retro are exempt from that body-return refusal, including a combined triage+plan dispatch: they return their complete artifact body because they are tracker-blind and shell-less; the orchestrator persists that returned body as the durable artifact and validates it before advancing.",
+	)
+}
+
+// TestOrchestratorSkillStalledFollowUpQueueRecovery keeps follow-up creation
+// idempotent after a queue stalls between an artifact and tracker write.
+func TestOrchestratorSkillStalledFollowUpQueueRecovery(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"### Durable follow-up queue recovery",
+		"Define the reviewer follow-up queue as the accepted groups in the persisted `review-<iteration>.md` verdict and the retro follow-up queue as the accepted proposals in the persisted `retro-<iteration>.md` artifact",
+		"Record follow-ups already created in the finding ledger for review or `retro.created[]` for retro",
+		"persist the review verdict or retro artifact before creating any follow-up",
+		"record its created issue reference immediately in the finding ledger or `retro.created[]`",
+		"upsert the state comment before moving to the next group or proposal",
+		"validate the artifact path and digest, compare accepted groups or proposals with the recorded created issues",
+		"search the tracker for the workflow marker before retrying an ambiguous create, adopt an existing match, and create exactly one issue only when no match exists",
+		"block with the proposal identity and one recovery action",
+		"Never rerun review or retro, and never create a duplicate issue",
+	)
+}
+
 // TestOrchestratorSkillStateSchema covers the expanded record and the
 // sensitive-data rules that still apply when model and effort are recorded.
 func TestOrchestratorSkillStateSchema(t *testing.T) {
@@ -810,7 +863,7 @@ func TestOrchestratorSkillStateSchema(t *testing.T) {
 		"one visible status line",
 		"renders one status line carrying only the state and the version, and hides the record",
 		"must not repeat the issue, pull request, commit, or timing",
-		"schema: 3",
+		"schema: 4",
 		"workflow_id:",
 		"orchestrator: {runtime:",
 		"stages:",
@@ -818,6 +871,8 @@ func TestOrchestratorSkillStateSchema(t *testing.T) {
 		"stage: verify",
 		"stage: review",
 		"worktree:",
+		"artifact_path: orchestrator/orchestrator-owner-name-35-a1b2c3/",
+		"artifact_sha256: <64-lowercase-hex-characters>",
 		"review_cycles:",
 		"blocked_reason:",
 		"updated:",
@@ -856,7 +911,7 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 		"issue.md":       {"## At a glance", "## Summary", "## Current behavior", "## Proposed design", "<summary>Design detail", "## Acceptance criteria", "## Test plan", "## Risks", "## Out of scope", "## Related"},
 		"pr.md":          {"## At a glance", "## What changed", "## Reviewer guide", "<summary>Full change list", "## Evidence", "**Independent checks**", "Closes #<issue>", "## AGENTS.md check", "## Risks", "## Follow-ups", "## Provenance"},
 		"verdict.md":     {"## Verdict", "## Severity bar", "## Review scope", "## Independence", "## Findings", "## Evidence at commit", "## Required changes", "## Follow-ups", "## Provenance"},
-		"state.md":       {"<!-- orchestrator-state", "schema: 3", "workflow_id:", "configuration:", "selection_sources:", "selection_note:", "findings:", "review_cycles_max:", "tests_added:", "diff_stat:"},
+		"state.md":       {"<!-- orchestrator-state", "schema: 4", "workflow_id:", "configuration:", "selection_sources:", "selection_note:", "findings:", "review_cycles_max:", "tests_added:", "diff_stat:"},
 		"plan.md":        {"## Plan at a glance", "<details>", "<summary>Full plan", "## Acceptance criteria", "## Implementation slices", "## Gate list", "## Task spec for the implementer", "## Risks", "## Out of scope", "## Provenance"},
 		"review-task.md": {"## Role", "## Scope", "## Severity bar", "## Checklist", "## Output", "## Provenance"},
 		"verify-task.md": {"## Role", "## Scope", "## Output", "## Provenance"},
@@ -1290,8 +1345,173 @@ func TestOrchestratorSkillDeleteAndCleanupRecipes(t *testing.T) {
 	)
 }
 
+// TestOrchestratorStateTemplateDurableArtifacts proves every stage example in
+// the canonical state shape records its durable location and digest.
+func TestOrchestratorStateTemplateDurableArtifacts(t *testing.T) {
+	content, err := EmbeddedFile("agentbox-orchestrator", "state.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(content)
+	if !strings.Contains(body, "schema: 4") {
+		t.Fatal("state template is not schema 4")
+	}
+
+	stageExamples := map[string][]string{
+		"triage":    {"orchestrator/<workflow-id>/triage-1.md"},
+		"plan":      {"orchestrator/<workflow-id>/plan-1.md"},
+		"implement": {"orchestrator/<workflow-id>/implement-1.md"},
+		"fix":       {"orchestrator/<workflow-id>/fix-1.md"},
+		"verify":    {"orchestrator/<workflow-id>/verify-1.md"},
+		"review":    {"orchestrator/<workflow-id>/review-1.md"},
+		"retro":     {"orchestrator/<workflow-id>/retro-1.md"},
+	}
+	lines := strings.Split(body, "\n")
+	for stage, wantPaths := range stageExamples {
+		var gotPaths []string
+		for index, line := range lines {
+			if strings.TrimSpace(line) != "- stage: "+stage {
+				continue
+			}
+			var artifactPath, digest, commentURL string
+			for _, field := range lines[index+1:] {
+				trimmed := strings.TrimSpace(field)
+				if strings.HasPrefix(trimmed, "- stage: ") {
+					break
+				}
+				if strings.HasPrefix(trimmed, "artifact_path: ") {
+					artifactPath = strings.TrimPrefix(trimmed, "artifact_path: ")
+				}
+				if strings.HasPrefix(trimmed, "artifact_sha256: ") {
+					digest = strings.TrimPrefix(trimmed, "artifact_sha256: ")
+				}
+				if strings.HasPrefix(trimmed, "artifact: ") {
+					commentURL = strings.TrimPrefix(trimmed, "artifact: ")
+				}
+			}
+			if artifactPath == "" || digest != "<64-lowercase-hex-characters>" {
+				t.Fatalf("%s stage example lacks durable fields: path %q, digest %q", stage, artifactPath, digest)
+			}
+			if artifactPath != "orchestrator/<workflow-id>/"+stage+"-1.md" {
+				t.Fatalf("%s artifact path = %q", stage, artifactPath)
+			}
+			gotPaths = append(gotPaths, artifactPath)
+			if (stage == "verify" || stage == "review") != (commentURL == "<comment-url>") {
+				t.Fatalf("%s artifact comment URL = %q", stage, commentURL)
+			}
+		}
+		if len(gotPaths) != len(wantPaths) {
+			t.Fatalf("%s stage examples = %v, want %v", stage, gotPaths, wantPaths)
+		}
+		for index, want := range wantPaths {
+			if gotPaths[index] != want {
+				t.Fatalf("%s stage example %d path = %q, want %q", stage, index+1, gotPaths[index], want)
+			}
+		}
+	}
+}
+
+// TestOrchestratorPlanTemplateDurableArtifacts pins the planner's handoff and
+// completion-note contract.
+func TestOrchestratorPlanTemplateDurableArtifacts(t *testing.T) {
+	content, err := EmbeddedFile("agentbox-orchestrator", "plan.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(content)
+	wantAll(t, body, "The planner writes the full artifact to the untracked `.agentbox-stage/plan-<iteration>.md` and returns only a completion note naming that path; the orchestrator reads, persists, and posts it with provenance.")
+	if strings.Contains(body, "The planner returns this artifact to the orchestrator.") {
+		t.Fatal("plan template still tells the planner to return the artifact")
+	}
+}
+
+// TestOrchestratorReviewTaskTemplateDurableArtifacts pins the reviewer's
+// exact handoff and completion-note contract.
+func TestOrchestratorReviewTaskTemplateDurableArtifacts(t *testing.T) {
+	content, err := EmbeddedFile("agentbox-orchestrator", "review-task.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(content)
+	wantAll(t, body,
+		"You are the independent reviewer for this pull request. You do not implement, commit, push, merge, or post to the tracker. Write exactly one `verdict.md` artifact to the untracked `.agentbox-stage/review-<iteration>.md` and return only a completion note naming that path; the orchestrator reads, persists, and posts it with provenance.",
+		"Render `verdict.md` with one of `approve`, `approve-with-follow-ups`, `request-changes`, or `blocked`, plus:",
+		"The `.agentbox-stage/review-<iteration>.md` handoff is the verdict artifact; the orchestrator reads, persists, and posts it, so a review verdict always has one writer and one provenance path.",
+	)
+	for _, superseded := range []string{
+		"Return exactly one `verdict.md` artifact to the orchestrator",
+		"Return `verdict.md` rendered with",
+		"Return this artifact to the orchestrator.",
+	} {
+		if strings.Contains(body, superseded) {
+			t.Fatalf("review task still contains superseded instruction %q", superseded)
+		}
+	}
+
+	verdictContent, err := EmbeddedFile("agentbox-orchestrator", "verdict.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verdictBody := string(verdictContent)
+	wantAll(t, verdictBody,
+		"The `.agentbox-stage/review-<iteration>.md` handoff is the verdict artifact; the orchestrator reads, persists, and posts it with provenance.",
+	)
+	if strings.Contains(verdictBody, "The reviewer returns this artifact to the orchestrator.") {
+		t.Fatal("verdict template still tells the reviewer to return the artifact")
+	}
+}
+
+// TestOrchestratorVerifyTaskTemplateDurableArtifacts pins the verifier's
+// exact handoff and completion-note contract.
+func TestOrchestratorVerifyTaskTemplateDurableArtifacts(t *testing.T) {
+	content, err := EmbeddedFile("agentbox-orchestrator", "verify-task.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(content)
+	wantAll(t, body,
+		"You are the verifier, not a reviewer. Rerun every gate on the pull request head and report the results. You do not edit, commit, push, merge, or post to the tracker. Write this artifact to the untracked `.agentbox-stage/verify-<iteration>.md` and return only a completion note naming that path; the orchestrator reads, persists, and posts the comment.",
+		"Write exactly this artifact, ready for the orchestrator to read and post:",
+		"The orchestrator reads the `.agentbox-stage/verify-<iteration>.md` handoff, persists it, and posts it as a `stage:verify` comment on the pull request with provenance and links it from the pull request's `Independent checks` row. It is evidence, not internal bookkeeping, so it must stand on its own outside the state comment.",
+	)
+	for _, superseded := range []string{
+		"Return this artifact to the orchestrator; it posts the comment.",
+		"Return exactly this artifact, ready for the orchestrator to post:",
+		"The orchestrator posts this artifact as a `stage:verify` comment",
+	} {
+		if strings.Contains(body, superseded) {
+			t.Fatalf("verify task still contains superseded instruction %q", superseded)
+		}
+	}
+}
+
+// TestOrchestrationDocsDurableArtifacts keeps the user-facing resume rule to
+// the durable root, non-empty completion requirement, and deterministic
+// re-render behavior reserved for the skill reference.
+func TestOrchestrationDocsDurableArtifacts(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "..", "..", "docs", "orchestration.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	want := "Durable stage artifacts live under `$AGENTBOX_HOME/orchestrator/<workflow-id>/`; a stage is not complete until its artifact exists and is non-empty, and a resumed flow re-renders the next stage spec from the persisted artifact rather than the previous worker session. It preserves the verification/review gates before merge."
+	if !strings.Contains(body, want) {
+		t.Fatalf("docs missing exact durable-artifact sentence:\n%s", want)
+	}
+	if strings.Contains(body, "A resumed flow reads the recorded state and dispatches the required stage") {
+		t.Fatal("docs still contain the superseded two-line resume explanation")
+	}
+	if !strings.Contains(want, "`$AGENTBOX_HOME/orchestrator/<workflow-id>/`") || strings.Contains(want, "\\`") {
+		t.Fatal("docs sentence does not use literal markdown code spans")
+	}
+}
+
 // TestOrchestratorStateTemplateExpressesSelectionAndIterations covers the
-// schema 3 fields a run needs to record a manual selection and a writer
+// schema 4 fields a run needs to record a manual selection and a writer
 // iteration without reconstructing them later.
 func TestOrchestratorStateTemplateExpressesSelectionAndIterations(t *testing.T) {
 	content, err := EmbeddedFile("agentbox-orchestrator", "state.md", "9.9.9")
@@ -1300,13 +1520,15 @@ func TestOrchestratorStateTemplateExpressesSelectionAndIterations(t *testing.T) 
 	}
 	flat := strings.Join(strings.Fields(string(content)), " ")
 	wantAll(t, flat,
-		"schema: 3",
+		"schema: 4",
 		"selection_note:",
 		"iteration: 1",
 		"dispatch: <split|combined>",
 		"started: <RFC3339>",
 		"ended: <RFC3339>",
 		"synced_commit: <full-sha>",
+		"artifact_path: orchestrator/<workflow-id>/",
+		"artifact_sha256: <64-lowercase-hex-characters>",
 		"artifact: <comment-url>",
 		"tests_added:",
 		"diff_stat:",
@@ -1320,7 +1542,7 @@ func TestOrchestratorStateTemplateExpressesSelectionAndIterations(t *testing.T) 
 		"**Workflow identity adoption.** The state record wins over every other copy of the identity",
 		"post one supersession note on the issue that names both identities",
 		"update the body marker in place",
-		"Schema 3 adds `selection_note`",
+		"Schema 4 adds durable `artifact_path` and `artifact_sha256`",
 		"#### Reproduce a running worker's selection",
 		"agentbox agent list --json",
 		"copied from running agent run-84b3cbf16f23",
