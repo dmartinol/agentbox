@@ -403,8 +403,8 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 }
 
 func TestSkillsListRowsKeepTemplateColumnsAligned(t *testing.T) {
-	installation := formatSkillStatusRow("agents", "current", "0.2.0", "/tmp/skill/SKILL.md")
-	template := formatSkillStatusRow("file:review-task.md", "modified", "-", "/tmp/skill/review-task.md")
+	installation := formatSkillStatusRow("agents", "current", "0.2.0", "/tmp/skill/SKILL.md", 8)
+	template := formatSkillStatusRow("file:review-task.md", "modified", "-", "/tmp/skill/review-task.md", 8)
 	if !strings.HasPrefix(template, "  file:review-task.md ") {
 		t.Fatalf("template target was truncated: %q", template)
 	}
@@ -417,6 +417,31 @@ func TestSkillsListRowsKeepTemplateColumnsAligned(t *testing.T) {
 	templatePath := strings.Index(template, "/tmp/skill/review-task.md")
 	if installationPath == 0 || templatePath != installationPath {
 		t.Fatalf("path columns differ: installation=%q template=%q", installation, template)
+	}
+}
+
+func TestFormatSkillStatusRowLongVersion(t *testing.T) {
+	rows := []string{
+		formatSkillStatusRow("agents", "current", "0.2.0", "/tmp/skill/SKILL.md", 18),
+		formatSkillStatusRow("agents", "current", "v0.3.0-11-g5d89751", "/tmp/long/SKILL.md", 18),
+		formatSkillStatusRow("file:review-task.md", "modified", "-", "/tmp/skill/review-task.md", 18),
+	}
+	stateOffsets := make([]int, len(rows))
+	pathOffsets := make([]int, len(rows))
+	for i, row := range rows {
+		stateOffsets[i] = strings.Index(row, "current")
+		if i == len(rows)-1 {
+			stateOffsets[i] = strings.Index(row, "modified")
+		}
+		pathOffsets[i] = strings.Index(row, "/tmp")
+	}
+	for i := 1; i < len(rows); i++ {
+		if stateOffsets[i] != stateOffsets[0] || pathOffsets[i] != pathOffsets[0] {
+			t.Fatalf("columns differ: rows=%q stateOffsets=%v pathOffsets=%v", rows, stateOffsets, pathOffsets)
+		}
+	}
+	if !strings.Contains(rows[1], "v0.3.0-11-g5d89751") {
+		t.Fatalf("long version was truncated: %q", rows[1])
 	}
 }
 

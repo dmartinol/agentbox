@@ -1070,6 +1070,7 @@ func skillsCmd(args []string) error {
 		if *jsonOut {
 			return app.PrintJSON(statuses)
 		}
+		versionWidth := skillStatusVersionWidth(statuses)
 		for _, status := range statuses {
 			kind := ""
 			if status.Kind == "role" {
@@ -1085,10 +1086,10 @@ func skillsCmd(args []string) error {
 				if version == "" {
 					version = "-"
 				}
-				fmt.Println(formatSkillStatusRow(installation.Target, installation.State, version, installation.Path))
+				fmt.Println(formatSkillStatusRow(installation.Target, installation.State, version, installation.Path, versionWidth))
 			}
 			for _, file := range status.Files {
-				fmt.Println(formatSkillStatusRow("file:"+file.Name, file.State, "-", file.Path))
+				fmt.Println(formatSkillStatusRow("file:"+file.Name, file.State, "-", file.Path, versionWidth))
 			}
 		}
 		return nil
@@ -1182,8 +1183,29 @@ func skillsCmd(args []string) error {
 
 // formatSkillStatusRow keeps installation and template rows aligned. The
 // target column fits the longest template label, "file:review-task.md".
-func formatSkillStatusRow(target, state, version, path string) string {
-	return fmt.Sprintf("  %-19s %-12s %-8s %s", target, state, version, path)
+func formatSkillStatusRow(target, state, version, path string, versionWidth int) string {
+	return fmt.Sprintf("  %-19s %-12s %-*s %s", target, state, versionWidth, version, path)
+}
+
+func skillStatusVersionWidth(statuses []skills.Status) int {
+	width := 8
+	for _, status := range statuses {
+		for _, installation := range status.Installations {
+			version := installation.Version
+			if version == "" {
+				version = "-"
+			}
+			if len(version) > width {
+				width = len(version)
+			}
+		}
+		for range status.Files {
+			if len("-") > width {
+				width = len("-")
+			}
+		}
+	}
+	return width
 }
 
 // printSkillsOutput renders lifecycle results as text or JSON and returns the
