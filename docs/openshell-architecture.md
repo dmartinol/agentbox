@@ -958,9 +958,11 @@ look like human-in-the-loop prompts: Codex runs with
   `unknown` sync states. The persisted `synced` flag is not used as proof that
   newer sandbox work does not exist. Delete removes the sandbox first, then the
   isolated worktree and branch, then all run-owned artifacts and run policies,
-  and removes the run record last. Cleanup is idempotent: a sandbox, worktree,
-  branch, artifact, policy, or record that was already removed is treated as
-  clean instead of blocking a retry.
+  and removes the run record last. Cleanup is idempotent while the run record
+  exists: a sandbox, worktree, branch, artifact, or policy that was already
+  removed is treated as clean instead of blocking a retry. A missing run record
+  is an actionable error pointing to `agentbox agent prune`, because prune owns
+  artifacts left behind without a record.
 - Reconcile syncs a run that reached Completed and an exited-but-Ready run whose
   derived sync state is `needs_sync`.
 

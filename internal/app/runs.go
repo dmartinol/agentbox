@@ -1099,6 +1099,9 @@ func removeLeftoverWorktree(r Run) error {
 func (a *App) Delete(ctx context.Context, id string, discard bool) error {
 	r, err := a.GetRunWithSyncState(ctx, id)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("run record %q does not exist; run agentbox agent prune for artifacts: %w", id, err)
+		}
 		return err
 	}
 	if r.Status.IsAttachable() && !discard {
