@@ -102,8 +102,8 @@ func (a *App) Sync(ctx context.Context, id string) (err error) {
 		return err
 	}
 	oldHead := strings.TrimSpace(string(oldHeadB))
-	oldPatchPath := filepath.Join(a.Store.RunsDir(), id+"-mirror.patch")
-	oldTarPath := filepath.Join(a.Store.RunsDir(), id+"-mirror.tar")
+	oldPatchPath := runArtifactPath(a.Store, id, runArtifactMirrorPatch)
+	oldTarPath := runArtifactPath(a.Store, id, runArtifactMirrorTar)
 	oldPatch, _ := os.ReadFile(oldPatchPath)
 	_, oldTarErr := os.Stat(oldTarPath)
 	mutated := false

@@ -55,7 +55,7 @@ func (a *App) CreateWorktreeAt(ctx context.Context, source, id, worktree, branch
 		return Run{}, err
 	}
 	if len(patch) > 0 {
-		patchPath := filepath.Join(a.Store.RunsDir(), id+"-initial.patch")
+		patchPath := runArtifactPath(a.Store, id, runArtifactInitialPatch)
 		if err := atomicWrite(patchPath, patch); err != nil {
 			rollback()
 			return Run{}, err
@@ -227,7 +227,7 @@ func (a *App) WorktreeFingerprint(ctx context.Context, r Run) (string, error) {
 }
 
 func (a *App) MakeBundle(ctx context.Context, r Run) (string, error) {
-	path := filepath.Join(a.Store.RunsDir(), r.ID+"-source.bundle")
+	path := runArtifactPath(a.Store, r.ID, runArtifactSourceBundle)
 	if _, err := a.git(ctx, r.Worktree, "bundle", "create", path, r.Branch); err != nil {
 		return "", err
 	}

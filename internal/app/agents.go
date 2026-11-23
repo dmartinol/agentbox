@@ -163,7 +163,7 @@ func hooksDoc(hooks []activityHook) map[string]any {
 }
 
 func (a *App) PrepareAgent(ctx context.Context, r Run, p Profile, prompt string, mcp *MCPSelection, skills *SkillsSelection) (string, error) {
-	dir := filepath.Join(a.Store.RunsDir(), r.ID+"-config")
+	dir := runArtifactPath(a.Store, r.ID, runArtifactConfigPayload)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}

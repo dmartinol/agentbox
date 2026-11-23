@@ -133,7 +133,7 @@ func usage() {
 	fmt.Println("  skill list|show|create|delete|available")
 	fmt.Println("  skills install|update|remove|list|show|roles")
 	fmt.Println("  orchestrator config path|show|validate")
-	fmt.Println("  agent start|list|show|attach|logs|denials|sleep|resume|finish|stop|sync|diff|delete")
+	fmt.Println("  agent start|list|show|attach|logs|denials|sleep|resume|finish|stop|sync|diff|delete|prune")
 	fmt.Println("  gui [--address host:port]")
 }
 
@@ -1230,7 +1230,7 @@ func printRunState(ctx context.Context, a *app.App, id, message string) error {
 
 func agentCmd(ctx context.Context, a *app.App, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("agent start|list|show|attach|logs|denials|sleep|resume|finish|stop|sync|diff|delete required")
+		return fmt.Errorf("agent start|list|show|attach|logs|denials|sleep|resume|finish|stop|sync|diff|delete|prune required")
 	}
 	switch args[0] {
 	case "start":
@@ -1436,6 +1436,40 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 			return err
 		}
 		return a.Delete(ctx, f.Args()[0], *discard)
+	case "prune":
+		f := flags("agent prune")
+		dryRun := f.Bool("dry-run", false, "list orphaned artifacts without removing them")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if len(f.Args()) != 0 {
+			return fmt.Errorf("unexpected positional argument(s): %s", strings.Join(f.Args(), " "))
+		}
+		result, err := a.PruneRunArtifacts(*dryRun)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return app.PrintJSON(result)
+		}
+		if len(result.Artifacts) == 0 {
+			if *dryRun {
+				fmt.Println("No orphaned run artifacts found.")
+			} else {
+				fmt.Println("No orphaned run artifacts to remove.")
+			}
+			return nil
+		}
+		action := "Removed"
+		if *dryRun {
+			action = "Would remove"
+		}
+		fmt.Printf("%s %d orphaned run artifact(s), freeing %d bytes:\n", action, len(result.Artifacts), result.FreedBytes)
+		for _, artifact := range result.Artifacts {
+			fmt.Println(artifact.Path)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown agent command %q", strings.Join(args, " "))
 	}

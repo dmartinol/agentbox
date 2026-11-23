@@ -46,7 +46,7 @@ flag-based subcommands also accept `--help`.
 | [`policy`]({{ '/cli-reference/policy/' | relative_url }}) | Inspect or edit the sandbox policy for an existing run. |
 | [`mcp`]({{ '/cli-reference/mcp/' | relative_url }}) | Select global MCP servers by name for an agent's runs. |
 | [`skill`]({{ '/cli-reference/skill/' | relative_url }}) | Select host skills and plugin bundles for an agent's runs. |
-| [`agent`]({{ '/cli-reference/agent/' | relative_url }}) | Start, monitor, attach to, sync, and delete agent runs. |
+| [`agent`]({{ '/cli-reference/agent/' | relative_url }}) | Start, monitor, attach to, sync, delete, and prune agent runs. |
 
 ## Conventions
 
@@ -81,7 +81,8 @@ AgentBox stores local state under `~/.agentbox` by default. Set
 | `mcps/<name>.yaml` | Named MCP tools selections. |
 | `orchestration.yaml` | User-owned orchestrator and worker registry. |
 | `skills/<name>.yaml` | Named skills and plugin selections. |
-| `runs/<id>.json` | Agent run records. |
+| `runs/<id>.json` | Agent run records; the liveness authority for run artifacts. |
+| `runs/run-<id>-{source.bundle,config.tar,initial.patch,mirror.patch,mirror.tar,config}` | Run-owned artifacts; mirror files remain while the run record exists, and orphans can be pruned. |
 | `worktrees/` | Default location for isolated Git worktrees. |
 | `registry.yaml` | Optional external image registry. |
 
