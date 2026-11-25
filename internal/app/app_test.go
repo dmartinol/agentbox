@@ -117,6 +117,24 @@ func TestDirtySourceSnapshotTracksOnlyTrackedTree(t *testing.T) {
 			},
 		},
 		{
+			name: "staged ignored addition",
+			change: func(t *testing.T, source string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(source, "ignored-addition.txt"), []byte("ignored addition\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				cmd(t, source, "git", "add", "-f", "ignored-addition.txt")
+			},
+			verify: func(t *testing.T, worktree string) {
+				t.Helper()
+				tree := cmd(t, worktree, "git", "ls-tree", "-r", "--name-only", "HEAD", "--", "ignored-addition.txt")
+				if strings.TrimSpace(tree) != "ignored-addition.txt" {
+					t.Fatalf("ignored-addition.txt missing from starting tree: %q", tree)
+				}
+				assertFileContent(t, worktree, "ignored-addition.txt", "ignored addition\n")
+			},
+		},
+		{
 			name: "symlink target change",
 			change: func(t *testing.T, source string) {
 				t.Helper()
@@ -212,7 +230,7 @@ func snapshotSourceFixture(t *testing.T) string {
 		"removed.txt": "remove me\n",
 		"old.txt":     "renamed\n",
 		"script.sh":   "#!/bin/sh\n",
-		".gitignore":  "ignored.txt\n",
+		".gitignore":  "ignored.txt\nignored-addition.txt\n",
 	} {
 		if err := os.WriteFile(filepath.Join(source, name), []byte(value), 0600); err != nil {
 			t.Fatal(err)

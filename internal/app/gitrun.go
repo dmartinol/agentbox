@@ -88,18 +88,14 @@ func (a *App) CreateWorktreeAt(ctx context.Context, source, id, worktree, branch
 			rollback()
 			return Run{}, err
 		}
-		if _, err := a.git(ctx, worktree, "apply", "--check", "--binary", patchPath); err != nil {
+		if _, err := a.git(ctx, worktree, "apply", "--check", "--binary", "--index", patchPath); err != nil {
 			rollback()
 			return Run{}, fmt.Errorf("prepare starting snapshot for run %s: %w", id, err)
 		}
-		if _, err := a.git(ctx, worktree, "apply", "--binary", patchPath); err != nil {
+		if _, err := a.git(ctx, worktree, "apply", "--binary", "--index", patchPath); err != nil {
 			rollback()
 			return Run{}, fmt.Errorf("prepare starting snapshot for run %s: %w", id, err)
 		}
-	}
-	if _, err := a.git(ctx, worktree, "add", "--all"); err != nil {
-		rollback()
-		return Run{}, err
 	}
 	// The baseline commit distinguishes pre-existing edits from agent changes.
 	if _, err := a.git(ctx, worktree, "-c", "user.name=AgentBox", "-c", "user.email=agentbox@local.invalid", "commit", "--allow-empty", "-m", "AgentBox starting snapshot"); err != nil {
