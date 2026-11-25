@@ -402,6 +402,88 @@ func TestSkillsInstallListAndShow(t *testing.T) {
 	}
 }
 
+func TestSkillStatusVersionWidth(t *testing.T) {
+	longVersion := "v0.3.0-11-g5d89751"
+	statuses := []skills.Status{
+		{Installations: []skills.Installation{{Version: longVersion}}},
+	}
+	if got := skillStatusVersionWidth(statuses); got != 18 {
+		t.Fatalf("version width = %d; want 18", got)
+	}
+
+	statuses = []skills.Status{
+		{Installations: []skills.Installation{{Version: "0.2.0"}}},
+	}
+	if got := skillStatusVersionWidth(statuses); got != 8 {
+		t.Fatalf("short version width = %d; want 8", got)
+	}
+
+	statuses = []skills.Status{
+		{Files: []skills.FileStatus{{Name: "issue.md"}}},
+	}
+	if got := skillStatusVersionWidth(statuses); got != 8 {
+		t.Fatalf("template-only version width = %d; want 8", got)
+	}
+}
+
+func TestSkillsListDerivesLongVersionWidth(t *testing.T) {
+	const longVersion = "v0.3.0-11-g5d89751"
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, dir := range []string{".claude", ".codex", filepath.Join(".config", "opencode")} {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := skills.Install(skills.Options{
+		Home: home, All: true, Version: longVersion, SkipRoles: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"skills", "list"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, longVersion) {
+		t.Fatalf("skills list lacks long version: %s", output)
+	}
+
+	var longRows, shortRows, templateRows int
+	var pathOffset int
+	for _, line := range strings.Split(output, "\n") {
+		offset := strings.Index(line, home)
+		if offset < 0 {
+			continue
+		}
+		if pathOffset == 0 {
+			pathOffset = offset
+		}
+		if offset != pathOffset {
+			t.Fatalf("path column differs: line=%q offset=%d want=%d", line, offset, pathOffset)
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			t.Fatalf("skills list row is not parseable: %q", line)
+		}
+		switch fields[2] {
+		case longVersion:
+			longRows++
+		case "-":
+			shortRows++
+			if strings.HasPrefix(fields[0], "file:") {
+				templateRows++
+			}
+		}
+	}
+	if longRows == 0 || shortRows == 0 || templateRows == 0 {
+		t.Fatalf("skills list row versions: long=%d short=%d template=%d; output:\n%s", longRows, shortRows, templateRows, output)
+	}
+}
+
 func TestSkillsListRowsKeepTemplateColumnsAligned(t *testing.T) {
 	installation := formatSkillStatusRow("agents", "current", "0.2.0", "/tmp/skill/SKILL.md", 8)
 	template := formatSkillStatusRow("file:review-task.md", "modified", "-", "/tmp/skill/review-task.md", 8)
@@ -421,10 +503,16 @@ func TestSkillsListRowsKeepTemplateColumnsAligned(t *testing.T) {
 }
 
 func TestFormatSkillStatusRowLongVersion(t *testing.T) {
+	statuses := []skills.Status{
+		{Installations: []skills.Installation{{Version: "0.2.0"}}},
+		{Installations: []skills.Installation{{Version: "v0.3.0-11-g5d89751"}}},
+		{Files: []skills.FileStatus{{Name: "review-task.md"}}},
+	}
+	versionWidth := skillStatusVersionWidth(statuses)
 	rows := []string{
-		formatSkillStatusRow("agents", "current", "0.2.0", "/tmp/skill/SKILL.md", 18),
-		formatSkillStatusRow("agents", "current", "v0.3.0-11-g5d89751", "/tmp/long/SKILL.md", 18),
-		formatSkillStatusRow("file:review-task.md", "modified", "-", "/tmp/skill/review-task.md", 18),
+		formatSkillStatusRow("agents", "current", "0.2.0", "/tmp/skill/SKILL.md", versionWidth),
+		formatSkillStatusRow("agents", "current", "v0.3.0-11-g5d89751", "/tmp/long/SKILL.md", versionWidth),
+		formatSkillStatusRow("file:review-task.md", "modified", "-", "/tmp/skill/review-task.md", versionWidth),
 	}
 	stateOffsets := make([]int, len(rows))
 	pathOffsets := make([]int, len(rows))
