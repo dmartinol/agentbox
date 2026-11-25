@@ -594,6 +594,7 @@ A run is created as follows:
    override — and compose the policy, recording image and policy provenance
    and any drift warnings.
 4. Create an isolated Git worktree or reserve a direct checkout.
+   An isolated run starts from the tracked Git tree plus its combined staged and unstaged edits to tracked paths. Arbitrary untracked local state, including editor and agent tool caches such as `.serena/`, is not copied into the run. `.agentbox-stage/` is always excluded from the starting state because it holds host-side stage handoffs and materialized inputs rather than repository content; untracked stage files remain in the source checkout for the stage that reads them. If `.agentbox-stage/` is tracked, a changed tracked submodule cannot be represented safely, or the tracked patch cannot be applied, run start fails before the starting snapshot commit, sandbox creation, or agent launch and names the offending path.
 5. Save the run record.
 6. Create a source Git bundle.
 7. Generate run-specific agent configuration on the host.

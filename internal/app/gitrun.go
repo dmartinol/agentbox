@@ -34,6 +34,33 @@ func (a *App) CreateWorktreeAt(ctx context.Context, source, id, worktree, branch
 		return Run{}, err
 	}
 	head := strings.TrimSpace(string(headB))
+	trackedStage, err := a.git(ctx, root, "ls-files", "-z", "--", ".agentbox-stage")
+	if err != nil {
+		return Run{}, err
+	}
+	if paths := splitNUL(trackedStage); len(paths) > 0 {
+		return Run{}, fmt.Errorf("run %s cannot start: %s is tracked; .agentbox-stage/ is reserved for stage handoffs and cannot be tracked", id, paths[0])
+	}
+	changed, err := a.git(ctx, root, "diff", "--name-only", "-z", "--ignore-submodules=none", "--no-ext-diff", "HEAD")
+	if err != nil {
+		return Run{}, err
+	}
+	for _, path := range splitNUL(changed) {
+		treeEntry, err := a.git(ctx, root, "ls-tree", "-z", "--full-name", "HEAD", "--", path)
+		if err != nil {
+			return Run{}, err
+		}
+		indexEntry, err := a.git(ctx, root, "ls-files", "-s", "-z", "--", path)
+		if err != nil {
+			return Run{}, err
+		}
+		treeFields := strings.Fields(string(treeEntry))
+		indexFields := strings.Fields(string(indexEntry))
+		if (len(treeFields) > 1 && (treeFields[0] == "160000" || treeFields[1] == "commit")) ||
+			(len(indexFields) > 0 && indexFields[0] == "160000") {
+			return Run{}, fmt.Errorf("run %s cannot start: changed Git submodule %q cannot be reproduced by the starting snapshot patch", id, path)
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(worktree), 0700); err != nil {
 		return Run{}, err
 	}
@@ -45,40 +72,30 @@ func (a *App) CreateWorktreeAt(ctx context.Context, source, id, worktree, branch
 	if _, err := a.git(ctx, root, "worktree", "add", "-b", branch, worktree, head); err != nil {
 		return Run{}, err
 	}
+	patchPath := runArtifactPath(a.Store, id, runArtifactInitialPatch)
 	rollback := func() {
 		_, _ = a.git(ctx, root, "worktree", "remove", "--force", worktree)
 		_, _ = a.git(ctx, root, "branch", "-D", branch)
+		_ = os.Remove(patchPath)
 	}
-	patch, err := a.git(ctx, root, "diff", "HEAD", "--binary", "--full-index")
+	patch, err := a.git(ctx, root, "diff", "HEAD", "--binary", "--full-index", "--no-ext-diff", "--ignore-submodules=none")
 	if err != nil {
 		rollback()
 		return Run{}, err
 	}
 	if len(patch) > 0 {
-		patchPath := runArtifactPath(a.Store, id, runArtifactInitialPatch)
 		if err := atomicWrite(patchPath, patch); err != nil {
 			rollback()
 			return Run{}, err
 		}
-		if _, err := a.git(ctx, worktree, "apply", "--binary", patchPath); err != nil {
+		if _, err := a.git(ctx, worktree, "apply", "--check", "--binary", "--index", patchPath); err != nil {
 			rollback()
-			return Run{}, err
+			return Run{}, fmt.Errorf("prepare starting snapshot for run %s: %w", id, err)
 		}
-	}
-	untracked, err := a.git(ctx, root, "ls-files", "--others", "--exclude-standard", "-z")
-	if err != nil {
-		rollback()
-		return Run{}, err
-	}
-	for _, p := range splitNUL(untracked) {
-		if err := copySnapshotEntry(filepath.Join(root, p), filepath.Join(worktree, p)); err != nil {
+		if _, err := a.git(ctx, worktree, "apply", "--binary", "--index", patchPath); err != nil {
 			rollback()
-			return Run{}, err
+			return Run{}, fmt.Errorf("prepare starting snapshot for run %s: %w", id, err)
 		}
-	}
-	if _, err := a.git(ctx, worktree, "add", "--all"); err != nil {
-		rollback()
-		return Run{}, err
 	}
 	// The baseline commit distinguishes pre-existing edits from agent changes.
 	if _, err := a.git(ctx, worktree, "-c", "user.name=AgentBox", "-c", "user.email=agentbox@local.invalid", "commit", "--allow-empty", "-m", "AgentBox starting snapshot"); err != nil {
@@ -140,40 +157,6 @@ func (a *App) CreateDirectRun(ctx context.Context, source, id string) (Run, erro
 	}
 	r.Fingerprint = fp
 	return r, nil
-}
-
-func copySnapshotEntry(src, dst string) error {
-	info, err := os.Lstat(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		target, err := os.Readlink(src)
-		if err != nil {
-			return err
-		}
-		return os.Symlink(target, dst)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("unsupported untracked file type: %s", src)
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	return out.Close()
 }
 
 func splitNUL(b []byte) []string {
