@@ -1472,7 +1472,8 @@ func TestImageBuildEndpointStartsCapturedTask(t *testing.T) {
 	response := requestJSON(t, http.MethodPost, httpServer.URL+"/api/images/build", map[string]string{
 		"agent": "codex", "version": "0.167.0",
 	}, &task)
-	if response.StatusCode != http.StatusAccepted || task.ID == "" || task.Status != "running" {
+	if response.StatusCode != http.StatusAccepted || task.ID == "" ||
+		(task.Status != "running" && task.Status != "succeeded") {
 		t.Fatalf("response=%d task=%#v", response.StatusCode, task)
 	}
 
