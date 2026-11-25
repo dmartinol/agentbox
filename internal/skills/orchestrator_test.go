@@ -1535,7 +1535,7 @@ func TestOrchestrationDocsDurableArtifacts(t *testing.T) {
 	if strings.Contains(body, "A resumed flow reads the recorded state and dispatches the required stage") {
 		t.Fatal("docs still contain the superseded two-line resume explanation")
 	}
-	if !strings.Contains(want, "`$AGENTBOX_HOME/orchestrator/<workflow-id>/`") || strings.Contains(want, "\\`") {
+	if !strings.Contains(body, "`$AGENTBOX_HOME/orchestrator/<workflow-id>/`") || strings.Contains(body, "\\`") {
 		t.Fatal("docs sentence does not use literal markdown code spans")
 	}
 }
