@@ -1311,10 +1311,19 @@ func TestOrchestratorSkillStateCommentTargetValidation(t *testing.T) {
 		"On resume or context loss, read this comment first through the same issue-scoped paginated lookup and target validation, never a repository-wide comment listing",
 	)
 
-	lookup := strings.Index(body, `gh api --paginate "repos/$OWNER/$REPO/issues/$ISSUE/comments"`)
-	read := strings.Index(body, `gh api "repos/$OWNER/$REPO/issues/comments/$COMMENT_ID"`)
-	validate := strings.Index(body, "before any PATCH")
-	patch := strings.Index(body, "`gh api --method PATCH")
+	start := strings.Index(body, "Resolve and validate the state-comment target before every PATCH.")
+	if start < 0 {
+		t.Fatal("state comment recipe start anchor missing")
+	}
+	end := strings.Index(body, "| Link PR |")
+	if end < 0 || end <= start {
+		t.Fatalf("state comment recipe end anchor missing or out of order: start=%d end=%d", start, end)
+	}
+	recipe := body[start:end]
+	lookup := strings.Index(recipe, `gh api --paginate "repos/$OWNER/$REPO/issues/$ISSUE/comments"`)
+	read := strings.Index(recipe, `gh api "repos/$OWNER/$REPO/issues/comments/$COMMENT_ID"`)
+	validate := strings.Index(recipe, "before any PATCH")
+	patch := strings.Index(recipe, "`gh api --method PATCH")
 	if lookup < 0 || read < 0 || validate < 0 || patch < 0 {
 		t.Fatalf("state comment recipe fragment missing: lookup=%d read=%d validate=%d patch=%d", lookup, read, validate, patch)
 	}
