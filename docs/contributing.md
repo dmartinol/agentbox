@@ -56,6 +56,10 @@ mapped address. Go module downloads retry this internally; `npm ci` does not.
 the new process re-resolves the registry host. A retry normally recovers. If
 all three attempts fail, keep the sandbox log lines above in the report.
 
+The target prints the selected npm cache path.
+A failed attempt reports `retry=<n>/3` with the first sanitized npm diagnostic line.
+An unwritable `NPM_CONFIG_CACHE` or default cache path fails immediately with that path and a remediation hint instead of entering the retry loop.
+
 ## GUI changes
 
 Run the frontend checks and rebuild its embedded assets:
