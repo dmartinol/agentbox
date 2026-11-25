@@ -39,13 +39,14 @@ definition:
 | --- | --- | --- | --- | --- |
 | `agentbox-orchestrator` | orchestrate | no | yes | Follows the installed `agentbox-orchestrator` skill, dispatches every stage role, owns state, gates, merge, and close, and never performs stage work inline. |
 | `agentbox-triage` | triage | no | no | Tracker-blind disposition from a supplied issue, search, policy, and preflight snapshot: `ready`, `needs-info`, `out-of-scope`, or `blocked`, with evidence, questions, and risks/unresolved assumptions. |
-| `agentbox-planner` | plan | no | yes | Acceptance criteria, gate list, branch and implementer task spec. |
-| `agentbox-implementer` | implement | yes | yes | Scoped implementation, tests, declared gates, commit and evidence. |
-| `agentbox-fixer` | fix | yes | yes | Only the accepted merge-blocking review findings, with addressed finding ids, commit, gates, and unresolved items. Never opens a PR or touches the tracker. |
-| `agentbox-verifier` | verify | no | yes | Gate rerun at the pull request head; returns only `gates` and `observations`. |
-| `agentbox-reviewer` | review | no | yes | Delta-scoped review against the severity bar; returns the verdict artifact. |
+| `agentbox-planner` | plan | no | yes | Task-spec inputs and a full plan in `.agentbox-stage/plan-<iteration>.md`; returns only `Handoff complete: .agentbox-stage/plan-<iteration>.md.`. |
+| `agentbox-implementer` | implement | yes | yes | Scoped implementation, tests, gates, commit, and risk evidence in `.agentbox-stage/implement-<iteration>.md`; returns only `Handoff complete: .agentbox-stage/implement-<iteration>.md.`. |
+| `agentbox-fixer` | fix | yes | yes | Accepted merge-blocking findings, commit, gates, unresolved items, and blockers in `.agentbox-stage/fix-<iteration>.md`; returns only `Handoff complete: .agentbox-stage/fix-<iteration>.md.`. |
+| `agentbox-verifier` | verify | no | yes | Gate rerun at the pull-request head, recorded in `.agentbox-stage/verify-<iteration>.md`; returns only `Handoff complete: .agentbox-stage/verify-<iteration>.md.`. |
+| `agentbox-reviewer` | review | no | yes | Delta-scoped review from task-spec inputs, including `.agentbox-stage/context/pr-body.md` with its `body_sha256`, written to `.agentbox-stage/review-<iteration>.md`; returns only `Handoff complete: .agentbox-stage/review-<iteration>.md.`. |
 | `agentbox-retro` | retro | no | no | Tracker-blind, post-terminal workflow record review; returns zero or more evidence-backed follow-up issue drafts. |
 
+The five handoff roles take materialized input paths from their task spec, write only their untracked `.agentbox-stage/<stage>-<iteration>.md` handoff, and return only `Handoff complete: <path>.`. Planner, verifier, and reviewer are read-only: Claude omits `Edit` and `Write`, OpenCode denies `edit`, and both retain shell so the role writes its handoff through the shell. Codex cannot enforce read-only mode in an agent file, so its instruction rule allows only that explicitly named untracked handoff and still forbids tracked repository edits. Implementer and fixer remain writable. Triage and retro return complete bodies because they are shell-less and tracker-blind.
 The orchestrator controller is installed too, but it is not a stage. It keeps
 a shell and child-agent dispatch and no source-edit tools, so it can run
 tracker and forge commands and launch the stage roles without implementing
