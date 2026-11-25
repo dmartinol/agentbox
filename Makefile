@@ -14,15 +14,7 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
 
 web-install:
-	@attempt=1; \
-	while [ $$attempt -le 3 ]; do \
-		if npm --prefix $(WEB) ci; then exit 0; fi; \
-		echo "web-install: npm ci failed (attempt $$attempt/3); retrying" >&2; \
-		attempt=$$((attempt + 1)); \
-		sleep 2; \
-	done; \
-	echo "web-install: npm ci failed after 3 attempts" >&2; \
-	exit 1
+	@internal/gui/web/scripts/npm-ci.sh $(WEB)
 
 web-build: web-install
 	npm --prefix $(WEB) run build
