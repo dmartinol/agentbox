@@ -826,6 +826,27 @@ func TestOrchestratorSkillDurableArtifacts(t *testing.T) {
 	)
 }
 
+// TestOrchestratorSkillMaterializesStageInputs pins self-contained stage
+// dispatch and resume inputs without granting forge access or snapshot leakage.
+func TestOrchestratorSkillMaterializesStageInputs(t *testing.T) {
+	body := collapsed(t)
+	wantAll(t, body,
+		"### Stage input materialization",
+		"This rule applies to plan, implement, fix, verify, and review",
+		"Every stage input is either inlined verbatim in the task spec for short text or copied exact bytes into `.agentbox-stage/context/<name>` in the assigned worktree for anything long",
+		"the task spec names that worktree path",
+		"A host-only path such as `$AGENTBOX_HOME/orchestrator/<workflow-id>/<stage>-<iteration>.md` may never be the worker's only reference",
+		"the worker never reads `$AGENTBOX_HOME`",
+		"A forge client, forge credential, or forge egress rule is never a stage-input mechanism",
+		"A pull-request body reaches the reviewer as a materialized file, owned by #151",
+		"`.agentbox-stage/context/` is untracked and stays out of a run's starting snapshot (#147), as the stage-snapshot contract requires",
+		"Pinned inputs are copied exact bytes and recorded with `sha256`",
+		"Never materialize a secret value, token file, or environment dump",
+		"Before dispatching plan, inline or copy the normalized issue body and triage disposition into the plan worktree",
+		"A re-rendered spec materializes its inputs the same way before dispatch and never points back at an old host path",
+	)
+}
+
 // TestOrchestratorSkillRefusalExemptsBodyStages pins the body-return
 // exemption so handoff-stage refusal rules cannot cover tracker-blind stages.
 func TestOrchestratorSkillRefusalExemptsBodyStages(t *testing.T) {
