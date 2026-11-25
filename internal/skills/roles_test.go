@@ -85,6 +85,228 @@ func TestEmbeddedRolesAreComplete(t *testing.T) {
 	}
 }
 
+func TestEmbeddedHandoffRoleContracts(t *testing.T) {
+	type handoffRoleContract struct {
+		name                  string
+		artifactPath          string
+		completionNote        string
+		write                 bool
+		shell                 bool
+		materializedInputPath string
+		legacyPhrases         []string
+	}
+
+	cases := []handoffRoleContract{
+		{
+			name:                  "agentbox-planner",
+			artifactPath:          ".agentbox-stage/plan-<iteration>.md",
+			completionNote:        "Handoff complete: .agentbox-stage/plan-<iteration>.md.",
+			write:                 false,
+			shell:                 true,
+			materializedInputPath: "",
+			legacyPhrases:         []string{"then return:", "return the plan"},
+		},
+		{
+			name:                  "agentbox-implementer",
+			artifactPath:          ".agentbox-stage/implement-<iteration>.md",
+			completionNote:        "Handoff complete: .agentbox-stage/implement-<iteration>.md.",
+			write:                 true,
+			shell:                 true,
+			materializedInputPath: "",
+			legacyPhrases:         []string{"return the result in one final message"},
+		},
+		{
+			name:                  "agentbox-fixer",
+			artifactPath:          ".agentbox-stage/fix-<iteration>.md",
+			completionNote:        "Handoff complete: .agentbox-stage/fix-<iteration>.md.",
+			write:                 true,
+			shell:                 true,
+			materializedInputPath: "",
+			legacyPhrases:         []string{"and return:"},
+		},
+		{
+			name:                  "agentbox-verifier",
+			artifactPath:          ".agentbox-stage/verify-<iteration>.md",
+			completionNote:        "Handoff complete: .agentbox-stage/verify-<iteration>.md.",
+			write:                 false,
+			shell:                 true,
+			materializedInputPath: "",
+			legacyPhrases:         []string{"Return the `verify-task.md` artifact", "Report only:"},
+		},
+		{
+			name:                  "agentbox-reviewer",
+			artifactPath:          ".agentbox-stage/review-<iteration>.md",
+			completionNote:        "Handoff complete: .agentbox-stage/review-<iteration>.md.",
+			write:                 false,
+			shell:                 true,
+			materializedInputPath: ".agentbox-stage/context/pr-body.md",
+			legacyPhrases:         []string{"Return the verdict artifact"},
+		},
+	}
+
+	orchestrator, err := Embedded("agentbox-orchestrator", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	orchestratorInstructions := string(orchestrator)
+	for _, contract := range []string{
+		".agentbox-stage/<stage>-<iteration>.md",
+		"return only a completion note naming that path",
+		"refuse a worker result that returns an artifact body",
+		"Triage and retro are exempt from that body-return refusal",
+	} {
+		if !strings.Contains(orchestratorInstructions, contract) {
+			t.Fatalf("embedded orchestrator skill is missing durable-artifact contract %q", contract)
+		}
+	}
+
+	docBytes, err := os.ReadFile(filepath.Join("..", "..", "docs", "_cli", "skills.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	documentation := string(docBytes)
+	docRows := map[string]string{
+		"agentbox-planner":     "Task-spec inputs and a full plan in `.agentbox-stage/plan-<iteration>.md`; returns only `Handoff complete: .agentbox-stage/plan-<iteration>.md.`.",
+		"agentbox-implementer": "Scoped implementation, tests, gates, commit, and risk evidence in `.agentbox-stage/implement-<iteration>.md`; returns only `Handoff complete: .agentbox-stage/implement-<iteration>.md.`.",
+		"agentbox-fixer":       "Accepted merge-blocking findings, commit, gates, unresolved items, and blockers in `.agentbox-stage/fix-<iteration>.md`; returns only `Handoff complete: .agentbox-stage/fix-<iteration>.md.`.",
+		"agentbox-verifier":    "Gate rerun at the pull-request head, recorded in `.agentbox-stage/verify-<iteration>.md`; returns only `Handoff complete: .agentbox-stage/verify-<iteration>.md.`.",
+		"agentbox-reviewer":    "Delta-scoped review from task-spec inputs, including `.agentbox-stage/context/pr-body.md` with its `body_sha256`, written to `.agentbox-stage/review-<iteration>.md`; returns only `Handoff complete: .agentbox-stage/review-<iteration>.md.`.",
+	}
+	rendererParagraph := "The five handoff roles take materialized input paths from their task spec, write only their untracked `.agentbox-stage/<stage>-<iteration>.md` handoff, and return only `Handoff complete: <path>.`. Planner, verifier, and reviewer are read-only: Claude omits `Edit` and `Write`, OpenCode denies `edit`, and both retain shell so the role writes its handoff through the shell. Codex cannot enforce read-only mode in an agent file, so its instruction rule allows only that explicitly named untracked handoff and still forbids tracked repository edits. Implementer and fixer remain writable. Triage and retro return complete bodies because they are shell-less and tracker-blind."
+	if !strings.Contains(documentation, rendererParagraph) {
+		t.Fatal("skills documentation is missing the handoff renderer paragraph")
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			role, err := RoleByName(tc.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rawRole, err := RoleYAML(tc.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			canonicalRole, err := ParseRole(rawRole)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if canonicalRole.Name != tc.name || canonicalRole.Write != tc.write || canonicalRole.Shell != tc.shell || canonicalRole.Instructions != role.Instructions {
+				t.Fatalf("canonical role contract = %+v", canonicalRole)
+			}
+			if role.Write != tc.write || role.Shell != tc.shell {
+				t.Fatalf("role capabilities for %s = write %t, shell %t", tc.name, role.Write, role.Shell)
+			}
+
+			instructions := strings.Join(strings.Fields(role.Instructions), " ")
+			requiredInstructions := []string{
+				"Take every materialized input path only from the task spec; never construct an `$AGENTBOX_HOME`, network, or forge path.",
+				"The handoff must be untracked and non-empty; never stage it.",
+				tc.artifactPath,
+				tc.completionNote,
+			}
+			if !tc.write {
+				requiredInstructions = append(requiredInstructions, "Write the handoff only through your retained shell after confirming its path is untracked; do not use a native edit tool.")
+			}
+			for _, phrase := range requiredInstructions {
+				if !strings.Contains(instructions, phrase) {
+					t.Fatalf("role %s is missing instruction %q", tc.name, phrase)
+				}
+			}
+			for _, phrase := range tc.legacyPhrases {
+				if strings.Contains(instructions, phrase) {
+					t.Fatalf("role %s still contains legacy return phrase %q", tc.name, phrase)
+				}
+			}
+			if tc.materializedInputPath != "" && !strings.Contains(instructions, tc.materializedInputPath) {
+				t.Fatalf("role %s is missing materialized input path %q", tc.name, tc.materializedInputPath)
+			}
+			if tc.name == "agentbox-reviewer" {
+				for _, phrase := range []string{
+					"`body_sha256`",
+					"## Evidence at commit",
+					"PR body SHA-256: <body_sha256>",
+					"You have no forge access; do not call a tracker or forge API, fetch the pull request, or construct a network or forge path.",
+				} {
+					if !strings.Contains(instructions, phrase) {
+						t.Fatalf("reviewer is missing contract %q", phrase)
+					}
+				}
+			}
+
+			expectedDocRow := "| `" + tc.name + "` |"
+			if !strings.Contains(documentation, expectedDocRow) || !strings.Contains(documentation, docRows[tc.name]) {
+				t.Fatalf("documentation row for %s is missing its artifact and completion contract", tc.name)
+			}
+
+			codexContent, err := RenderRole(role, "codex", "", "", "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var codexParsed struct {
+				DeveloperInstructions string `toml:"developer_instructions"`
+			}
+			if _, err := toml.Decode(string(codexContent), &codexParsed); err != nil {
+				t.Fatalf("codex role is not valid TOML: %v\n%s", err, codexContent)
+			}
+			codexInstructions := codexParsed.DeveloperInstructions
+			if !strings.Contains(codexInstructions, tc.artifactPath) || !strings.Contains(codexInstructions, tc.completionNote) {
+				t.Fatalf("codex role %s is missing its handoff contract", tc.name)
+			}
+			if !tc.write {
+				if !strings.Contains(codexInstructions, "except for the untracked `.agentbox-stage/<stage>-<iteration>.md` handoff explicitly named by your role instructions") {
+					t.Fatalf("read-only codex role %s is missing the scoped handoff exception", tc.name)
+				}
+				if !strings.Contains(codexInstructions, "never create, edit, move, or delete any tracked repository file or any other file") {
+					t.Fatalf("read-only codex role %s is missing the tracked-file prohibition", tc.name)
+				}
+			} else if strings.Contains(codexInstructions, "This role is read-only") {
+				t.Fatalf("writable codex role %s contains the read-only rule", tc.name)
+			}
+
+			claudeContent, err := RenderRole(role, "claude", "", "", "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			claudeFrontMatter := frontMatterOf(t, string(claudeContent))
+			claudeTools, _ := claudeFrontMatter["tools"].(string)
+			claudeToolSet := make(map[string]bool)
+			for _, tool := range strings.Split(claudeTools, ", ") {
+				claudeToolSet[tool] = true
+			}
+			if claudeToolSet["Agent"] {
+				t.Fatalf("stage role %s can dispatch agents", tc.name)
+			}
+			if !claudeToolSet["Bash"] {
+				t.Fatalf("role %s lost shell access", tc.name)
+			}
+			if tc.write {
+				if !claudeToolSet["Edit"] || !claudeToolSet["Write"] {
+					t.Fatalf("writable claude role %s lost edit tools: %q", tc.name, claudeTools)
+				}
+			} else if claudeToolSet["Edit"] || claudeToolSet["Write"] {
+				t.Fatalf("read-only claude role %s has edit tools: %q", tc.name, claudeTools)
+			}
+
+			openCodeContent, err := RenderRole(role, "opencode", "", "", "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			openCodeFrontMatter := frontMatterOf(t, string(openCodeContent))
+			if !deniesAction(openCodeFrontMatter, "subagent") {
+				t.Fatalf("stage role %s can start a subagent", tc.name)
+			}
+			if tc.write {
+				if deniesAction(openCodeFrontMatter, "edit") || deniesAction(openCodeFrontMatter, "shell") {
+					t.Fatalf("writable opencode role %s lost a capability", tc.name)
+				}
+			} else if !deniesAction(openCodeFrontMatter, "edit") || deniesAction(openCodeFrontMatter, "shell") {
+				t.Fatalf("read-only opencode role %s has the wrong handoff capability", tc.name)
+			}
+		})
+	}
+}
+
 // TestRenderCodexRoleParsesAndCarriesModel pins the Codex TOML shape: the
 // three required keys always exist, a configured model adds both model fields,
 // and write: false is rendered as instruction text.

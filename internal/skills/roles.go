@@ -172,7 +172,7 @@ func RenderRole(role Role, harness, model, effort, version string) ([]byte, erro
 // codexReadOnlyRule is rendered into the Codex developer instructions because
 // Codex agent files cannot narrow sandbox or approval capabilities. The install
 // output repeats the limitation instead of implying enforcement.
-const codexReadOnlyRule = "This role is read-only: do not create, edit, move, or delete files. Codex agent files cannot narrow sandbox or approval settings, so this restriction is instruction-only."
+const codexReadOnlyRule = "This role is read-only: do not create, edit, move, or delete files, except for the untracked `.agentbox-stage/<stage>-<iteration>.md` handoff explicitly named by your role instructions. Write that handoff only through the shell, confirm it is untracked, never stage it, and never create, edit, move, or delete any tracked repository file or any other file. Codex agent files cannot narrow sandbox or approval settings, so this restriction is instruction-only."
 
 // codexNoShellRule is rendered into the Codex developer instructions because
 // Codex agent files cannot remove shell access. Triage and retro use it so they
