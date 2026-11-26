@@ -2,15 +2,27 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/dmartinol/agentbox/internal/app"
 )
 
 func orchestratorCmd(a *app.App, args []string) error {
-	if len(args) == 0 || args[0] != "config" {
-		return fmt.Errorf("orchestrator config path|show|validate required")
+	if len(args) == 0 {
+		return fmt.Errorf("orchestrator config path|show|validate · gate pr-body|pr-merge required")
 	}
+	switch args[0] {
+	case "config":
+		return orchestratorConfigCmd(a, args)
+	case "gate":
+		return orchestratorGateCmd(args[1:])
+	default:
+		return fmt.Errorf("orchestrator config path|show|validate · gate pr-body|pr-merge required")
+	}
+}
+
+func orchestratorConfigCmd(a *app.App, args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("orchestrator config path|show|validate required")
 	}
@@ -64,6 +76,74 @@ func orchestratorCmd(a *app.App, args []string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown orchestrator config command %q", args[1])
+}
+
+func orchestratorGateCmd(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("orchestrator gate pr-body|pr-merge required")
+	}
+	switch args[0] {
+	case "pr-body":
+		f := flags("orchestrator gate pr-body")
+		prBodyPath := f.String("pr-body", "", "pull request body file")
+		issueBodyPath := f.String("issue-body", "", "issue body file")
+		issueNumber := f.Int("issue", 0, "issue number")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if len(f.Args()) != 0 {
+			return fmt.Errorf("orchestrator gate pr-body takes no positional arguments")
+		}
+		if strings.TrimSpace(*prBodyPath) == "" {
+			return fmt.Errorf("orchestrator gate pr-body requires --pr-body")
+		}
+		if strings.TrimSpace(*issueBodyPath) == "" {
+			return fmt.Errorf("orchestrator gate pr-body requires --issue-body")
+		}
+		if *issueNumber <= 0 {
+			return fmt.Errorf("orchestrator gate pr-body requires --issue")
+		}
+		prBody, err := os.ReadFile(*prBodyPath)
+		if err != nil {
+			return err
+		}
+		issueBody, err := os.ReadFile(*issueBodyPath)
+		if err != nil {
+			return err
+		}
+		if err := app.ValidateReviewPRBody(string(prBody), string(issueBody), *issueNumber); err != nil {
+			return err
+		}
+		fmt.Println("pr-body: valid")
+		return nil
+	case "pr-merge":
+		f := flags("orchestrator gate pr-merge")
+		prBodyPath := f.String("pr-body", "", "pull request body file")
+		headSHA := f.String("head", "", "merged head SHA")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if len(f.Args()) != 0 {
+			return fmt.Errorf("orchestrator gate pr-merge takes no positional arguments")
+		}
+		if strings.TrimSpace(*prBodyPath) == "" {
+			return fmt.Errorf("orchestrator gate pr-merge requires --pr-body")
+		}
+		if strings.TrimSpace(*headSHA) == "" {
+			return fmt.Errorf("orchestrator gate pr-merge requires --head")
+		}
+		prBody, err := os.ReadFile(*prBodyPath)
+		if err != nil {
+			return err
+		}
+		if err := app.ValidateReviewChecks(string(prBody), strings.TrimSpace(*headSHA)); err != nil {
+			return err
+		}
+		fmt.Println("pr-merge: valid")
+		return nil
+	default:
+		return fmt.Errorf("unknown orchestrator gate command %q", args[0])
+	}
 }
 
 func printResolvedOrchestration(resolved app.ResolvedOrchestration) {
