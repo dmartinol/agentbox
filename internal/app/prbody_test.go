@@ -230,6 +230,7 @@ func TestCanonicalReviewPRBody(t *testing.T) {
 	}
 	want := strings.Replace(base, "| Verify | verifier  | pending | pending |", "| Verify | verifier  | <orchestrator-owned> | <orchestrator-owned> |", 1)
 	want = strings.Replace(want, "| Review | reviewer | pending | pending |", "| Review | reviewer | <orchestrator-owned> | <orchestrator-owned> |", 1)
+	want = strings.TrimRight(want, "\n")
 	if canonical != want {
 		t.Fatalf("CanonicalReviewPRBody() = %q, want %q", canonical, want)
 	}
@@ -303,12 +304,24 @@ func TestObservedReviewBodyDigests(t *testing.T) {
 	if canonical != idempotent {
 		t.Fatal("CanonicalReviewPRBody() is not idempotent")
 	}
-	trailingNewlineDigest, err := CanonicalReviewPRBodySHA256(string(body) + "\n")
+	for _, trailingNewlines := range []string{"\n", "\n\n\n"} {
+		trailingNewlineDigest, err := CanonicalReviewPRBodySHA256(string(body) + trailingNewlines)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if trailingNewlineDigest != reviewedDigest {
+			t.Fatalf("canonical digest changed after adding trailing newlines %q", trailingNewlines)
+		}
+	}
+	trailingSpaceDigest, err := CanonicalReviewPRBodySHA256(string(body) + " ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if trailingNewlineDigest == reviewedDigest {
-		t.Fatal("canonical digest ignored a trailing newline")
+	if trailingSpaceDigest == reviewedDigest {
+		t.Fatal("canonical digest ignored a trailing space")
+	}
+	if err := CompareCanonicalReviewPRBodies(string(body), string(body)+" "); err == nil || err.Error() != "body differs at footer" {
+		t.Fatalf("CompareCanonicalReviewPRBodies() trailing-space error = %v, want body differs at footer", err)
 	}
 }
 

@@ -36,7 +36,8 @@ func CanonicalReviewPRBody(body string) (string, error) {
 		cells[3] = orchestratorOwnedTableCell
 		lines[index] = renderTableRow(lines[index], cells)
 	}
-	return strings.Join(lines, "\n"), nil
+	// The tracker appends a newline on every body write, so EOF newlines are not content.
+	return strings.TrimRight(strings.Join(lines, "\n"), "\n"), nil
 }
 
 func CanonicalReviewPRBodySHA256(body string) (string, error) {

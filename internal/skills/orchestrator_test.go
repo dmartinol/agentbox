@@ -557,6 +557,7 @@ func TestOrchestratorSkillProvenance(t *testing.T) {
 		"| Close comment |",
 		"| Retro comment |",
 		"Precede the footer with `---` on its own line.",
+		"EOF newline-only drift from a tracker body write is not content, while every other footer byte invalidates the verdict.",
 		"Start the line with the AgentBox mark and bold the clause up to the first `·`.",
 		"End with `took <duration>` on a stage artifact",
 		"The marker keeps the full machine-readable record: `workflow`, `stage`,",

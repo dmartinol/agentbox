@@ -112,10 +112,14 @@ func TestOrchestratorGateReviewedBody(t *testing.T) {
 	reviewedBody = strings.Replace(reviewedBody, "approve", "pending", 1)
 
 	currentPath := filepath.Join(dir, "current.md")
+	currentExtraNewlinePath := filepath.Join(dir, "current-extra-newline.md")
 	reviewedPath := filepath.Join(dir, "reviewed.md")
 	tamperedPath := filepath.Join(dir, "tampered.md")
 	mismatchPath := filepath.Join(dir, "mismatch.md")
 	if err := os.WriteFile(currentPath, []byte(currentBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(currentExtraNewlinePath, []byte(currentBody+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(reviewedPath, []byte(reviewedBody), 0o600); err != nil {
@@ -141,6 +145,10 @@ func TestOrchestratorGateReviewedBody(t *testing.T) {
 		{
 			name: "match",
 			args: []string{"gate", "pr-merge", "--pr-body", currentPath, "--head", "abc123", "--reviewed-body", reviewedPath, "--reviewed-body-sha256", reviewedSHA},
+		},
+		{
+			name: "extra trailing current newline",
+			args: []string{"gate", "pr-merge", "--pr-body", currentExtraNewlinePath, "--head", "abc123", "--reviewed-body", reviewedPath, "--reviewed-body-sha256", reviewedSHA},
 		},
 		{
 			name:      "tampered reviewed file",
