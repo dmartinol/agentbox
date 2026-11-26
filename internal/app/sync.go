@@ -115,6 +115,15 @@ func sandboxExportScript(branch string) string {
 		"tar -C /workspace/project --null -T /workspace/export.list -cf /workspace/export.tar"
 }
 
+func sandboxAlreadySynced(r Run, hostFingerprint string, snapshot syncSnapshot) bool {
+	return !r.LastSuccessfulSyncAt.IsZero() &&
+		r.SyncedSandboxFingerprint != "" &&
+		r.Fingerprint != "" &&
+		hostFingerprint == r.Fingerprint &&
+		snapshot.Head == snapshot.BranchTip &&
+		snapshot.Fingerprint() == r.SyncedSandboxFingerprint
+}
+
 func (a *App) Sync(ctx context.Context, id string) (err error) {
 	r, err := a.Store.LoadRun(id)
 	if err != nil {
@@ -138,6 +147,15 @@ func (a *App) Sync(ctx context.Context, id string) (err error) {
 	}
 	if err := requireSandboxHeadAtRunBranchTip(checkout, r.Branch, id); err != nil {
 		return err
+	}
+	snapshot, snapshotErr := a.sandboxSyncSnapshot(ctx, r)
+	if snapshotErr != nil {
+		// A probe failure must never block the transfer path; the no-op guard cannot apply.
+		snapshot = syncSnapshot{}
+	}
+	if sandboxAlreadySynced(r, fp, snapshot) {
+		r.Synced = true
+		return a.Store.SaveRun(r)
 	}
 	stage, err := os.MkdirTemp(a.Store.RunsDir(), id+"-sync-*")
 	if err != nil {
@@ -204,7 +222,7 @@ func (a *App) Sync(ctx context.Context, id string) (err error) {
 		return err
 	}
 	if _, err = a.git(ctx, r.Worktree, "merge", "--ff-only", "FETCH_HEAD"); err != nil {
-		return err
+		return fmt.Errorf("run %s cannot fast-forward to the sandbox branch because the host worktree diverged; the run was not finished. Preserve the current host HEAD (git -C %s branch agentbox-recovery-%s HEAD), then restore the last synced commit (git -C %s reset --hard %s) and retry agentbox agent sync %s: %w", r.ID, r.Worktree, r.ID, r.Worktree, r.LastSynced, r.ID, err)
 	}
 	mutated = true
 	if len(newPatch) > 0 {
@@ -228,7 +246,7 @@ func (a *App) Sync(ctx context.Context, id string) (err error) {
 	}
 	r.LastSynced = strings.TrimSpace(string(headB))
 	r.Synced = true
-	snapshot, err := snapshotFromExport(r.Branch, r.LastSynced, newPatch, archive)
+	snapshot, err = snapshotFromExport(r.Branch, r.LastSynced, newPatch, archive)
 	if err != nil {
 		return err
 	}

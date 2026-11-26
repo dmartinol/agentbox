@@ -440,6 +440,13 @@ func TestDeleteRefusesUnknownSyncState(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := newSyncRunner(t, nil)
+	base := runner.output
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && containsCommand(call.args, "node", "-e") {
+			return nil, fmt.Errorf("sandbox probe unavailable")
+		}
+		return base(call)
+	}
 	app.Runner = runner
 	err := app.Delete(context.Background(), run.ID, false)
 	if err == nil || !strings.Contains(err.Error(), "cannot verify") {
@@ -511,6 +518,19 @@ const (
 func readyLifecycleRunner(t *testing.T, artifacts map[string]string) *fakeRunner {
 	t.Helper()
 	runner := newSyncRunner(t, artifacts)
+	base := runner.output
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && strings.Contains(strings.Join(call.args, " "), probeMarker) {
+			return []byte(readyProbe), nil
+		}
+		return base(call)
+	}
+	return runner
+}
+
+func readySandboxSyncRunner(t *testing.T, artifacts map[string]string, sandbox, branch string) *fakeRunner {
+	t.Helper()
+	runner := newSandboxSyncRunner(t, artifacts, sandbox, branch)
 	base := runner.output
 	runner.output = func(call recordedCommand) ([]byte, error) {
 		if call.name == "openshell" && strings.Contains(strings.Join(call.args, " "), probeMarker) {
@@ -635,6 +655,9 @@ func TestResumeRelaunchesExitedAgentInPlace(t *testing.T) {
 	launched := false
 	runner.output = func(call recordedCommand) ([]byte, error) {
 		joined := strings.Join(call.args, " ")
+		if call.name == "openshell" && containsCommand(call.args, "node", "-e") {
+			return nil, fmt.Errorf("sandbox probe unavailable")
+		}
 		if call.name == "openshell" && strings.Contains(joined, probeMarker) {
 			if launched {
 				return []byte(workingProbe), nil
@@ -775,6 +798,161 @@ func TestFinishSyncsThenMarksCompleted(t *testing.T) {
 	}
 	if syncDownloadIndex < 0 || finishIndex < syncDownloadIndex {
 		t.Fatalf("finish marker did not follow sync: download=%d finish=%d", syncDownloadIndex, finishIndex)
+	}
+}
+
+func TestFinishToleratesHostOnlySquashAfterSync(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	sandbox := cloneSandboxRepo(t, run)
+	if err := os.WriteFile(filepath.Join(sandbox, "committed.txt"), []byte("agent work\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd(t, sandbox, "git", "add", "committed.txt")
+	cmd(t, sandbox, "git", "commit", "-qm", "agent work")
+	artifacts := createSandboxExportArtifacts(t, run, sandbox, t.TempDir())
+	runner := readySandboxSyncRunner(t, artifacts, sandbox, run.Branch)
+	app.Runner = runner
+	if err := app.Sync(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	synced, err := app.Store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	countCommands := func() (exports, downloads, merges int) {
+		for _, call := range runner.outputs {
+			joined := strings.Join(call.args, " ")
+			if call.name == "openshell" && strings.Contains(joined, "sandbox_head=$(git -C /workspace/project rev-parse HEAD)") {
+				exports++
+			}
+			if call.name == "openshell" && containsCommand(call.args, "sandbox", "download") {
+				downloads++
+			}
+			if call.name == "git" && containsCommand(call.args, "merge", "--ff-only") {
+				merges++
+			}
+		}
+		return exports, downloads, merges
+	}
+	exports, downloads, merges := countCommands()
+	if exports != 2 || downloads == 0 || merges != 1 {
+		t.Fatalf("initial sync command counts: exports=%d downloads=%d merges=%d", exports, downloads, merges)
+	}
+
+	cmd(t, run.Worktree, "git", "reset", "--soft", run.Baseline)
+	cmd(t, run.Worktree, "git", "commit", "-qm", "host-only squash")
+	squashHead := strings.TrimSpace(cmd(t, run.Worktree, "git", "rev-parse", "HEAD"))
+	hostFingerprint, err := app.WorktreeFingerprint(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hostFingerprint != synced.Fingerprint || squashHead == synced.LastSynced {
+		t.Fatalf("host squash changed tracked safety state: fingerprint=%q want %q head=%s", hostFingerprint, synced.Fingerprint, squashHead)
+	}
+	snapshot, snapshotErr := collectSnapshotDir(context.Background(), OSRunner{}, sandbox, run.Branch)
+	if snapshotErr != nil {
+		t.Fatal(snapshotErr)
+	}
+	patch, readErr := os.ReadFile(artifacts["/workspace/export.patch"])
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	exported, exportErr := snapshotFromExport(run.Branch, synced.LastSynced, patch, artifacts["/workspace/export.tar"])
+	if exportErr != nil {
+		t.Fatal(exportErr)
+	}
+	if snapshot.Fingerprint() != synced.SyncedSandboxFingerprint || exported.Fingerprint() != synced.SyncedSandboxFingerprint {
+		t.Fatalf("sandbox snapshot fingerprint drifted: probe=%+v exported=%+v recorded=%q", snapshot, exported, synced.SyncedSandboxFingerprint)
+	}
+	if !sandboxAlreadySynced(synced, hostFingerprint, snapshot) {
+		t.Fatal("host-only squash did not satisfy the no-op sync guard")
+	}
+	reloaded, err := app.Store.LoadRun(run.ID)
+	if err != nil || reloaded.LastSuccessfulSyncAt.IsZero() || reloaded.SyncedSandboxFingerprint == "" {
+		t.Fatalf("successful metadata disappeared before finish: %+v, %v", reloaded, err)
+	}
+	inspected, err := app.GetRun(context.Background(), run.ID)
+	if err != nil || inspected.LastSuccessfulSyncAt.IsZero() || inspected.SyncedSandboxFingerprint == "" {
+		t.Fatalf("GetRun lost successful metadata: %+v, %v", inspected, err)
+	}
+
+	if err := app.Finish(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := app.Store.LoadRun(run.ID)
+	if err != nil || stored.Status != StatusCompleted || stored.StatusDetail != "finished by user" || !stored.Synced {
+		t.Fatalf("finish after host squash = %+v, %v", stored, err)
+	}
+	if stored.LastSynced != synced.LastSynced || stored.Fingerprint != synced.Fingerprint ||
+		!stored.LastSuccessfulSyncAt.Equal(synced.LastSuccessfulSyncAt) || stored.SyncedSandboxFingerprint != synced.SyncedSandboxFingerprint {
+		t.Fatalf("skipped sync changed successful metadata: before=%+v after=%+v", synced, stored)
+	}
+	hostHead := strings.TrimSpace(cmd(t, run.Worktree, "git", "rev-parse", "HEAD"))
+	if hostHead != squashHead || hostHead == synced.LastSynced {
+		t.Fatalf("finish did not keep the squashed host head: got %s want %s sandbox=%s", hostHead, squashHead, synced.LastSynced)
+	}
+	if status := cmd(t, run.Worktree, "git", "status", "--short"); status != "" {
+		t.Fatalf("worktree is not clean after skipped sync: %s", status)
+	}
+	afterExports, afterDownloads, afterMerges := countCommands()
+	if afterExports != exports+1 || afterDownloads != downloads || afterMerges != merges {
+		t.Fatalf("finish reran transfer after no-op sync: exports=%d want %d downloads=%d want %d merges=%d want %d", afterExports, exports, afterDownloads, downloads, afterMerges, merges)
+	}
+}
+
+func TestFinishReportsActionableFastForwardFailure(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	artifacts, sandbox := createAgentExportWithRepo(t, run, t.TempDir())
+	runner := readySandboxSyncRunner(t, artifacts, sandbox, run.Branch)
+	app.Runner = runner
+	if err := app.Sync(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	synced, err := app.Store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd(t, run.Worktree, "git", "reset", "--soft", run.Baseline)
+	cmd(t, run.Worktree, "git", "commit", "-qm", "host-only squash")
+	preMergeHead := strings.TrimSpace(cmd(t, run.Worktree, "git", "rev-parse", "HEAD"))
+	preMergeFingerprint, err := app.WorktreeFingerprint(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preMergeFingerprint != synced.Fingerprint {
+		t.Fatalf("host squash changed the worktree fingerprint: got %q want %q", preMergeFingerprint, synced.Fingerprint)
+	}
+	cmd(t, sandbox, "git", "add", ".")
+	cmd(t, sandbox, "git", "commit", "-qm", "divergent agent work")
+	artifacts = createSandboxExportArtifacts(t, run, sandbox, t.TempDir())
+	app.Runner = readySandboxSyncRunner(t, artifacts, sandbox, run.Branch)
+
+	err = app.Finish(context.Background(), run.ID)
+	if err == nil {
+		t.Fatal("finish unexpectedly fast-forwarded a divergent host")
+	}
+	for _, want := range []string{
+		"cannot fast-forward to the sandbox branch",
+		run.ID,
+		"agentbox-recovery-",
+		"agentbox agent sync " + run.ID,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("fast-forward error lacks %q: %v", want, err)
+		}
+	}
+	stored, err := app.Store.LoadRun(run.ID)
+	if err != nil || stored.Status == StatusCompleted {
+		t.Fatalf("failed finish unexpectedly completed the run: %+v, %v", stored, err)
+	}
+	hostHead := strings.TrimSpace(cmd(t, run.Worktree, "git", "rev-parse", "HEAD"))
+	hostFingerprint, err := app.WorktreeFingerprint(context.Background(), run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hostHead != preMergeHead || hostFingerprint != preMergeFingerprint {
+		t.Fatalf("failed fast-forward was not rolled back: head=%s want %s fingerprint=%q want %q", hostHead, preMergeHead, hostFingerprint, preMergeFingerprint)
 	}
 }
 
