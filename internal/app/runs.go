@@ -287,7 +287,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	}
 	args := sandboxCreateArgs(r, p, opt.Gateway)
 	if _, err := a.Runner.Output(ctx, "openshell", args...); err != nil {
-		return failRun(err)
+		return a.failProvisioningRun(ctx, r, err)
 	}
 	r.Status = StatusCreating
 	r.StatusDetail = "sandbox created; starting agent"
@@ -324,6 +324,61 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 		return r, err
 	}
 	return updated, nil
+}
+
+func (a *App) failProvisioningRun(ctx context.Context, r Run, err error) (Run, error) {
+	diagnosis, diagnosed := a.provisioningClockDiagnosis(ctx, err)
+	if !diagnosed {
+		r.Status = StatusFailed
+		r.StatusDetail = truncateDetail(err.Error())
+		_ = a.Store.SaveRun(r)
+		return r, err
+	}
+
+	wrapped := fmt.Errorf("%s: %w", diagnosis.Detail, err)
+	r.Status = StatusFailed
+	r.StatusDetail = provisioningClockStatusDetail(diagnosis.Detail, err)
+	_ = a.Store.SaveRun(r)
+	return r, wrapped
+}
+
+func (a *App) provisioningClockDiagnosis(ctx context.Context, err error) (Check, bool) {
+	if !isProvisioningClockFailure(err) {
+		return Check{}, false
+	}
+	check := a.podmanClockCheck(ctx, time.Now)
+	if check.State != CheckStateFail {
+		return Check{}, false
+	}
+	return check, true
+}
+
+func isProvisioningClockFailure(err error) bool {
+	message := err.Error()
+	return strings.Contains(message, "future-token") || strings.Contains(strings.ToLower(message), "containerexited")
+}
+
+func provisioningClockStatusDetail(diagnosis string, cause error) string {
+	detail := strings.TrimSpace(diagnosis)
+	detail = strings.Replace(
+		detail,
+		"Restart or resynchronize the Podman VM, then run `agentbox doctor`. Newly issued OpenShell JWTs may appear future-dated.",
+		"Restart or resynchronize the Podman VM, then run `agentbox doctor`; new JWTs may seem future-dated.",
+		1,
+	)
+	if len(detail) > statusDetailLimit {
+		return detail[:statusDetailLimit]
+	}
+	label := "\nOriginal error: "
+	remaining := statusDetailLimit - len(detail) - len(label)
+	if remaining <= 0 {
+		return truncateDetail(detail)
+	}
+	original := strings.TrimSpace(cause.Error())
+	if len(original) > remaining {
+		original = original[:remaining]
+	}
+	return detail + label + original
 }
 
 func sandboxCreateArgs(r Run, p Profile, gateway string) []string {

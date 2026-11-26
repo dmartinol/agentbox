@@ -17,6 +17,7 @@ const remediations: Record<string, string> = {
   openshell: 'Repair the OpenShell CLI installation.',
   npm: 'Install Node.js and npm.',
   'podman connection': 'Start Podman with `podman machine start <machine>`.',
+  'podman VM clock': 'Restart or resynchronize the Podman VM, then run `agentbox doctor`.',
   gateway: 'Restart OpenShell with `brew services restart openshell`.'
 };
 
@@ -64,7 +65,8 @@ export function AdvancedPanel() {
     }
   };
 
-  const failed = checks.filter((check) => !check.ok);
+  const failed = checks.filter((check) => check.state === 'fail' || (!check.state && !check.ok));
+  const problemCount = checks.filter((check) => (check.state ?? (check.ok ? 'ok' : 'fail')) !== 'ok').length;
 
   return (
     <div className="space-y-4">
@@ -91,7 +93,7 @@ export function AdvancedPanel() {
               <div className="text-xs opacity-90">Expand a failing check for its complete output and action.</div>
             </div>
           </Alert>
-        ) : checks.length > 0 ? (
+        ) : problemCount === 0 && checks.length > 0 ? (
           <Alert variant="success" title={`${checks.length} checks passed`} />
         ) : null}
         {loading ? (
@@ -102,14 +104,15 @@ export function AdvancedPanel() {
           <div className="space-y-2">
             {[...checks].sort((left, right) => Number(left.ok) - Number(right.ok)).map((check) => {
               const detail = readableDetail(check.detail || '');
-              const action = check.ok ? '' : remediations[check.name] ?? 'Run `./agentbox doctor` for details.';
+              const state = check.state ?? (check.ok ? 'ok' : 'fail');
+              const action = state === 'ok' ? '' : remediations[check.name] ?? 'Run `./agentbox doctor` for details.';
               return (
                 <Disclosure
                   key={check.name}
-                  className={check.ok ? undefined : 'border-danger/40'}
+                  className={state === 'fail' ? 'border-danger/40' : state === 'unavailable' ? 'border-warning/40' : undefined}
                   summary={(
                     <span className="flex min-w-0 flex-wrap items-center gap-2">
-                      <Badge tone={check.ok ? 'success' : 'danger'}>{check.ok ? 'OK' : 'Fail'}</Badge>
+                      <Badge tone={state === 'ok' ? 'success' : state === 'unavailable' ? 'warning' : 'danger'}>{state === 'ok' ? 'OK' : state === 'unavailable' ? 'Unavailable' : 'Fail'}</Badge>
                       <span>{check.name}</span>
                       <span className="min-w-0 text-xs font-normal text-muted" title={check.detail || undefined}>
                         {middleEllipsis(check.detail || 'No output recorded.', 64)}

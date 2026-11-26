@@ -50,9 +50,31 @@ func TestDoctorJSONIsParseable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var checks []app.Check
+	var checks []struct {
+		Name   string  `json:"name"`
+		OK     *bool   `json:"ok"`
+		State  *string `json:"state"`
+		Detail *string `json:"detail"`
+	}
 	if err := json.Unmarshal([]byte(output), &checks); err != nil || len(checks) < 5 {
 		t.Fatalf("doctor output is not a checks JSON array: %s (%v)", output, err)
+	}
+	hasClock := false
+	for _, check := range checks {
+		if check.Name == "podman VM clock" {
+			hasClock = true
+		}
+		if check.OK == nil || check.State == nil || check.Detail == nil {
+			t.Fatalf("check %q lacks ok, state, or detail: %s", check.Name, output)
+		}
+		switch *check.State {
+		case "ok", "fail", "unavailable":
+		default:
+			t.Fatalf("check %q has invalid state %q: %s", check.Name, *check.State, output)
+		}
+	}
+	if !hasClock {
+		t.Fatalf("doctor output lacks the Podman VM clock check: %s", output)
 	}
 }
 

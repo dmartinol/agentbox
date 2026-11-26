@@ -1759,3 +1759,182 @@ func TestBootstrapSavesTheRenderedScreenBeforeRemovingTheSession(t *testing.T) {
 		t.Fatalf("bootstrap must capture the pane before killing the session:\n%s", bootstrapScript)
 	}
 }
+
+type provisioningClockFixture struct {
+	app       App
+	store     Store
+	profile   Profile
+	source    string
+	createErr error
+	clockSkew time.Duration
+}
+
+func newProvisioningClockFixture(t *testing.T, createErr error, clockSkew time.Duration) provisioningClockFixture {
+	t.Helper()
+	ctx := context.Background()
+	source := filepath.Join(t.TempDir(), "source")
+	if err := os.MkdirAll(source, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "README.md"), []byte("fixture\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		if _, err := (OSRunner{}).Output(ctx, "git", append([]string{"-C", source}, args...)...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("init", "--initial-branch=main")
+	git("config", "user.name", "AgentBox")
+	git("config", "user.email", "agentbox@local.invalid")
+	git("add", ".")
+	git("commit", "-m", "fixture")
+
+	store := Store{Base: t.TempDir()}
+	policy, err := store.CreatePolicyConfiguration("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := testProfile("codex", "gateway", "unattended")
+	profile.Policy = policy.Path
+	if err := store.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	direct := false
+	if err := store.SaveProject(Project{Version: 1, Name: "clock-demo", Root: source, Worktree: &direct}); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		switch {
+		case call.name == "git":
+			return (OSRunner{}).Output(ctx, "git", call.args...)
+		case call.name == "openshell" && containsCommand(call.args, "sandbox", "create"):
+			return nil, createErr
+		case call.name == "openshell" && commandHasArg(call, "gateway"):
+			return []byte(`{"type":"podman"}`), nil
+		case call.name == "openshell" && commandHasArg(call, "provider"):
+			return []byte(`{"providers":[{"name":"unit-provider","type":"gateway-bearer"}]}`), nil
+		case call.name == "podman" && commandHasArg(call, "machine"):
+			return []byte(time.Now().UTC().Add(-clockSkew).Format(time.RFC3339)), nil
+		case call.name == "podman" && commandHasArg(call, "inspect"):
+			return []byte(`{}`), nil
+		default:
+			return []byte(`{}`), nil
+		}
+	}}
+	return provisioningClockFixture{
+		app:       App{Store: store, Runner: runner},
+		store:     store,
+		profile:   profile,
+		source:    source,
+		createErr: createErr,
+		clockSkew: clockSkew,
+	}
+}
+
+func TestStartProvisioningFailureReportsClockSkew(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name       string
+		createErr  error
+		clockSkew  time.Duration
+		signed     string
+		futureText bool
+	}{
+		{
+			name:       "future token with 27 second skew",
+			createErr:  errors.New("future-token: token is not valid yet"),
+			clockSkew:  27 * time.Second,
+			signed:     "+27",
+			futureText: true,
+		},
+		{
+			name:       "container exited with 43 second skew",
+			createErr:  errors.New("ContainerExited: sandbox failed during provisioning"),
+			clockSkew:  43 * time.Second,
+			signed:     "+43",
+			futureText: true,
+		},
+		{
+			name:      "nonmatching provisioning failure",
+			createErr: errors.New("disk space exhausted"),
+			clockSkew: 27 * time.Second,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newProvisioningClockFixture(t, tc.createErr, tc.clockSkew)
+			run, err := fixture.app.Start(ctx, StartOptions{
+				Profile: fixture.profile.Name,
+				Source:  fixture.source,
+				Gateway: "openshell",
+				Image:   "profile",
+			})
+			if !errors.Is(err, tc.createErr) {
+				t.Fatalf("error = %v, want wrapped %v", err, tc.createErr)
+			}
+			if run.Status != StatusFailed {
+				t.Fatalf("run status = %q, want %q", run.Status, StatusFailed)
+			}
+			if tc.signed == "" {
+				if run.StatusDetail != tc.createErr.Error() {
+					t.Fatalf("nonmatching status detail = %q, want original %q", run.StatusDetail, tc.createErr.Error())
+				}
+				return
+			}
+			for _, want := range []string{
+				"Host UTC:",
+				"VM UTC:",
+				"Signed delta (host UTC - VM UTC): " + tc.signed,
+				"Remediation:",
+				"`agentbox doctor`",
+			} {
+				if !strings.Contains(run.StatusDetail, want) {
+					t.Fatalf("status detail %q lacks %q", run.StatusDetail, want)
+				}
+			}
+			if strings.Contains(strings.ToLower(run.StatusDetail), "new jwts may seem future-dated") != tc.futureText {
+				t.Fatalf("status detail future-token wording = %q", run.StatusDetail)
+			}
+			if len(run.StatusDetail) > statusDetailLimit {
+				t.Fatalf("status detail length = %d, want at most %d", len(run.StatusDetail), statusDetailLimit)
+			}
+			persisted, err := fixture.store.LoadRun(run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if persisted.Status != StatusFailed || persisted.StatusDetail != run.StatusDetail {
+				t.Fatalf("persisted run = %+v, want failed run with detail %q", persisted, run.StatusDetail)
+			}
+		})
+	}
+}
+
+func TestStartProvisioningFailureWithoutSkewKeepsOriginalDetail(t *testing.T) {
+	ctx := context.Background()
+	for _, createErr := range []error{
+		errors.New("future-token: token is not valid yet"),
+		errors.New("ContainerExited: sandbox failed during provisioning"),
+	} {
+		t.Run(createErr.Error(), func(t *testing.T) {
+			fixture := newProvisioningClockFixture(t, createErr, 0)
+			run, err := fixture.app.Start(ctx, StartOptions{
+				Profile: fixture.profile.Name,
+				Source:  fixture.source,
+				Gateway: "openshell",
+				Image:   "profile",
+			})
+			if !errors.Is(err, createErr) {
+				t.Fatalf("error = %v, want %v", err, createErr)
+			}
+			if run.Status != StatusFailed || run.StatusDetail != createErr.Error() {
+				t.Fatalf("run = %+v, want failed run with original detail %q", run, createErr.Error())
+			}
+			if strings.Contains(strings.ToLower(run.StatusDetail), "clock") {
+				t.Fatalf("aligned-clock status detail unexpectedly mentions clock: %q", run.StatusDetail)
+			}
+		})
+	}
+}

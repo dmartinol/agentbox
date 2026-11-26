@@ -253,3 +253,56 @@ describe('doctor readability', () => {
     expect(screen.getByText('Fail')).toBeInTheDocument();
   });
 });
+
+describe('Podman clock readability', () => {
+  it('renders Podman clock skew and unavailable states with actionable details across widths', async () => {
+    const clockDetail = [
+      'Host UTC: 2026-11-26T12:00:00Z',
+      'VM UTC: 2026-11-26T11:59:33Z',
+      'Signed delta (host UTC - VM UTC): +27s',
+      'Remediation: Restart or resynchronize the Podman VM, then run `agentbox doctor`.'
+    ].join('\n');
+
+    for (const width of [390, 768, 1024]) {
+      const user = userEvent.setup();
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+        const url = input.toString();
+        if (url === '/api/settings') return response({ version: 1, worktrees: { root: '/trees', branch_prefix: 'agentbox/' } });
+        if (url === '/api/doctor') {
+          return response([
+            { name: 'podman VM clock', ok: false, state: 'fail', detail: clockDetail },
+            { name: 'gateway', ok: false, state: 'unavailable', detail: 'OpenShell status could not be read.' }
+          ]);
+        }
+        throw new Error(`unmocked request ${url}`);
+      }));
+
+      const { unmount } = render(
+        <div style={{ width: `${width}px` }}>
+          <AdvancedPanel />
+        </div>
+      );
+      expect(await screen.findByText('podman VM clock')).toBeInTheDocument();
+      expect(screen.getByText('Fail')).toBeInTheDocument();
+      expect(screen.getByText('Unavailable')).toBeInTheDocument();
+
+      const clock = screen.getByText('podman VM clock').closest('details');
+      if (!clock) throw new Error('clock check missing');
+      await user.click(screen.getByText('podman VM clock'));
+      const output = within(clock).getByText((_, element) => element?.tagName === 'PRE') as HTMLElement;
+      expect(output).toHaveClass('agentbox-output');
+      expect(output).toHaveTextContent('Host UTC: 2026-11-26T12:00:00Z');
+      expect(output).toHaveTextContent('VM UTC: 2026-11-26T11:59:33Z');
+      expect(output).toHaveTextContent('Signed delta (host UTC - VM UTC): +27s');
+      expect(output).toHaveTextContent('Remediation: Restart or resynchronize the Podman VM, then run `agentbox doctor`.');
+      expect(within(clock).getByRole('button', { name: 'Copy podman VM clock output' })).toBeInTheDocument();
+      expect(within(clock).getByText('Action: Restart or resynchronize the Podman VM, then run `agentbox doctor`.')).toBeInTheDocument();
+
+      const gateway = screen.getByText('gateway').closest('details');
+      if (!gateway) throw new Error('gateway check missing');
+      await user.click(screen.getByText('gateway'));
+      expect(within(gateway).getAllByText('OpenShell status could not be read.').length).toBeGreaterThan(0);
+      unmount();
+    }
+  });
+});

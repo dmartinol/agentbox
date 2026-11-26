@@ -236,6 +236,7 @@ export interface LocalMCPFiles {
 export interface Check {
   name: string;
   ok: boolean;
+  state?: 'ok' | 'fail' | 'unavailable';
   detail: string;
 }
 

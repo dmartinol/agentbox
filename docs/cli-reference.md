@@ -34,7 +34,7 @@ flag-based subcommands also accept `--help`.
 
 | Command | Purpose |
 | --- | --- |
-| [`version`, `doctor`, `gui`]({{ '/cli-reference/general/' | relative_url }}) | Build information, environment diagnosis, and the local web GUI. |
+| [`version`, `doctor`, `gui`]({{ '/cli-reference/general/' | relative_url }}) | Build information, environment diagnosis including host-to-Podman-VM clock skew, and the local web GUI. |
 | [`skills`]({{ '/cli-reference/skills/' | relative_url }}) | Install, update, and remove the embedded, version-matched AgentBox usage skills for host agents. |
 | [`orchestrator`]({{ '/cli-reference/orchestrator/' | relative_url }}) | Print, resolve, and validate the user-owned orchestration and worker registry. |
 | [`settings`]({{ '/cli-reference/settings/' | relative_url }}) | Worktree root and branch prefix defaults. |
