@@ -685,7 +685,7 @@ agentbox agent start --profile PROFILE --project PROJECT --source REVIEW_WORKTRE
   --approval unattended
 ```
 
-Record the same full SHA in each stage entry. Keep both worktrees until the verify and review evidence is captured and the final report is delivered; clean up afterwards unless the user asked to keep them.
+Record the same full SHA in each stage entry. An AgentBox run starts on an empty `AgentBox starting snapshot` commit with an identical tree, so the worker must compare `git rev-parse HEAD` with that SHA and detach to it before any gate; record the SHA actually checked, not only the requested one. Keep both worktrees until the verify and review evidence is captured and the final report is delivered; clean up afterwards unless the user asked to keep them.
 
 #### Fixer launch
 
