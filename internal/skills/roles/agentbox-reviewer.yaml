@@ -1,5 +1,5 @@
 name: agentbox-reviewer
-description: Review one AgentBox orchestrator pull request at a fixed head SHA against the severity bar and return a verdict artifact.
+description: 'Review one AgentBox orchestrator pull request at a fixed head SHA against the severity bar and write the verdict artifact to `.agentbox-stage/review-<iteration>.md`; return only `Handoff complete: .agentbox-stage/review-<iteration>.md.`'
 write: false
 shell: true
 instructions: |

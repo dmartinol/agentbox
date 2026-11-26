@@ -169,10 +169,15 @@ func RenderRole(role Role, harness, model, effort, version string) ([]byte, erro
 	}
 }
 
-// codexReadOnlyRule is rendered into the Codex developer instructions because
-// Codex agent files cannot narrow sandbox or approval capabilities. The install
-// output repeats the limitation instead of implying enforcement.
-const codexReadOnlyRule = "This role is read-only: do not create, edit, move, or delete files, except for the untracked `.agentbox-stage/<stage>-<iteration>.md` handoff explicitly named by your role instructions. Write that handoff only through the shell, confirm it is untracked, never stage it, and never create, edit, move, or delete any tracked repository file or any other file. Codex agent files cannot narrow sandbox or approval settings, so this restriction is instruction-only."
+// codexReadOnlyRule is rendered into the Codex developer instructions for
+// read-only roles that define no handoff. Codex agent files cannot narrow sandbox
+// or approval capabilities, so the install output states the limitation.
+const codexReadOnlyRule = "This role is read-only: do not create, edit, move, or delete any file, including tracked repository files. Codex agent files cannot narrow sandbox or approval settings, so this restriction is instruction-only."
+
+// codexReadOnlyHandoffRule is rendered for read-only roles whose instructions
+// define an untracked `.agentbox-stage/` handoff. The exception is scoped to
+// that one file because Codex cannot enforce read-only mode in an agent file.
+const codexReadOnlyHandoffRule = "This role is read-only: do not create, edit, move, or delete files, except for the untracked `.agentbox-stage/<stage>-<iteration>.md` handoff explicitly named by your role instructions. Write that handoff only through the shell, confirm it is untracked, never stage it, and never create, edit, move, or delete any tracked repository file or any other file. Codex agent files cannot narrow sandbox or approval settings, so this restriction is instruction-only."
 
 // codexNoShellRule is rendered into the Codex developer instructions because
 // Codex agent files cannot remove shell access. Triage and retro use it so they
@@ -196,7 +201,11 @@ func renderCodexRole(role Role, model, effort, version string) []byte {
 	}
 	instructions := role.Instructions
 	if !role.Write {
-		instructions = strings.TrimRight(instructions, "\n") + "\n\n" + codexReadOnlyRule + "\n"
+		rule := codexReadOnlyRule
+		if role.DefinesHandoff() {
+			rule = codexReadOnlyHandoffRule
+		}
+		instructions = strings.TrimRight(instructions, "\n") + "\n\n" + rule + "\n"
 	}
 	if !role.Shell {
 		instructions = strings.TrimRight(instructions, "\n") + "\n\n" + codexNoShellRule + "\n"
@@ -207,6 +216,13 @@ func renderCodexRole(role Role, model, effort, version string) []byte {
 	writeTOMLString(&b, "developer_instructions", instructions)
 	b.WriteString("# agentbox-role: " + effectiveVersion(version) + "\n")
 	return []byte(b.String())
+}
+
+// DefinesHandoff reports whether the role instructions define an untracked
+// `.agentbox-stage/` handoff. Only those roles receive the scoped read-only
+// exception; triage, retro, and the orchestrator define no handoff.
+func (r Role) DefinesHandoff() bool {
+	return strings.Contains(r.Instructions, ".agentbox-stage/")
 }
 
 // writeTOMLString writes one TOML basic string. Newlines are escaped, so the

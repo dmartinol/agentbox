@@ -46,7 +46,7 @@ definition:
 | `agentbox-reviewer` | review | no | yes | Delta-scoped review from task-spec inputs, including `.agentbox-stage/context/pr-body.md` with its `body_sha256`, written to `.agentbox-stage/review-<iteration>.md`; returns only `Handoff complete: .agentbox-stage/review-<iteration>.md.`. |
 | `agentbox-retro` | retro | no | no | Tracker-blind, post-terminal workflow record review; returns zero or more evidence-backed follow-up issue drafts. |
 
-The five handoff roles take materialized input paths from their task spec, write only their untracked `.agentbox-stage/<stage>-<iteration>.md` handoff, and return only `Handoff complete: <path>.`. Planner, verifier, and reviewer are read-only: Claude omits `Edit` and `Write`, OpenCode denies `edit`, and both retain shell so the role writes its handoff through the shell. Codex cannot enforce read-only mode in an agent file, so its instruction rule allows only that explicitly named untracked handoff and still forbids tracked repository edits. Implementer and fixer remain writable. Triage and retro return complete bodies because they are shell-less and tracker-blind.
+The five handoff roles take materialized input paths from their task spec, write only their untracked `.agentbox-stage/<stage>-<iteration>.md` handoff, and return only `Handoff complete: <path>.`. Planner, verifier, and reviewer are read-only: Claude omits `Edit` and `Write`, OpenCode denies `edit`, and both retain shell so the role writes its handoff through the shell. Codex cannot enforce read-only mode in an agent file, so its instruction rule for those handoff roles allows only that explicitly named untracked handoff and still forbids tracked repository edits; read-only roles that define no handoff, such as triage, retro, and the orchestrator, render a read-only rule with no file-write exception. Implementer and fixer remain writable. Triage and retro return complete bodies because they are shell-less and tracker-blind.
 The orchestrator controller is installed too, but it is not a stage. It keeps
 a shell and child-agent dispatch and no source-edit tools, so it can run
 tracker and forge commands and launch the stage roles without implementing
@@ -240,7 +240,7 @@ the `edit` action for OpenCode. A role with `shell: false` also omits `Bash`
 from the Claude `tools` list and denies the `shell` action for OpenCode. Codex
 cannot narrow write, shell, or subagent capabilities in an agent file, so the
 rules are rendered as instruction text and the result says so; do not read them
-as enforcement. The controller role keeps `Agent` in Claude and `subagent` in
+as enforcement. For Codex, `shell: false` and `write: false` are instruction-only; a Codex agent file cannot narrow sandbox or approval settings, and the supplied packet — the tracker-blind snapshot for triage and retro, with no forge egress — is the enforcement point. The controller role keeps `Agent` in Claude and `subagent` in
 OpenCode; Claude omits `Agent` from stage roles and OpenCode denies
 `subagent` for them. Codex cannot narrow that capability, so a Codex stage
 role retains subagent tools. The controller renders as an OpenCode primary

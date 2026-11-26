@@ -37,7 +37,8 @@ State the basis on the face of the verdict, not only in the footer:
 
 ## Evidence at commit
 
-- Reviewed commit: `<full-sha>`
+- Reviewed commit (actual HEAD): `<full-sha actually checked>`
+- Exact head: `git rev-parse HEAD` equals `<full-sha actually checked>`.
 - Reviewed range: `base..<full-sha>` for cycle 1, `prev_head..<full-sha>` for later cycles.
 - Head check: `git diff <reviewed-sha>..HEAD --stat` is empty.
 - Gates observed: `<command>` — result.

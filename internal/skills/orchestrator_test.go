@@ -879,9 +879,12 @@ func TestOrchestratorSkillMaterializesStageInputs(t *testing.T) {
 		"stop a legacy review stage entry without `review_content_sha256` with `pr-merge: review stage entry is missing review_content_sha256; rerun review to upgrade the digest contract`",
 		"`.agentbox-stage/context/` is untracked and stays out of a run's starting snapshot (#147), as the stage-snapshot contract requires",
 		"Pinned inputs are copied exact bytes and recorded with `sha256`",
+		"openshell sandbox upload",
 		"Never materialize a secret value, token file, or environment dump",
 		"Before dispatching plan, inline or copy the normalized issue body and triage disposition into the plan worktree",
 		"A re-rendered spec materializes its inputs the same way before dispatch and never points back at an old host path",
+		"Path-list parity",
+		"git diff --name-only <base>..HEAD",
 	)
 }
 
