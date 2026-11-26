@@ -110,8 +110,8 @@ agentbox agent show [--json] ID
 
 Inspects the sandbox before printing, so the status and detail reflect the
 current state. The JSON record includes `status`, `status_detail`, and the
-derived `sync_state` (`no_changes`, `up_to_date`, `needs_sync`, `blocked`, or
-`unknown`).
+derived `sync_state` (`no_changes`, `up_to_date`, `needs_sync`, `blocked`,
+`wrong_checkout`, or `unknown`).
 
 ## attach
 {: #agent-attach }
@@ -246,7 +246,16 @@ agentbox agent sync ID
 
 Copies the run's committed branch, uncommitted changes, and untracked files
 from the sandbox back into the local worktree. Sync refuses to overwrite a
-worktree that changed since the last sync.
+worktree that changed since the last sync. The sandbox `HEAD` must equal the
+tip of the run branch by commit SHA; a detached `HEAD` at that exact commit is
+allowed. If the sandbox is on another branch or a detached `HEAD` at another
+commit, sync exits non-zero without changing the host worktree or run sync
+metadata. Move the intended commit onto the run branch, for example with
+`git switch RUN_BRANCH` followed by `git cherry-pick SANDBOX_HEAD`, then retry
+the command.
+
+On success, the run record's `last_synced` field contains the transferred
+commit SHA.
 
 ## diff
 {: #agent-diff }

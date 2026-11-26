@@ -284,7 +284,7 @@ func TestDeleteRetainsRunArtifactsWhenSandboxDeleteFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	artifactPaths := seedRunArtifacts(t, app.Store, run.ID)
-	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, run.Worktree))
+	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, run.Worktree, run.Branch))
 	base := runner.output
 	runner.output = func(call recordedCommand) ([]byte, error) {
 		if call.name == "openshell" && containsCommand(call.args, "sandbox", "delete") {
@@ -423,7 +423,7 @@ func TestDeleteRefusesUnsyncedRun(t *testing.T) {
 	if err := app.Store.SaveRun(run); err != nil {
 		t.Fatal(err)
 	}
-	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, sandbox))
+	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, sandbox, run.Branch))
 	app.Runner = runner
 	err = app.Delete(ctx, run.ID, false)
 	if err == nil || !strings.Contains(err.Error(), "unsynced") {
@@ -458,7 +458,7 @@ func TestDeleteRefusesReviewChanges(t *testing.T) {
 	if err := app.Store.SaveRun(run); err != nil {
 		t.Fatal(err)
 	}
-	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, run.Worktree))
+	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, run.Worktree, run.Branch))
 	app.Runner = runner
 	err := app.Delete(context.Background(), run.ID, false)
 	if err == nil || !strings.Contains(err.Error(), "review changes") {

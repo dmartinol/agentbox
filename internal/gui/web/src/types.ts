@@ -9,7 +9,7 @@ export type RunStatus =
   | 'completed'
   | 'exited';
 
-export type SyncState = 'no_changes' | 'up_to_date' | 'needs_sync' | 'blocked' | 'unknown';
+export type SyncState = 'no_changes' | 'up_to_date' | 'needs_sync' | 'blocked' | 'wrong_checkout' | 'unknown';
 
 export interface Run {
   id: string;

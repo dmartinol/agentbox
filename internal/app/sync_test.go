@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -98,6 +99,16 @@ func createAgentExportWithRepo(t *testing.T, run Run, root string) (map[string]s
 
 func newSyncRunner(t *testing.T, artifacts map[string]string) *fakeRunner {
 	t.Helper()
+	defaultHead := strings.Repeat("0", 40)
+	return newSyncRunnerWithCheckout(t, artifacts, sandboxCheckout{
+		Head:          defaultHead,
+		CurrentBranch: "run-branch",
+		BranchTip:     defaultHead,
+	})
+}
+
+func newSyncRunnerWithCheckout(t *testing.T, artifacts map[string]string, checkout sandboxCheckout) *fakeRunner {
+	t.Helper()
 	runner := &fakeRunner{}
 	runner.output = func(call recordedCommand) ([]byte, error) {
 		if call.name == "git" {
@@ -112,6 +123,9 @@ func newSyncRunner(t *testing.T, artifacts map[string]string) *fakeRunner {
 		}
 		if strings.Contains(joined, "tmux has-session -t agent") {
 			return []byte("session=1\ndead=0\ncommand=codex\nactivity={\"state\":\"working\"}\n"), nil
+		}
+		if containsCommand(call.args, "/bin/sh", "-c") && strings.Contains(joined, "/workspace/export.bundle") {
+			return []byte(checkout.Head + "\n" + checkout.CurrentBranch + "\n" + checkout.BranchTip + "\n"), nil
 		}
 		for index, arg := range call.args {
 			if arg != "download" || index+3 >= len(call.args) {
@@ -159,9 +173,9 @@ func cloneSandboxRepo(t *testing.T, run Run) string {
 	return sandbox
 }
 
-func sandboxProbeJSON(t *testing.T, dir string) string {
+func sandboxProbeJSON(t *testing.T, dir, branch string) string {
 	t.Helper()
-	snapshot, err := collectSnapshotDir(context.Background(), OSRunner{}, dir)
+	snapshot, err := collectSnapshotDir(context.Background(), OSRunner{}, dir, branch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,16 +186,16 @@ func sandboxProbeJSON(t *testing.T, dir string) string {
 	return string(body)
 }
 
-func sandboxSnapshotFingerprint(t *testing.T, dir string) string {
+func sandboxSnapshotFingerprint(t *testing.T, dir, branch string) string {
 	t.Helper()
-	snapshot, err := collectSnapshotDir(context.Background(), OSRunner{}, dir)
+	snapshot, err := collectSnapshotDir(context.Background(), OSRunner{}, dir, branch)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return snapshot.Fingerprint()
 }
 
-func newSandboxStateRunner(t *testing.T, sandbox string) *fakeRunner {
+func newSandboxStateRunner(t *testing.T, sandbox, branch string) *fakeRunner {
 	t.Helper()
 	runner := &fakeRunner{}
 	runner.output = func(call recordedCommand) ([]byte, error) {
@@ -199,7 +213,7 @@ func newSandboxStateRunner(t *testing.T, sandbox string) *fakeRunner {
 			return []byte("session=1\ndead=0\ncommand=sh\n"), nil
 		}
 		if containsCommand(call.args, "node", "-e") {
-			return []byte(sandboxProbeJSON(t, sandbox)), nil
+			return []byte(sandboxProbeJSON(t, sandbox, branch)), nil
 		}
 		return nil, nil
 	}
@@ -210,7 +224,7 @@ func newSyncStateFixture(t *testing.T) (*App, Run, string, *fakeRunner) {
 	t.Helper()
 	app, run, _ := createSyncFixture(t)
 	sandbox := cloneSandboxRepo(t, run)
-	runner := newSandboxStateRunner(t, sandbox)
+	runner := newSandboxStateRunner(t, sandbox, run.Branch)
 	app.Runner = runner
 	run.Status = StatusWorking
 	if err := app.Store.SaveRun(run); err != nil {
@@ -226,6 +240,194 @@ func getRunWithState(t *testing.T, app *App, id string) Run {
 		t.Fatal(err)
 	}
 	return run
+}
+
+func TestSyncRecordsTransferredCommitAndTree(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	artifacts, sandbox := createAgentExportWithRepo(t, run, t.TempDir())
+	sandboxCommit := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", "refs/heads/"+run.Branch))
+	sandboxTree := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", sandboxCommit+"^{tree}"))
+	runner := newSyncRunnerWithCheckout(t, artifacts, sandboxCheckout{
+		Head:          sandboxCommit,
+		CurrentBranch: run.Branch,
+		BranchTip:     sandboxCommit,
+	})
+	probe := sandboxProbeJSON(t, sandbox, run.Branch)
+	base := runner.output
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && containsCommand(call.args, "node", "-e") {
+			return []byte(probe), nil
+		}
+		return base(call)
+	}
+	app.Runner = runner
+	if err := app.Sync(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := app.Store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostCommit := strings.TrimSpace(cmd(t, run.Worktree, "git", "rev-parse", "HEAD"))
+	hostTree := strings.TrimSpace(cmd(t, run.Worktree, "git", "rev-parse", "HEAD^{tree}"))
+	if stored.LastSynced != sandboxCommit || hostCommit != sandboxCommit {
+		t.Fatalf("transferred commit mismatch: last_synced=%s host=%s sandbox=%s", stored.LastSynced, hostCommit, sandboxCommit)
+	}
+	if hostTree != sandboxTree {
+		t.Fatalf("transferred tree mismatch: host=%s sandbox=%s", hostTree, sandboxTree)
+	}
+	if updated := getRunWithState(t, &app, run.ID); updated.SyncState != SyncStateUpToDate {
+		t.Fatalf("sync state after successful transfer = %q; want %q", updated.SyncState, SyncStateUpToDate)
+	}
+}
+
+func assertSyncRefusalPreservedState(t *testing.T, app App, run Run, runner *fakeRunner, before Run, beforeHead, beforeStatus string) {
+	t.Helper()
+	after, err := app.Store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("refused sync changed run record: before=%+v after=%+v", before, after)
+	}
+	hostHead := strings.TrimSpace(cmd(t, run.Worktree, "git", "rev-parse", "HEAD"))
+	hostStatus := cmd(t, run.Worktree, "git", "status", "--short")
+	if hostHead != beforeHead || hostStatus != beforeStatus {
+		t.Fatalf("refused sync changed host worktree: head=%s status=%q; want head=%s status=%q", hostHead, hostStatus, beforeHead, beforeStatus)
+	}
+	for _, path := range []string{
+		runArtifactPath(app.Store, run.ID, runArtifactMirrorPatch),
+		runArtifactPath(app.Store, run.ID, runArtifactMirrorTar),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("refused sync changed mirror artifact %s: %v", path, err)
+		}
+	}
+	for _, call := range runner.outputs {
+		if containsCommand(call.args, "sandbox", "download") {
+			t.Fatalf("refused sync downloaded an export: %#v", call)
+		}
+		if call.name != "git" {
+			continue
+		}
+		for _, mutation := range []string{"fetch", "merge", "apply"} {
+			for _, arg := range call.args {
+				if arg == mutation {
+					t.Fatalf("refused sync mutated the host with git %s: %#v", mutation, call)
+				}
+			}
+		}
+	}
+}
+
+func TestSyncRefusesSideBranchCheckoutBeforeHostTransfer(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	_, sandbox := createAgentExportWithRepo(t, run, t.TempDir())
+	branchTip := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", "refs/heads/"+run.Branch))
+	sideBranch := "agent/side-work"
+	cmd(t, sandbox, "git", "switch", "-q", "-c", sideBranch)
+	if err := os.WriteFile(filepath.Join(sandbox, "side.txt"), []byte("side branch work\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd(t, sandbox, "git", "add", "side.txt")
+	cmd(t, sandbox, "git", "commit", "-qm", "side branch work")
+	sideHead := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", "HEAD"))
+	run.Synced = false
+	run.SyncedSandboxFingerprint = ""
+	run.LastSuccessfulSyncAt = time.Time{}
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	before, err := app.Store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeHead := strings.TrimSpace(cmd(t, run.Worktree, "git", "rev-parse", "HEAD"))
+	beforeStatus := cmd(t, run.Worktree, "git", "status", "--short")
+	runner := newSyncRunnerWithCheckout(t, nil, sandboxCheckout{
+		Head:          sideHead,
+		CurrentBranch: sideBranch,
+		BranchTip:     branchTip,
+	})
+	app.Runner = runner
+	err = app.Sync(context.Background(), run.ID)
+	want := fmt.Sprintf("refusing sync: sandbox checkout %q is at %s, but run branch %q is at %s; move the intended commit onto %q in the sandbox (for example: git switch %q && git cherry-pick %s), then retry agentbox agent sync %s", sideBranch, sideHead, run.Branch, branchTip, run.Branch, run.Branch, sideHead, run.ID)
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("side-branch refusal mismatch: got %v; want %q", err, want)
+	}
+	assertSyncRefusalPreservedState(t, app, run, runner, before, beforeHead, beforeStatus)
+}
+
+func TestSyncRefusesDetachedHeadBeforeHostTransfer(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	_, sandbox := createAgentExportWithRepo(t, run, t.TempDir())
+	branchTip := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", "refs/heads/"+run.Branch))
+	cmd(t, sandbox, "git", "switch", "-q", "--detach", "HEAD")
+	if err := os.WriteFile(filepath.Join(sandbox, "detached.txt"), []byte("detached work\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd(t, sandbox, "git", "add", "detached.txt")
+	cmd(t, sandbox, "git", "commit", "-qm", "detached work")
+	detachedHead := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", "HEAD"))
+	run.Synced = false
+	run.SyncedSandboxFingerprint = ""
+	run.LastSuccessfulSyncAt = time.Time{}
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	before, err := app.Store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeHead := strings.TrimSpace(cmd(t, run.Worktree, "git", "rev-parse", "HEAD"))
+	beforeStatus := cmd(t, run.Worktree, "git", "status", "--short")
+	runner := newSyncRunnerWithCheckout(t, nil, sandboxCheckout{
+		Head:      detachedHead,
+		BranchTip: branchTip,
+	})
+	app.Runner = runner
+	err = app.Sync(context.Background(), run.ID)
+	want := fmt.Sprintf("refusing sync: sandbox checkout %q is at %s, but run branch %q is at %s; move the intended commit onto %q in the sandbox (for example: git switch %q && git cherry-pick %s), then retry agentbox agent sync %s", "detached HEAD", detachedHead, run.Branch, branchTip, run.Branch, run.Branch, detachedHead, run.ID)
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("detached-head refusal mismatch: got %v; want %q", err, want)
+	}
+	assertSyncRefusalPreservedState(t, app, run, runner, before, beforeHead, beforeStatus)
+}
+
+func TestSyncAllowsDetachedHeadAtRunBranchTip(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	artifacts, sandbox := createAgentExportWithRepo(t, run, t.TempDir())
+	sandboxCommit := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", "refs/heads/"+run.Branch))
+	sandboxTree := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", sandboxCommit+"^{tree}"))
+	cmd(t, sandbox, "git", "switch", "-q", "--detach", "HEAD")
+	runner := newSyncRunnerWithCheckout(t, artifacts, sandboxCheckout{
+		Head:      sandboxCommit,
+		BranchTip: sandboxCommit,
+	})
+	probe := sandboxProbeJSON(t, sandbox, run.Branch)
+	base := runner.output
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && containsCommand(call.args, "node", "-e") {
+			return []byte(probe), nil
+		}
+		return base(call)
+	}
+	app.Runner = runner
+	if err := app.Sync(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := app.Store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostCommit := strings.TrimSpace(cmd(t, run.Worktree, "git", "rev-parse", "HEAD"))
+	hostTree := strings.TrimSpace(cmd(t, run.Worktree, "git", "rev-parse", "HEAD^{tree}"))
+	if stored.LastSynced != sandboxCommit || hostCommit != sandboxCommit {
+		t.Fatalf("detached-at-tip commit mismatch: last_synced=%s host=%s sandbox=%s", stored.LastSynced, hostCommit, sandboxCommit)
+	}
+	if hostTree != sandboxTree {
+		t.Fatalf("detached-at-tip tree mismatch: host=%s sandbox=%s", hostTree, sandboxTree)
+	}
 }
 
 func TestSyncTransfersCommitAndUncommittedFilesToRunWorktree(t *testing.T) {
@@ -259,7 +461,7 @@ func TestSyncTransfersCommitAndUncommittedFilesToRunWorktree(t *testing.T) {
 func TestSyncRetainsMirrorArtifactsForReapply(t *testing.T) {
 	app, run, _ := createSyncFixture(t)
 	artifacts, sandbox := createAgentExportWithRepo(t, run, t.TempDir())
-	app.Runner = newSyncRunnerWithProbe(t, artifacts, sandboxProbeJSON(t, sandbox))
+	app.Runner = newSyncRunnerWithProbe(t, artifacts, sandboxProbeJSON(t, sandbox, run.Branch))
 	if err := app.Sync(context.Background(), run.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -368,7 +570,7 @@ func TestValidateTarRejectsEscapingSymlinks(t *testing.T) {
 func TestSyncRecordsSuccessfulSnapshotMetadata(t *testing.T) {
 	app, run, _ := createSyncFixture(t)
 	artifacts, sandbox := createAgentExportWithRepo(t, run, t.TempDir())
-	app.Runner = newSyncRunnerWithProbe(t, artifacts, sandboxProbeJSON(t, sandbox))
+	app.Runner = newSyncRunnerWithProbe(t, artifacts, sandboxProbeJSON(t, sandbox, run.Branch))
 	if err := app.Sync(context.Background(), run.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +590,7 @@ func TestSyncRecordsSuccessfulSnapshotMetadata(t *testing.T) {
 	if stored.Fingerprint == "" {
 		t.Fatal("host safety fingerprint was not recorded")
 	}
-	snapshot, err := collectSnapshotDir(context.Background(), OSRunner{}, sandbox)
+	snapshot, err := collectSnapshotDir(context.Background(), OSRunner{}, sandbox, run.Branch)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +606,7 @@ func TestSyncRecordsSuccessfulSnapshotMetadata(t *testing.T) {
 func TestFailedSyncPreservesSuccessfulSnapshotMetadata(t *testing.T) {
 	app, run, _ := createSyncFixture(t)
 	artifacts, sandbox := createAgentExportWithRepo(t, run, t.TempDir())
-	app.Runner = newSyncRunnerWithProbe(t, artifacts, sandboxProbeJSON(t, sandbox))
+	app.Runner = newSyncRunnerWithProbe(t, artifacts, sandboxProbeJSON(t, sandbox, run.Branch))
 	if err := app.Sync(context.Background(), run.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -436,11 +638,11 @@ func TestSyncStateCoversCleanDirtyConflictAndUnavailable(t *testing.T) {
 		t.Fatalf("clean new run unexpectedly has sync metadata: %+v", clean)
 	}
 
-	before := sandboxSnapshotFingerprint(t, sandbox)
+	before := sandboxSnapshotFingerprint(t, sandbox, run.Branch)
 	if err := os.WriteFile(filepath.Join(sandbox, "tracked.txt"), []byte("first edit\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	first := sandboxSnapshotFingerprint(t, sandbox)
+	first := sandboxSnapshotFingerprint(t, sandbox, run.Branch)
 	if first == before {
 		t.Fatal("tracked edit did not change the snapshot fingerprint")
 	}
@@ -451,7 +653,7 @@ func TestSyncStateCoversCleanDirtyConflictAndUnavailable(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sandbox, "tracked.txt"), []byte("second edit\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	second := sandboxSnapshotFingerprint(t, sandbox)
+	second := sandboxSnapshotFingerprint(t, sandbox, run.Branch)
 	if second == first {
 		t.Fatal("second edit to an already-dirty file did not change the fingerprint")
 	}
@@ -462,28 +664,28 @@ func TestSyncStateCoversCleanDirtyConflictAndUnavailable(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sandbox, "untracked.txt"), []byte("new file\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	untracked := sandboxSnapshotFingerprint(t, sandbox)
+	untracked := sandboxSnapshotFingerprint(t, sandbox, run.Branch)
 	if untracked == second {
 		t.Fatal("untracked add did not change the fingerprint")
 	}
 	if err := os.WriteFile(filepath.Join(sandbox, "untracked.txt"), []byte("edited file\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	editedUntracked := sandboxSnapshotFingerprint(t, sandbox)
+	editedUntracked := sandboxSnapshotFingerprint(t, sandbox, run.Branch)
 	if editedUntracked == untracked {
 		t.Fatal("untracked edit did not change the fingerprint")
 	}
 	if err := os.Remove(filepath.Join(sandbox, "untracked.txt")); err != nil {
 		t.Fatal(err)
 	}
-	removedUntracked := sandboxSnapshotFingerprint(t, sandbox)
+	removedUntracked := sandboxSnapshotFingerprint(t, sandbox, run.Branch)
 	if removedUntracked == editedUntracked {
 		t.Fatal("untracked remove did not change the fingerprint")
 	}
 
 	cmd(t, sandbox, "git", "add", "tracked.txt")
 	cmd(t, sandbox, "git", "commit", "-qm", "agent commit")
-	committed := sandboxSnapshotFingerprint(t, sandbox)
+	committed := sandboxSnapshotFingerprint(t, sandbox, run.Branch)
 	if committed == removedUntracked {
 		t.Fatal("new commit did not change the fingerprint")
 	}
@@ -507,6 +709,29 @@ func TestSyncStateCoversCleanDirtyConflictAndUnavailable(t *testing.T) {
 	}
 	if state := getRunWithState(t, app, run.ID).SyncState; state != SyncStateUnknown {
 		t.Fatalf("failed probe state = %q; want %q", state, SyncStateUnknown)
+	}
+}
+
+func TestSyncStateReportsWrongCheckout(t *testing.T) {
+	app, run, sandbox, _ := newSyncStateFixture(t)
+	run.Synced = false
+	run.SyncedSandboxFingerprint = ""
+	run.LastSuccessfulSyncAt = time.Time{}
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	cmd(t, sandbox, "git", "switch", "-q", "-c", "agent/wrong-checkout")
+	if err := os.WriteFile(filepath.Join(sandbox, "wrong-checkout.txt"), []byte("wrong checkout\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd(t, sandbox, "git", "add", "wrong-checkout.txt")
+	cmd(t, sandbox, "git", "commit", "-qm", "wrong checkout")
+	updated := getRunWithState(t, app, run.ID)
+	if updated.SyncState != SyncStateWrongCheckout {
+		t.Fatalf("wrong-checkout state = %q; want %q", updated.SyncState, SyncStateWrongCheckout)
+	}
+	if updated.SyncState.Label() != "Wrong checkout" {
+		t.Fatalf("wrong-checkout label = %q", updated.SyncState.Label())
 	}
 }
 

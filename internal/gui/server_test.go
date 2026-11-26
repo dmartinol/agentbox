@@ -1121,6 +1121,8 @@ func (r stopSyncRunner) Output(ctx context.Context, name string, args ...string)
 	switch {
 	case name == "git" && containsCommand(args, "rev-parse", "HEAD"):
 		return []byte(r.head + "\n"), nil
+	case name == "openshell" && containsCommand(args, "/bin/sh", "-c") && strings.Contains(strings.Join(args, " "), "/workspace/export.bundle"):
+		return []byte(r.head + "\nrun-branch\n" + r.head + "\n"), nil
 	case name == "git":
 		return []byte{}, nil
 	case name == "openshell" && containsCommand(args, "sandbox", "download"):

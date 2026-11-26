@@ -60,6 +60,61 @@ func (a *App) upload(ctx context.Context, r Run, local, remote string) error {
 	return err
 }
 
+type sandboxCheckout struct {
+	Head          string
+	CurrentBranch string
+	BranchTip     string
+}
+
+func parseSandboxCheckout(output []byte) (sandboxCheckout, error) {
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) != 3 {
+		return sandboxCheckout{}, fmt.Errorf("sandbox checkout probe returned %d lines; want 3", len(lines))
+	}
+	checkout := sandboxCheckout{
+		Head:          strings.TrimSpace(lines[0]),
+		CurrentBranch: strings.TrimSpace(lines[1]),
+		BranchTip:     strings.TrimSpace(lines[2]),
+	}
+	if checkout.Head == "" || checkout.BranchTip == "" {
+		return sandboxCheckout{}, fmt.Errorf("sandbox checkout probe returned no commit")
+	}
+	return checkout, nil
+}
+
+func requireSandboxHeadAtRunBranchTip(checkout sandboxCheckout, branch, runID string) error {
+	if checkout.Head == checkout.BranchTip {
+		return nil
+	}
+	checkoutName := checkout.CurrentBranch
+	if checkoutName == "" {
+		checkoutName = "detached HEAD"
+	}
+	return fmt.Errorf(
+		"refusing sync: sandbox checkout %q is at %s, but run branch %q is at %s; move the intended commit onto %q in the sandbox (for example: git switch %q && git cherry-pick %s), then retry agentbox agent sync %s",
+		checkoutName,
+		checkout.Head,
+		branch,
+		checkout.BranchTip,
+		branch,
+		branch,
+		checkout.Head,
+		runID,
+	)
+}
+
+func sandboxExportScript(branch string) string {
+	return "set -eu; " +
+		"sandbox_head=$(git -C /workspace/project rev-parse HEAD); " +
+		"sandbox_branch=$(git -C /workspace/project symbolic-ref --quiet --short HEAD ||:); " +
+		"branch_tip=$(git -C /workspace/project rev-parse --verify " + shellQuote("refs/heads/"+branch) + "); " +
+		"printf '%s\\n%s\\n%s\\n' \"$sandbox_head\" \"$sandbox_branch\" \"$branch_tip\"; " +
+		"git -C /workspace/project bundle create /workspace/export.bundle " + shellQuote(branch) + "; " +
+		"git -C /workspace/project diff HEAD --binary --full-index > /workspace/export.patch; " +
+		"git -C /workspace/project ls-files --others --exclude-standard -z > /workspace/export.list; " +
+		"tar -C /workspace/project --null -T /workspace/export.list -cf /workspace/export.tar"
+}
+
 func (a *App) Sync(ctx context.Context, id string) (err error) {
 	r, err := a.Store.LoadRun(id)
 	if err != nil {
@@ -73,13 +128,23 @@ func (a *App) Sync(ctx context.Context, id string) (err error) {
 	if fp != r.Fingerprint {
 		return fmt.Errorf("local run worktree changed since the last sync; refusing to overwrite it")
 	}
+	probeOutput, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", sandboxExportScript(r.Branch))
+	if err != nil {
+		return err
+	}
+	checkout, err := parseSandboxCheckout(probeOutput)
+	if err != nil {
+		return fmt.Errorf("sandbox checkout probe was unreadable: %w", err)
+	}
+	if err := requireSandboxHeadAtRunBranchTip(checkout, r.Branch, id); err != nil {
+		return err
+	}
 	stage, err := os.MkdirTemp(a.Store.RunsDir(), id+"-sync-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(stage)
-	remote := "set -eu; git -C /workspace/project bundle create /workspace/export.bundle " + shellQuote(r.Branch) + "; git -C /workspace/project diff HEAD --binary --full-index > /workspace/export.patch; git -C /workspace/project ls-files --others --exclude-standard -z > /workspace/export.list; tar -C /workspace/project --null -T /workspace/export.list -cf /workspace/export.tar"
-	if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", remote); err != nil {
+	if _, err := a.sandboxExec(ctx, r, "/bin/sh", "-c", sandboxExportScript(r.Branch)); err != nil {
 		return err
 	}
 	bundle := filepath.Join(stage, "export.bundle")
