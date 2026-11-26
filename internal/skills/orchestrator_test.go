@@ -302,8 +302,8 @@ func TestOrchestratorSkillAgentBoxVerifyAndReviewUsePRHead(t *testing.T) {
 		"HEAD_SHA=$(gh api repos/OWNER/REPO/pulls/PR --jq .head.sha)",
 		`git -C REPO worktree add --detach VERIFY_WORKTREE "$HEAD_SHA"`,
 		`git -C REPO worktree add --detach REVIEW_WORKTREE "$HEAD_SHA"`,
-		"agentbox agent start --profile PROFILE --project PROJECT --source VERIFY_WORKTREE --gateway GATEWAY",
-		"agentbox agent start --profile PROFILE --project PROJECT --source REVIEW_WORKTREE --gateway GATEWAY",
+		`agentbox agent start --profile PROFILE --project PROJECT --source VERIFY_WORKTREE --require-head "$HEAD_SHA" --gateway GATEWAY`,
+		`agentbox agent start --profile PROFILE --project PROJECT --source REVIEW_WORKTREE --require-head "$HEAD_SHA" --gateway GATEWAY`,
 		"Record the same full SHA in each stage entry",
 		"Keep both worktrees until the verify and review evidence is captured and the final report is delivered",
 		"clean up afterwards unless the user asked to keep them",
@@ -1423,7 +1423,7 @@ func TestOrchestratorSkillFixerRecipeStartsAtPRHead(t *testing.T) {
 		"`agentbox agent start --project PROJECT` alone checks out the registered project's current branch",
 		"would silently lose the implementation",
 		`git -C REPO worktree add --detach FIX_WORKTREE "$HEAD_SHA"`,
-		"agentbox agent start --profile PROFILE --project PROJECT --source FIX_WORKTREE --gateway GATEWAY",
+		`agentbox agent start --profile PROFILE --project PROJECT --source FIX_WORKTREE --require-head "$HEAD_SHA" --gateway GATEWAY`,
 	)
 }
 

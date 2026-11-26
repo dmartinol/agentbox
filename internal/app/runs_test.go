@@ -737,8 +737,12 @@ func TestListAndReconcileAttemptsSyncWhenCompletedMarkerExists(t *testing.T) {
 
 func TestStartReportsMissingProfileAndPolicy(t *testing.T) {
 	ctx := context.Background()
+	source := t.TempDir()
 	store := Store{Base: t.TempDir()}
 	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if call.name == "git" && commandHasArg(call, "--show-toplevel") {
+			return []byte(source), nil
+		}
 		if call.name == "openshell" && len(call.args) > 0 && call.args[0] == "gateway" {
 			return []byte(`{"type":"podman"}`), nil
 		}
@@ -771,6 +775,161 @@ func TestStartReportsMissingProfileAndPolicy(t *testing.T) {
 	}
 	if _, err := app.Start(ctx, StartOptions{Profile: "mycodex", Gateway: "openshell"}); err == nil || !strings.Contains(err.Error(), "references missing legacy policy file") {
 		t.Fatalf("missing policy error = %v", err)
+	}
+}
+
+func TestStartRequiredHeadPreflight(t *testing.T) {
+	ctx := context.Background()
+	const sourceHead = "0123456789abcdef0123456789abcdef01234567"
+	const otherHead = "fedcba9876543210fedcba9876543210fedcba98"
+	source := filepath.Join(t.TempDir(), "source")
+	if err := os.MkdirAll(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name        string
+		requireHead *string
+		wantError   string
+	}{
+		{
+			name:        "match",
+			requireHead: stringPointer(strings.ToUpper(sourceHead)),
+		},
+		{
+			name:        "mismatch",
+			requireHead: stringPointer(otherHead),
+			wantError:   fmt.Sprintf("source HEAD %q does not match --require-head %q; dispatch from the checkout at the required commit", sourceHead, otherHead),
+		},
+		{
+			name:        "malformed SHA",
+			requireHead: stringPointer("not-a-full-sha"),
+			wantError:   fmt.Sprintf("--require-head requires a full 40-character commit SHA; required HEAD %q, source HEAD %q", "not-a-full-sha", sourceHead),
+		},
+		{
+			name:        "explicit empty SHA",
+			requireHead: stringPointer(""),
+			wantError:   fmt.Sprintf("--require-head requires a full 40-character commit SHA; required HEAD %q, source HEAD %q", "", sourceHead),
+		},
+		{
+			name: "omitted flag",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := Store{Base: t.TempDir()}
+			policy, err := store.CreatePolicyConfiguration("default")
+			if err != nil {
+				t.Fatal(err)
+			}
+			profile := testProfile("codex", "gateway", "prompted")
+			profile.Policy = policy.Path
+			if err := store.SaveProfile(profile); err != nil {
+				t.Fatal(err)
+			}
+			runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+				switch {
+				case call.name == "git" && commandHasArg(call, "--show-toplevel"):
+					return []byte(source), nil
+				case call.name == "git" && containsCommand(call.args, "rev-parse", "HEAD"):
+					return []byte(sourceHead + "\n"), nil
+				case call.name == "openshell" && containsCommand(call.args, "gateway", "info"):
+					return []byte(`{"type":"podman"}`), nil
+				case call.name == "openshell" && containsCommand(call.args, "provider", "list"):
+					return []byte(`{"providers":[{"name":"unit-provider","type":"gateway-bearer"}]}`), nil
+				case call.name == "podman":
+					return []byte(`{}`), nil
+				default:
+					return []byte(`{}`), nil
+				}
+			}}
+			application := App{Store: store, Runner: runner}
+			run, err := application.Start(ctx, StartOptions{
+				Profile:     profile.Name,
+				Source:      source,
+				Gateway:     "openshell",
+				Image:       "profile",
+				RequireHead: tc.requireHead,
+				Dry:         true,
+			})
+
+			if tc.wantError != "" {
+				if err == nil || err.Error() != tc.wantError {
+					t.Fatalf("error = %v, want %q", err, tc.wantError)
+				}
+				assertRequiredHeadFailure(t, runner, store)
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if run.Source != source {
+				t.Fatalf("run source = %q, want %q", run.Source, source)
+			}
+
+			headIndex := -1
+			externalIndex := len(runner.outputs)
+			for index, call := range runner.outputs {
+				if call.name == "git" && containsCommand(call.args, "rev-parse", "HEAD") {
+					headIndex = index
+				}
+				if call.name == "openshell" || call.name == "podman" {
+					if index < externalIndex {
+						externalIndex = index
+					}
+				}
+			}
+			if tc.requireHead == nil {
+				if headIndex != -1 {
+					t.Fatalf("omitted --require-head compared HEAD: %#v", runner.outputs[headIndex])
+				}
+				return
+			}
+			if headIndex == -1 {
+				t.Fatal("matching start did not read the source HEAD")
+			}
+			if headIndex > externalIndex {
+				t.Fatalf("HEAD check at %d did not precede the first OpenShell or Podman command at %d", headIndex, externalIndex)
+			}
+		})
+	}
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
+
+func assertRequiredHeadFailure(t *testing.T, runner *fakeRunner, store Store) {
+	t.Helper()
+	if len(runner.outputs) != 2 {
+		t.Fatalf("rejected start command log = %#v", runner.outputs)
+	}
+	for _, call := range runner.outputs {
+		if call.name != "git" {
+			t.Fatalf("rejected start issued a non-Git command: %#v", call)
+		}
+		if containsCommand(call.args, "worktree", "add") || commandHasArg(call, "bundle") {
+			t.Fatalf("rejected start issued a mutating Git command: %#v", call)
+		}
+	}
+	if !commandHasArg(runner.outputs[0], "--show-toplevel") || !containsCommand(runner.outputs[1].args, "rev-parse", "HEAD") {
+		t.Fatalf("rejected start did not issue only the read-only Git preflight: %#v", runner.outputs)
+	}
+	if len(runner.streams) != 0 {
+		t.Fatalf("rejected start streamed commands: %#v", runner.streams)
+	}
+	entries, err := os.ReadDir(store.WorktreesDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("rejected start created worktrees: %#v", entries)
+	}
+	runs, err := store.ListRuns()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("rejected start created run records: %#v", runs)
 	}
 }
 
@@ -847,6 +1006,7 @@ func TestStartEnforcesProviderKindProfileModeInvariant(t *testing.T) {
 
 func TestStartRejectsUnknownProviderKindBeforeRunSideEffects(t *testing.T) {
 	ctx := context.Background()
+	source := t.TempDir()
 	store := Store{Base: t.TempDir()}
 	profile := Profile{
 		Version: 1, Name: "unit-profile", Agent: "codex",
@@ -860,6 +1020,9 @@ func TestStartRejectsUnknownProviderKindBeforeRunSideEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		if call.name == "git" && commandHasArg(call, "--show-toplevel") {
+			return []byte(source), nil
+		}
 		if call.name == "openshell" && len(call.args) > 0 && call.args[0] == "gateway" {
 			return []byte(`{"type":"podman"}`), nil
 		}
@@ -883,7 +1046,10 @@ func assertNoStartSideEffects(t *testing.T, runner *fakeRunner, store Store) {
 	t.Helper()
 	for _, call := range runner.outputs {
 		if call.name == "git" {
-			t.Fatalf("rejected start issued a git command: %#v", call)
+			if commandHasArg(call, "--show-toplevel") || containsCommand(call.args, "rev-parse", "HEAD") {
+				continue
+			}
+			t.Fatalf("rejected start issued a mutating Git command: %#v", call)
 		}
 		if call.name == "podman" {
 			t.Fatalf("rejected start issued a Podman command: %#v", call)

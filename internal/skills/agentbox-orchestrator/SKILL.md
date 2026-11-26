@@ -682,12 +682,12 @@ For verify and review, pin the checkout at the pull request head with `--source`
 ```sh
 HEAD_SHA=$(gh api repos/OWNER/REPO/pulls/PR --jq .head.sha)
 git -C REPO worktree add --detach VERIFY_WORKTREE "$HEAD_SHA"
-agentbox agent start --profile PROFILE --project PROJECT --source VERIFY_WORKTREE --gateway GATEWAY \
+agentbox agent start --profile PROFILE --project PROJECT --source VERIFY_WORKTREE --require-head "$HEAD_SHA" --gateway GATEWAY \
   --name ISSUE-verify --model MODEL --prompt "<full verify task spec>" \
   --approval unattended
 
 git -C REPO worktree add --detach REVIEW_WORKTREE "$HEAD_SHA"
-agentbox agent start --profile PROFILE --project PROJECT --source REVIEW_WORKTREE --gateway GATEWAY \
+agentbox agent start --profile PROFILE --project PROJECT --source REVIEW_WORKTREE --require-head "$HEAD_SHA" --gateway GATEWAY \
   --name ISSUE-review --model MODEL --prompt "<full review task spec>" \
   --approval unattended
 ```
@@ -701,7 +701,7 @@ A fixer starts at the current pull request head, not at the project checkout. `a
 ```sh
 HEAD_SHA=$(gh api repos/OWNER/REPO/pulls/PR --jq .head.sha)
 git -C REPO worktree add --detach FIX_WORKTREE "$HEAD_SHA"
-agentbox agent start --profile PROFILE --project PROJECT --source FIX_WORKTREE --gateway GATEWAY \
+agentbox agent start --profile PROFILE --project PROJECT --source FIX_WORKTREE --require-head "$HEAD_SHA" --gateway GATEWAY \
   --name ISSUE-fix --model MODEL --prompt "<full fix task spec>" \
   --approval unattended
 ```
