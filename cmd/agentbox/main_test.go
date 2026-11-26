@@ -758,7 +758,7 @@ func TestUsageListsOrchestratorCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output, "orchestrator config path|show|validate") {
+	if !strings.Contains(output, "orchestrator config path|show|validate · gate pr-body|pr-merge") {
 		t.Fatalf("usage is missing the orchestrator command: %s", output)
 	}
 }

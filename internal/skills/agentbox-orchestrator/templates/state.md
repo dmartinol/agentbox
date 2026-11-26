@@ -123,6 +123,10 @@ stages:
     worktree: <id>
     commit: <full-sha>
     pr: <number>
+    pr_body_path: orchestrator/<workflow-id>/review-<iteration>-pr-body.md
+    body_sha256: <64-lowercase-hex-characters>
+    headRefOid: <full-sha>
+    pr_updated_at: <RFC3339>
     artifact_path: orchestrator/<workflow-id>/review-1.md
     artifact_sha256: <64-lowercase-hex-characters>
     artifact: <comment-url>

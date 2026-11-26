@@ -132,7 +132,7 @@ func usage() {
 	fmt.Println("  mcp list|show|create|delete|servers")
 	fmt.Println("  skill list|show|create|delete|available")
 	fmt.Println("  skills install|update|remove|list|show|roles")
-	fmt.Println("  orchestrator config path|show|validate")
+	fmt.Println("  orchestrator config path|show|validate · gate pr-body|pr-merge")
 	fmt.Println("  agent start|list|show|attach|logs|denials|sleep|resume|finish|stop|sync|diff|delete|prune")
 	fmt.Println("  gui [--address host:port]")
 }

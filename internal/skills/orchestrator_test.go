@@ -867,6 +867,10 @@ func TestOrchestratorSkillMaterializesStageInputs(t *testing.T) {
 		"the worker never reads `$AGENTBOX_HOME`",
 		"A forge client, forge credential, or forge egress rule is never a stage-input mechanism",
 		"A pull-request body reaches the reviewer as a materialized file, owned by #151",
+		"Before dispatching review, fetch the posted pull request body, `headRefOid`, and `pr_updated_at` on the host through the tracker adapter, write the exact body bytes to `orchestrator/<workflow-id>/review-<iteration>-pr-body.md` under `$AGENTBOX_HOME`, compute its lowercase SHA-256 as `body_sha256`, and copy the exact bytes to `.agentbox-stage/context/pr-body.md` in the reviewer worktree.",
+		"The review stage entry records non-empty `pr_body_path`, `body_sha256`, `headRefOid`, and `pr_updated_at`, and the task spec names `.agentbox-stage/context/pr-body.md`; a host-only path or forge client is never the reviewer's body source.",
+		"Run the offline pre-review body gate against the durable canonical body and the normalized issue body before dispatch; a failure blocks dispatch with the exact field name.",
+		"On review resume, resolve `pr_body_path`, require non-empty bytes, recompute SHA-256, block on mismatch, and recreate `.agentbox-stage/context/pr-body.md` from the durable copy before re-rendering the task spec.",
 		"`.agentbox-stage/context/` is untracked and stays out of a run's starting snapshot (#147), as the stage-snapshot contract requires",
 		"Pinned inputs are copied exact bytes and recorded with `sha256`",
 		"Never materialize a secret value, token file, or environment dump",
@@ -958,9 +962,9 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 
 	headings := map[string][]string{
 		"issue.md":       {"## At a glance", "## Summary", "## Current behavior", "## Proposed design", "<summary>Design detail", "## Acceptance criteria", "## Test plan", "## Risks", "## Out of scope", "## Related"},
-		"pr.md":          {"## At a glance", "## What changed", "## Reviewer guide", "<summary>Full change list", "## Evidence", "**Independent checks**", "Closes #<issue>", "## AGENTS.md check", "## Risks", "## Follow-ups", "## Provenance"},
+		"pr.md":          {"## At a glance", "## What changed", "## Acceptance criteria", "## Reviewer guide", "<summary>Full change list", "## Evidence", "**Independent checks**", "Closes #<issue>", "## AGENTS.md check", "## Risks", "## Follow-ups", "## Provenance"},
 		"verdict.md":     {"## Verdict", "## Severity bar", "## Review scope", "## Independence", "## Findings", "## Evidence at commit", "## Required changes", "## Follow-ups", "## Provenance"},
-		"state.md":       {"<!-- orchestrator-state", "schema: 4", "workflow_id:", "configuration:", "selection_sources:", "selection_note:", "findings:", "review_cycles_max:", "tests_added:", "diff_stat:"},
+		"state.md":       {"<!-- orchestrator-state", "schema: 4", "workflow_id:", "configuration:", "selection_sources:", "selection_note:", "findings:", "review_cycles_max:", "tests_added:", "diff_stat:", "pr_body_path:", "body_sha256:", "headRefOid:", "pr_updated_at:"},
 		"plan.md":        {"## Plan at a glance", "<details>", "<summary>Full plan", "## Acceptance criteria", "## Implementation slices", "## Gate list", "## Task spec for the implementer", "## Risks", "## Out of scope", "## Provenance"},
 		"review-task.md": {"## Role", "## Scope", "## Severity bar", "## Checklist", "## Output", "## Provenance"},
 		"verify-task.md": {"## Role", "## Scope", "## Output", "## Provenance"},
@@ -1008,6 +1012,28 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 			"<!-- orchestrator-workflow: {",
 			footers[file],
 		)
+	}
+}
+
+func TestReviewerPRBodyInputStaysLocal(t *testing.T) {
+	reviewTask, err := EmbeddedFile("agentbox-orchestrator", "review-task.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewerRole, err := RoleYAML("agentbox-reviewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"review task":   string(reviewTask),
+		"reviewer role": string(reviewerRole),
+	} {
+		if !strings.Contains(body, ".agentbox-stage/context/pr-body.md") {
+			t.Fatalf("%s does not name the materialized PR body path", name)
+		}
+		if match := regexp.MustCompile(`(?i)\b(?:gh|credential|token)\b`).FindString(body); match != "" {
+			t.Fatalf("%s contains forbidden forge-client wording %q", name, match)
+		}
 	}
 }
 

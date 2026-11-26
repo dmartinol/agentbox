@@ -33,6 +33,10 @@ Closes #<issue>
 - **After:** the observable behavior now.
 - **Try it:** `exact command`, or a screenshot or GIF path.
 
+## Acceptance criteria
+
+- [ ] <issue acceptance criterion 1>
+
 ## Reviewer guide
 
 Read in this order. The full diff should only be needed for the last row.
