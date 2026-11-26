@@ -1268,12 +1268,20 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		prompt := f.String("prompt", "", "task prompt; empty opens interactive agent")
 		mcp := f.String("mcp", "", "MCP tools entry name (see `agentbox mcp`)")
 		skills := f.String("skills", "", "skills entry name (see `agentbox skill`)")
+		requireHead := f.String("require-head", "", "full source commit SHA required before run creation")
 		dry := f.Bool("dry-run", false, "preview")
 		jsonOut := f.Bool("json", false, "JSON output")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
-		r, err := a.Start(ctx, app.StartOptions{Profile: *profile, Project: *project, Name: *name, Source: *source, Gateway: *gateway, Image: *image, Model: *model, Approval: *approval, Prompt: *prompt, MCP: *mcp, Skills: *skills, Dry: *dry})
+		var requiredHead *string
+		f.Visit(func(visited *flag.Flag) {
+			if visited.Name == "require-head" {
+				supplied := *requireHead
+				requiredHead = &supplied
+			}
+		})
+		r, err := a.Start(ctx, app.StartOptions{Profile: *profile, Project: *project, Name: *name, Source: *source, Gateway: *gateway, Image: *image, Model: *model, Approval: *approval, Prompt: *prompt, MCP: *mcp, Skills: *skills, RequireHead: requiredHead, Dry: *dry})
 		if err != nil {
 			return err
 		}

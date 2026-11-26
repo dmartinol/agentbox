@@ -60,18 +60,19 @@ exec sleep infinity
 `
 
 type StartOptions struct {
-	Profile  string
-	Project  string
-	Name     string
-	Source   string
-	Gateway  string
-	Image    string
-	Model    string
-	Approval string
-	Prompt   string
-	MCP      string
-	Skills   string
-	Dry      bool
+	Profile     string
+	Project     string
+	Name        string
+	Source      string
+	Gateway     string
+	Image       string
+	Model       string
+	Approval    string
+	Prompt      string
+	MCP         string
+	Skills      string
+	RequireHead *string
+	Dry         bool
 }
 
 func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
@@ -98,6 +99,13 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 	}
 	if err := p.Validate(); err != nil {
 		return Run{}, fmt.Errorf("profile %q is invalid: %w", p.Name, err)
+	}
+	sourceRoot, projectName, useWorktree, err := a.resolveStartSource(ctx, opt)
+	if err != nil {
+		return Run{}, err
+	}
+	if err := a.validateRequiredSourceHead(ctx, sourceRoot, opt.RequireHead); err != nil {
+		return Run{}, err
 	}
 	if opt.Gateway == "" {
 		return Run{}, fmt.Errorf("explicit gateway name required")
@@ -159,40 +167,6 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 		}
 		skillSelection = &resolved
 	}
-	source := strings.TrimSpace(opt.Source)
-	projectName := ""
-	useWorktree := true
-	if opt.Project != "" {
-		project, err := a.Store.LoadProject(opt.Project)
-		if err != nil {
-			return Run{}, fmt.Errorf("project %q not found; create it from the Projects page or with `agentbox project create`", opt.Project)
-		}
-		projectName = project.Name
-		// A project supplies attribution and the worktree root. An explicit
-		// source still wins so a pinned checkout, such as a detached worktree
-		// at a pull request head, keeps its commit while the run stays grouped
-		// under the project.
-		if source == "" {
-			source = project.Root
-		}
-		useWorktree = project.UseWorktree()
-	}
-	if source == "" {
-		source = "."
-	}
-	opt.Source = source
-	sourceRoot, err := a.ProjectRoot(ctx, opt.Source)
-	if err != nil {
-		return Run{}, err
-	}
-	if projectName == "" {
-		if project, ok, err := a.Store.ProjectRoot(sourceRoot); err != nil {
-			return Run{}, err
-		} else if ok {
-			projectName = project.Name
-			useWorktree = project.UseWorktree()
-		}
-	}
 	if err := a.validateRunName(projectName, opt.Name); err != nil {
 		return Run{}, err
 	}
@@ -201,6 +175,7 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 			return Run{}, err
 		}
 	}
+
 	runImage := RunImage{Image: p.Image, BaseImage: p.Image, Source: ImageSourceProfile}
 	switch {
 	case override != "":
@@ -636,6 +611,63 @@ func (a *App) waitForAttachSession(ctx context.Context, r Run, session string) e
 		case <-time.After(attachPollInterval):
 		}
 	}
+}
+
+func (a *App) resolveStartSource(ctx context.Context, opt StartOptions) (string, string, bool, error) {
+	source := strings.TrimSpace(opt.Source)
+	projectName := ""
+	useWorktree := true
+	if opt.Project != "" {
+		project, err := a.Store.LoadProject(opt.Project)
+		if err != nil {
+			return "", "", false, fmt.Errorf("project %q not found; create it from the Projects page or with `agentbox project create`", opt.Project)
+		}
+		projectName = project.Name
+		// A project supplies attribution and the worktree root. An explicit
+		// source still wins so a pinned checkout, such as a detached worktree
+		// at a pull request head, keeps its commit while the run stays grouped
+		// under the project.
+		if source == "" {
+			source = project.Root
+		}
+		useWorktree = project.UseWorktree()
+	}
+	if source == "" {
+		source = "."
+	}
+	sourceRoot, err := a.ProjectRoot(ctx, source)
+	if err != nil {
+		return "", "", false, err
+	}
+	if projectName == "" {
+		if project, ok, err := a.Store.ProjectRoot(sourceRoot); err != nil {
+			return "", "", false, err
+		} else if ok {
+			projectName = project.Name
+			useWorktree = project.UseWorktree()
+		}
+	}
+	return sourceRoot, projectName, useWorktree, nil
+}
+
+func (a *App) validateRequiredSourceHead(ctx context.Context, sourceRoot string, requireHead *string) error {
+	if requireHead == nil {
+		return nil
+	}
+	body, err := a.Runner.Output(ctx, "git", "-C", sourceRoot, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("could not read source HEAD at %q for --require-head: %w", sourceRoot, err)
+	}
+	actual := strings.TrimSpace(string(body))
+	requested := *requireHead
+	trimmed := strings.TrimSpace(requested)
+	if trimmed == "" || !isFullCommitSHA(trimmed) {
+		return fmt.Errorf("--require-head requires a full 40-character commit SHA; required HEAD %q, source HEAD %q", requested, actual)
+	}
+	if !strings.EqualFold(trimmed, actual) {
+		return fmt.Errorf("source HEAD %q does not match --require-head %q; dispatch from the checkout at the required commit", actual, requested)
+	}
+	return nil
 }
 
 func sessionMissing(err error) bool {

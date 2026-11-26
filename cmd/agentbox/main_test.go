@@ -845,6 +845,18 @@ func TestAgentStartRejectsRemovedModeFlag(t *testing.T) {
 	}
 }
 
+func TestAgentStartHelpListsRequireHead(t *testing.T) {
+	stderr, err := captureStderr(t, func() error {
+		return dispatch(context.Background(), &app.App{}, []string{"agent", "start", "--help"})
+	})
+	if err != nil && !errors.Is(err, flag.ErrHelp) {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "-require-head") || !strings.Contains(stderr, "full source commit SHA required before run creation") {
+		t.Fatalf("agent start help is missing --require-head:\n%s", stderr)
+	}
+}
+
 func TestAgentStopWarnsAndDelegatesToSleep(t *testing.T) {
 	ctx := context.Background()
 	store := app.Store{Base: t.TempDir()}
