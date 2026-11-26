@@ -259,6 +259,34 @@ func TestOrchestratorSkillFeedbackFollowUps(t *testing.T) {
 	)
 }
 
+// TestOrchestratorSkillPinsExactHeadSHA requires verify and review workers to
+// prove that HEAD is the requested commit, not merely a tree-equal snapshot.
+func TestOrchestratorSkillPinsExactHeadSHA(t *testing.T) {
+	for _, name := range []string{"verify-task.md", "review-task.md"} {
+		content, err := EmbeddedFile("agentbox-orchestrator", name, "9.9.9")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := strings.Join(strings.Fields(string(content)), " ")
+		wantAll(t, body,
+			"`git rev-parse HEAD`",
+			"detach or check out",
+			"`git diff <reviewed-sha>..HEAD --stat`",
+		)
+	}
+
+	verifyContent, err := EmbeddedFile("agentbox-orchestrator", "verify-task.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyBody := strings.Join(strings.Fields(string(verifyContent)), " ")
+	wantAll(t, verifyBody, "commit: <full-sha actually checked>")
+
+	wantAll(t, collapsed(t),
+		"An AgentBox run starts on an empty `AgentBox starting snapshot` commit with an identical tree, so the worker must compare `git rev-parse HEAD` with that SHA and detach to it before any gate; record the SHA actually checked, not only the requested one.",
+	)
+}
+
 // TestOrchestratorSkillAgentBoxVerifyAndReviewUsePRHead pins the AgentBox
 // dispatch rule for verify and review: a fresh detached worktree at the full
 // PR head SHA passed with --source, while --project keeps the run attributed.

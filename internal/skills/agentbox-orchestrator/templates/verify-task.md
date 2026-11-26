@@ -16,6 +16,7 @@ You are the verifier, not a reviewer. Rerun every gate on the pull request head 
 
 Confirm these before running any gate, and record each result:
 
+- **Exact head:** run `git rev-parse HEAD` and compare it with `<full-sha>`. If they differ, detach or check out `<full-sha>` before running any gate, then confirm `git rev-parse HEAD` equals `<full-sha>`. An AgentBox run starts on a snapshot commit with an identical tree, so a matching tree is not proof of the right commit.
 - **Head check:** `git diff <reviewed-sha>..HEAD --stat` is empty. A non-empty result means the worktree is not the pushed head; stop and report it.
 - **Fresh worktree:** the checkout is a detached worktree at `<full-sha>`, not the implementer's worktree and not the project checkout.
 - **Real-git probe:** when the change derives behavior from git state, probe a real repository and record the observed result for each state: up-to-date, behind, diverged, detached, unborn, and non-repository. A mocked test is not a substitute.
@@ -25,7 +26,7 @@ Confirm these before running any gate, and record each result:
 Write exactly this artifact, ready for the orchestrator to read and post:
 
 ```yaml
-commit: <full-sha>
+commit: <full-sha actually checked>
 result: <pass|fail>
 head_check: <empty|non-empty>
 gates:
