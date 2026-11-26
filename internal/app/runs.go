@@ -984,8 +984,8 @@ func (a *App) Resume(ctx context.Context, id string) error {
 		return fmt.Errorf("run %s is %s; resume applies to Stopped runs and Ready runs whose agent exited", id, r.Status.Label())
 	}
 	switch r.SyncState {
-	case SyncStateNeedsSync, SyncStateBlocked:
-		// Pending work, or a worktree that drifted from the last sync, is
+	case SyncStateNeedsSync, SyncStateWrongCheckout, SyncStateBlocked:
+		// Pending work, including a side branch or detached checkout, is
 		// resolved first. Sync itself refuses to overwrite host edits, and a
 		// refusal leaves the run resumable.
 		if err := a.Sync(ctx, id); err != nil {
@@ -1209,6 +1209,8 @@ func (a *App) Delete(ctx context.Context, id string, discard bool) error {
 		switch r.SyncState {
 		case SyncStateNeedsSync:
 			return fmt.Errorf("run has unsynced results; sync first or pass --discard")
+		case SyncStateWrongCheckout:
+			return fmt.Errorf("run is on the wrong checkout; move the intended commit onto run branch %q in the sandbox, then retry sync before deleting (or pass --discard)", r.Branch)
 		case SyncStateUnknown:
 			return fmt.Errorf("cannot verify that the run is synced; restore the sandbox or pass --discard")
 		}

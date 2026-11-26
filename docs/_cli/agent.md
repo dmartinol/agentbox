@@ -208,7 +208,8 @@ Starts the sandbox when the run is `stopped`, otherwise relaunches the agent in
 the existing sandbox. The agent continues its last conversation; when the
 harness session store is missing, AgentBox starts a fresh session in the same
 worktree and reports that context could not be restored. Pending work is
-synced first, and a sync failure leaves the run resumable.
+synced first; this includes a `wrong_checkout` sandbox, and a sync failure
+leaves the run resumable.
 
 ## finish
 {: #agent-finish }
@@ -289,7 +290,7 @@ run whose results have not been synced. The flag must come before the run id:
 as a second argument, and the command then waits for confirmation.
 
 Without `--discard`, delete refuses an active run and any run whose derived
-`sync_state` is `needs_sync` or `unknown`.
+`sync_state` is `needs_sync`, `wrong_checkout`, or `unknown`.
 
 ## prune
 {: #agent-prune }
