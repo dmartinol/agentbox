@@ -12,6 +12,7 @@ const (
 )
 
 var acceptanceCriterionPattern = regexp.MustCompile(`^\s*-\s+\[[ xX]\]\s+(.*)$`)
+var commitReferencePattern = regexp.MustCompile(`(?i)(?:/commit/([0-9a-f]{40})(?:$|[^0-9a-f])|(?:^|[^0-9a-f])([0-9a-f]{40})(?:$|[^0-9a-f]))`)
 
 type independentCheckRow struct {
 	stage    string
@@ -68,11 +69,69 @@ func ValidateReviewChecks(prBody, mergedHeadSHA string) error {
 		if normalizeTableCell(row.result) == "pending" {
 			return fmt.Errorf("Independent checks %s row: Result is pending", stage)
 		}
-		if !strings.Contains(row.evidence, mergedHeadSHA) {
+		refs := commitReferences(row.evidence)
+		if !isFullCommitSHA(mergedHeadSHA) && containsExactToken(row.evidence, mergedHeadSHA) {
+			refs = append(refs, mergedHeadSHA)
+		}
+		hasMergedHead := false
+		for _, ref := range refs {
+			if strings.EqualFold(ref, mergedHeadSHA) {
+				hasMergedHead = true
+				break
+			}
+		}
+		if !hasMergedHead {
 			return fmt.Errorf("Independent checks %s row: Evidence does not contain merged head SHA %s", stage, mergedHeadSHA)
+		}
+		for _, ref := range refs {
+			if !strings.EqualFold(ref, mergedHeadSHA) {
+				return fmt.Errorf("Independent checks %s row: Evidence links commit %s instead of merged head SHA %s", stage, ref, mergedHeadSHA)
+			}
 		}
 	}
 	return nil
+}
+
+func commitReferences(evidence string) []string {
+	var refs []string
+	seen := make(map[string]struct{})
+	add := func(ref string) {
+		key := strings.ToLower(ref)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		refs = append(refs, ref)
+	}
+	for _, match := range commitReferencePattern.FindAllStringSubmatch(evidence, -1) {
+		ref := match[1]
+		if ref == "" {
+			ref = match[2]
+		}
+		add(ref)
+	}
+	return refs
+}
+
+func isFullCommitSHA(value string) bool {
+	if len(value) != 40 {
+		return false
+	}
+	for _, char := range value {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", char) {
+			return false
+		}
+	}
+	return true
+}
+
+func containsExactToken(evidence, value string) bool {
+	for _, field := range strings.Fields(evidence) {
+		if strings.EqualFold(strings.Trim(field, "`[]()<>/.,;:"), value) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasProvenanceMarker(body string) bool {

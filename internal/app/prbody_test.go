@@ -25,8 +25,8 @@ Closes #151
 
 | Stage | Role | Result | Evidence |
 | --- | --- | --- | --- |
-| Verify | agentbox-verifier | gates pass at abc123 | abc123 |
-| Review | agentbox-reviewer | approve | abc123 |
+| Verify | agentbox-verifier | gates pass at 0123456789abcdef0123456789abcdef01234567 | 0123456789abcdef0123456789abcdef01234567 |
+| Review | agentbox-reviewer | approve | 0123456789abcdef0123456789abcdef01234567 |
 `
 }
 
@@ -64,19 +64,19 @@ func TestValidateReviewPRBody(t *testing.T) {
 		},
 		{
 			name:    "invalid data row",
-			prBody:  strings.Replace(validReviewPRBody(), "| Verify | agentbox-verifier | gates pass at abc123 | abc123 |", "| Verify | agentbox-verifier | gates pass at abc123 |", 1),
+			prBody:  strings.Replace(validReviewPRBody(), "| Verify | agentbox-verifier | gates pass at 0123456789abcdef0123456789abcdef01234567 | 0123456789abcdef0123456789abcdef01234567 |", "| Verify | agentbox-verifier | gates pass at 0123456789abcdef0123456789abcdef01234567 |", 1),
 			issue:   reviewIssueBody,
 			wantErr: "invalid Independent checks table shape: expected | Stage | Role | Result | Evidence |",
 		},
 		{
 			name:    "missing verify row",
-			prBody:  strings.Replace(validReviewPRBody(), "| Verify | agentbox-verifier | gates pass at abc123 | abc123 |\n", "", 1),
+			prBody:  strings.Replace(validReviewPRBody(), "| Verify | agentbox-verifier | gates pass at 0123456789abcdef0123456789abcdef01234567 | 0123456789abcdef0123456789abcdef01234567 |\n", "", 1),
 			issue:   reviewIssueBody,
 			wantErr: "missing Independent checks Verify row",
 		},
 		{
 			name:    "missing review row",
-			prBody:  strings.Replace(validReviewPRBody(), "| Review | agentbox-reviewer | approve | abc123 |\n", "", 1),
+			prBody:  strings.Replace(validReviewPRBody(), "| Review | agentbox-reviewer | approve | 0123456789abcdef0123456789abcdef01234567 |\n", "", 1),
 			issue:   reviewIssueBody,
 			wantErr: "missing Independent checks Review row",
 		},
@@ -88,7 +88,7 @@ func TestValidateReviewPRBody(t *testing.T) {
 		},
 		{
 			name:    "missing pull request criteria",
-			prBody:  "<!-- orchestrator-workflow: {\"workflow\":\"workflow\"} -->\n\nCloses #151\n\n## Summary\n\nNo criteria here.\n\n**Independent checks**\n\n| Stage | Role | Result | Evidence |\n| --- | --- | --- | --- |\n| Verify | agentbox-verifier | gates pass at abc123 | abc123 |\n| Review | agentbox-reviewer | approve | abc123 |\n",
+			prBody:  "<!-- orchestrator-workflow: {\"workflow\":\"workflow\"} -->\n\nCloses #151\n\n## Summary\n\nNo criteria here.\n\n**Independent checks**\n\n| Stage | Role | Result | Evidence |\n| --- | --- | --- | --- |\n| Verify | agentbox-verifier | gates pass at 0123456789abcdef0123456789abcdef01234567 | 0123456789abcdef0123456789abcdef01234567 |\n| Review | agentbox-reviewer | approve | 0123456789abcdef0123456789abcdef01234567 |\n",
 			issue:   reviewIssueBody,
 			wantErr: "missing pull request acceptance criteria list",
 		},
@@ -128,10 +128,10 @@ func TestValidateReviewChecks(t *testing.T) {
 		prBody  string
 		wantErr string
 	}{
-		{name: "valid", prBody: validReviewPRBody()},
+		{name: "bare merged head SHA", prBody: validReviewPRBody()},
 		{
 			name:    "verify result pending",
-			prBody:  strings.Replace(validReviewPRBody(), "gates pass at abc123", "pending", 1),
+			prBody:  strings.Replace(validReviewPRBody(), "gates pass at 0123456789abcdef0123456789abcdef01234567", "pending", 1),
 			wantErr: "Independent checks Verify row: Result is pending",
 		},
 		{
@@ -141,19 +141,38 @@ func TestValidateReviewChecks(t *testing.T) {
 		},
 		{
 			name:    "verify evidence wrong head",
-			prBody:  strings.Replace(validReviewPRBody(), "| Verify | agentbox-verifier | gates pass at abc123 | abc123 |", "| Verify | agentbox-verifier | gates pass at abc123 | other-sha |", 1),
-			wantErr: "Independent checks Verify row: Evidence does not contain merged head SHA abc123",
+			prBody:  strings.Replace(validReviewPRBody(), "| Verify | agentbox-verifier | gates pass at 0123456789abcdef0123456789abcdef01234567 | 0123456789abcdef0123456789abcdef01234567 |", "| Verify | agentbox-verifier | gates pass at 0123456789abcdef0123456789abcdef01234567 | other-sha |", 1),
+			wantErr: "Independent checks Verify row: Evidence does not contain merged head SHA 0123456789abcdef0123456789abcdef01234567",
 		},
 		{
 			name:    "review evidence wrong head",
-			prBody:  strings.Replace(validReviewPRBody(), "| Review | agentbox-reviewer | approve | abc123 |", "| Review | agentbox-reviewer | approve | other-sha |", 1),
-			wantErr: "Independent checks Review row: Evidence does not contain merged head SHA abc123",
+			prBody:  strings.Replace(validReviewPRBody(), "| Review | agentbox-reviewer | approve | 0123456789abcdef0123456789abcdef01234567 |", "| Review | agentbox-reviewer | approve | other-sha |", 1),
+			wantErr: "Independent checks Review row: Evidence does not contain merged head SHA 0123456789abcdef0123456789abcdef01234567",
+		},
+		{
+			name: "verify evidence comment and merged head commit link",
+			prBody: strings.Replace(
+				validReviewPRBody(),
+				"| Verify | agentbox-verifier | gates pass at 0123456789abcdef0123456789abcdef01234567 | 0123456789abcdef0123456789abcdef01234567 |",
+				"| Verify | agentbox-verifier | gates pass at 0123456789abcdef0123456789abcdef01234567 | [commit](https://example.test/repo/commit/0123456789abcdef0123456789abcdef01234567) · [comment](https://example.test/comment) |",
+				1,
+			),
+		},
+		{
+			name: "verify evidence wrong commit link with merged head text",
+			prBody: strings.Replace(
+				validReviewPRBody(),
+				"| Verify | agentbox-verifier | gates pass at 0123456789abcdef0123456789abcdef01234567 | 0123456789abcdef0123456789abcdef01234567 |",
+				"| Verify | agentbox-verifier | gates pass at 0123456789abcdef0123456789abcdef01234567 | [commit](https://example.test/repo/commit/ffffffffffffffffffffffffffffffffffffffff) 0123456789abcdef0123456789abcdef01234567 |",
+				1,
+			),
+			wantErr: "Independent checks Verify row: Evidence links commit ffffffffffffffffffffffffffffffffffffffff instead of merged head SHA 0123456789abcdef0123456789abcdef01234567",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := ValidateReviewChecks(test.prBody, "abc123")
+			err := ValidateReviewChecks(test.prBody, "0123456789abcdef0123456789abcdef01234567")
 			if test.wantErr == "" {
 				if err != nil {
 					t.Fatalf("ValidateReviewChecks() error = %v", err)

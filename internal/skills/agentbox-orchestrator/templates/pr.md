@@ -69,8 +69,8 @@ Results at the reviewed commit, not at the implementer's last local edit.
 
 | Stage | Role | Result | Evidence |
 | --- | --- | --- | --- |
-| Verify | `agentbox-verifier` | gates pass at `sha` | comment link |
-| Review | `agentbox-reviewer` | `approve` · cycle `n` · `n` open findings | verdict link |
+| Verify | `agentbox-verifier` | gates pass at `sha` | [commit](<repo-url>/commit/<sha>) · [comment](link) |
+| Review | `agentbox-reviewer` | `approve` · cycle `n` · `n` open findings | [commit](<repo-url>/commit/<sha>) · [verdict](link) |
 
 ## AGENTS.md check
 

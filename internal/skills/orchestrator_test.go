@@ -12,6 +12,8 @@ import (
 // with, kept in one place so the assertions cannot drift from the templates.
 const testFooterIcon = `<img src="https://raw.githubusercontent.com/dmartinol/agentbox/main/docs/assets/agentbox-icon.svg" width="14" height="14" align="absmiddle" alt="AgentBox">`
 
+var forbiddenForgeWording = regexp.MustCompile(`(?i)\b(?:gh|credentials?|token)\b`)
+
 // rawSkill returns the unrendered embedded file so tests can assert on the
 // literal front matter syntax.
 func rawSkill(t *testing.T, name string) string {
@@ -1015,6 +1017,17 @@ func TestOrchestratorTemplateFiles(t *testing.T) {
 	}
 }
 
+func TestForbiddenForgeWordingPattern(t *testing.T) {
+	for _, wording := range []string{"gh", "credential", "credentials", "token"} {
+		if !forbiddenForgeWording.MatchString(wording) {
+			t.Fatalf("forbiddenForgeWording does not match %q", wording)
+		}
+	}
+	if forbiddenForgeWording.MatchString("GitHub") {
+		t.Fatal("forbiddenForgeWording matches GitHub")
+	}
+}
+
 func TestReviewerPRBodyInputStaysLocal(t *testing.T) {
 	reviewTask, err := EmbeddedFile("agentbox-orchestrator", "review-task.md", "9.9.9")
 	if err != nil {
@@ -1031,7 +1044,7 @@ func TestReviewerPRBodyInputStaysLocal(t *testing.T) {
 		if !strings.Contains(body, ".agentbox-stage/context/pr-body.md") {
 			t.Fatalf("%s does not name the materialized PR body path", name)
 		}
-		if match := regexp.MustCompile(`(?i)\b(?:gh|credential|token)\b`).FindString(body); match != "" {
+		if match := forbiddenForgeWording.FindString(body); match != "" {
 			t.Fatalf("%s contains forbidden forge-client wording %q", name, match)
 		}
 	}
