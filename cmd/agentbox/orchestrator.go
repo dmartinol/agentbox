@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -120,6 +122,8 @@ func orchestratorGateCmd(args []string) error {
 		f := flags("orchestrator gate pr-merge")
 		prBodyPath := f.String("pr-body", "", "pull request body file")
 		headSHA := f.String("head", "", "merged head SHA")
+		reviewedBodyPath := f.String("reviewed-body", "", "durable reviewed pull request body file")
+		reviewedBodySHA256 := f.String("reviewed-body-sha256", "", "exact SHA-256 of the durable reviewed pull request body")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -132,9 +136,34 @@ func orchestratorGateCmd(args []string) error {
 		if strings.TrimSpace(*headSHA) == "" {
 			return fmt.Errorf("orchestrator gate pr-merge requires --head")
 		}
+		if strings.TrimSpace(*reviewedBodyPath) == "" && *reviewedBodySHA256 != "" {
+			return fmt.Errorf("orchestrator gate pr-merge requires --reviewed-body and --reviewed-body-sha256 together")
+		}
+		if strings.TrimSpace(*reviewedBodyPath) != "" && *reviewedBodySHA256 == "" {
+			return fmt.Errorf("pr-merge: review stage entry is missing review_content_sha256; rerun review to upgrade the digest contract")
+		}
+		if *reviewedBodySHA256 != "" && !isLowercaseHex64(*reviewedBodySHA256) {
+			return fmt.Errorf("orchestrator gate pr-merge requires --reviewed-body-sha256 to be 64 lowercase hexadecimal characters")
+		}
 		prBody, err := os.ReadFile(*prBodyPath)
 		if err != nil {
 			return err
+		}
+		if strings.TrimSpace(*reviewedBodyPath) != "" {
+			reviewedBody, err := os.ReadFile(*reviewedBodyPath)
+			if err != nil {
+				return err
+			}
+			digest := sha256.Sum256(reviewedBody)
+			if hex.EncodeToString(digest[:]) != *reviewedBodySHA256 {
+				return fmt.Errorf("pr-merge: reviewed body digest mismatch")
+			}
+			if err := app.CompareCanonicalReviewPRBodies(string(reviewedBody), string(prBody)); err != nil {
+				if strings.HasPrefix(err.Error(), "body differs at ") {
+					return fmt.Errorf("pr-merge: %w", err)
+				}
+				return err
+			}
 		}
 		if err := app.ValidateReviewChecks(string(prBody), strings.TrimSpace(*headSHA)); err != nil {
 			return err
@@ -144,6 +173,18 @@ func orchestratorGateCmd(args []string) error {
 	default:
 		return fmt.Errorf("unknown orchestrator gate command %q", args[0])
 	}
+}
+
+func isLowercaseHex64(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, char := range value {
+		if !strings.ContainsRune("0123456789abcdef", char) {
+			return false
+		}
+	}
+	return true
 }
 
 func printResolvedOrchestration(resolved app.ResolvedOrchestration) {

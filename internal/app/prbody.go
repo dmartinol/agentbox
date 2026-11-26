@@ -1,18 +1,162 @@
 package app
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 const (
 	independentChecksHeader    = "| Stage | Role | Result | Evidence |"
 	independentChecksSeparator = "| --- | --- | --- | --- |"
+	orchestratorOwnedTableCell = " <orchestrator-owned> "
 )
 
 var acceptanceCriterionPattern = regexp.MustCompile(`^\s*-\s+\[[ xX]\]\s+(.*)$`)
 var commitReferencePattern = regexp.MustCompile(`(?i)(?:/commit/([0-9a-f]{40})(?:$|[^0-9a-f])|(?:^|[^0-9a-f])([0-9a-f]{40})(?:$|[^0-9a-f]))`)
+
+func CanonicalReviewPRBody(body string) (string, error) {
+	if _, err := parseIndependentChecks(body); err != nil {
+		return "", err
+	}
+	lines := strings.Split(body, "\n")
+	rowIndexes, err := independentCheckDataRowIndexes(lines)
+	if err != nil {
+		return "", err
+	}
+	for _, index := range rowIndexes {
+		cells := splitRawTableRow(lines[index])
+		if strings.TrimSpace(cells[0]) != "Verify" && strings.TrimSpace(cells[0]) != "Review" {
+			continue
+		}
+		cells[2] = orchestratorOwnedTableCell
+		cells[3] = orchestratorOwnedTableCell
+		lines[index] = renderTableRow(lines[index], cells)
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+func CanonicalReviewPRBodySHA256(body string) (string, error) {
+	canonical, err := CanonicalReviewPRBody(body)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func CompareCanonicalReviewPRBodies(reviewed, current string) error {
+	reviewedCanonical, err := CanonicalReviewPRBody(reviewed)
+	if err != nil {
+		return err
+	}
+	currentCanonical, err := CanonicalReviewPRBody(current)
+	if err != nil {
+		return err
+	}
+	for _, section := range canonicalReviewPRBodySections(currentCanonical, reviewedCanonical) {
+		if section.reviewed != section.current {
+			return fmt.Errorf("body differs at %s", section.name)
+		}
+	}
+	return nil
+}
+
+type canonicalReviewPRBodySection struct {
+	name     string
+	reviewed string
+	current  string
+}
+
+func canonicalReviewPRBodySections(reviewed, current string) []canonicalReviewPRBodySection {
+	reviewedSections := classifyCanonicalReviewPRBody(reviewed)
+	currentSections := classifyCanonicalReviewPRBody(current)
+	names := []string{"provenance marker", "headings and prose", "acceptance criteria", "other table rows", "footer"}
+	sections := make([]canonicalReviewPRBodySection, 0, len(names))
+	for _, name := range names {
+		sections = append(sections, canonicalReviewPRBodySection{
+			name:     name,
+			reviewed: reviewedSections[name],
+			current:  currentSections[name],
+		})
+	}
+	return sections
+}
+
+func classifyCanonicalReviewPRBody(body string) map[string]string {
+	lines := strings.Split(body, "\n")
+	acceptanceStart, acceptanceEnd := acceptanceCriteriaRange(lines)
+	footerStart := finalStandaloneRuleIndex(lines)
+	if footerStart < 0 {
+		footerStart = len(lines)
+	}
+
+	sections := make(map[string][]string)
+	for index, line := range lines {
+		switch {
+		case isProvenanceMarkerLine(line):
+			sections["provenance marker"] = append(sections["provenance marker"], line)
+		case index >= acceptanceStart && index < acceptanceEnd:
+			sections["acceptance criteria"] = append(sections["acceptance criteria"], line)
+		case index >= footerStart:
+			sections["footer"] = append(sections["footer"], line)
+		case isTableShapedLine(line):
+			sections["other table rows"] = append(sections["other table rows"], line)
+		default:
+			sections["headings and prose"] = append(sections["headings and prose"], line)
+		}
+	}
+
+	rendered := make(map[string]string, len(sections))
+	for name, sectionLines := range sections {
+		rendered[name] = strings.Join(sectionLines, "\n")
+	}
+	for _, name := range []string{"provenance marker", "headings and prose", "acceptance criteria", "other table rows", "footer"} {
+		if _, ok := rendered[name]; !ok {
+			rendered[name] = ""
+		}
+	}
+	return rendered
+}
+
+func acceptanceCriteriaRange(lines []string) (int, int) {
+	for index, line := range lines {
+		if strings.TrimSpace(line) != "## Acceptance criteria" {
+			continue
+		}
+		end := len(lines)
+		for next := index + 1; next < len(lines); next++ {
+			if strings.HasPrefix(strings.TrimSpace(lines[next]), "## ") {
+				end = next
+				break
+			}
+		}
+		return index, end
+	}
+	return len(lines), len(lines)
+}
+
+func finalStandaloneRuleIndex(lines []string) int {
+	for index := len(lines) - 1; index >= 0; index-- {
+		if strings.TrimSpace(lines[index]) == "---" {
+			return index
+		}
+	}
+	return -1
+}
+
+func isProvenanceMarkerLine(line string) bool {
+	line = strings.TrimSuffix(line, "\r")
+	return strings.HasPrefix(line, "<!-- orchestrator-workflow:") && strings.HasSuffix(line, "-->")
+}
+
+func isTableShapedLine(line string) bool {
+	_, ok := splitTableRow(line)
+	return ok
+}
 
 type independentCheckRow struct {
 	stage    string
@@ -145,6 +289,38 @@ func hasProvenanceMarker(body string) bool {
 
 func parseIndependentChecks(body string) (map[string]independentCheckRow, error) {
 	lines := strings.Split(body, "\n")
+	rowIndexes, err := independentCheckDataRowIndexes(lines)
+	if err != nil {
+		return nil, err
+	}
+
+	var rows []independentCheckRow
+	for _, index := range rowIndexes {
+		cells, ok := splitTableRow(lines[index])
+		if !ok || len(cells) != 4 {
+			return nil, fmt.Errorf("invalid Independent checks table shape: expected %s", independentChecksHeader)
+		}
+		rows = append(rows, independentCheckRow{
+			stage:    cells[0],
+			role:     cells[1],
+			result:   cells[2],
+			evidence: cells[3],
+		})
+	}
+
+	parsed := make(map[string]independentCheckRow)
+	for _, row := range rows {
+		parsed[row.stage] = row
+	}
+	for _, stage := range []string{"Verify", "Review"} {
+		if _, ok := parsed[stage]; !ok {
+			return nil, fmt.Errorf("missing Independent checks %s row", stage)
+		}
+	}
+	return parsed, nil
+}
+
+func independentCheckDataRowIndexes(lines []string) ([]int, error) {
 	labelIndex := -1
 	for index, line := range lines {
 		if strings.Contains(line, "**Independent checks**") {
@@ -169,38 +345,22 @@ func parseIndependentChecks(body string) (map[string]independentCheckRow, error)
 	}
 	index++
 
-	var rows []independentCheckRow
+	var rowIndexes []int
 	for index < len(lines) && strings.TrimSpace(lines[index]) != "" {
 		cells, ok := splitTableRow(lines[index])
 		if !ok || len(cells) != 4 {
 			return nil, fmt.Errorf("invalid Independent checks table shape: expected %s", independentChecksHeader)
 		}
-		row := independentCheckRow{
-			stage:    cells[0],
-			role:     cells[1],
-			result:   cells[2],
-			evidence: cells[3],
-		}
-		if row.stage != "Verify" && row.stage != "Review" {
+		if cells[0] != "Verify" && cells[0] != "Review" {
 			return nil, fmt.Errorf("invalid Independent checks table shape: expected %s", independentChecksHeader)
 		}
-		rows = append(rows, row)
+		rowIndexes = append(rowIndexes, index)
 		index++
 	}
-	if len(rows) > 2 {
+	if len(rowIndexes) > 2 {
 		return nil, fmt.Errorf("invalid Independent checks table shape: expected %s", independentChecksHeader)
 	}
-
-	parsed := make(map[string]independentCheckRow)
-	for _, row := range rows {
-		parsed[row.stage] = row
-	}
-	for _, stage := range []string{"Verify", "Review"} {
-		if _, ok := parsed[stage]; !ok {
-			return nil, fmt.Errorf("missing Independent checks %s row", stage)
-		}
-	}
-	return parsed, nil
+	return rowIndexes, nil
 }
 
 func splitTableRow(line string) ([]string, bool) {
@@ -213,6 +373,19 @@ func splitTableRow(line string) ([]string, bool) {
 		cells[index] = strings.TrimSpace(cells[index])
 	}
 	return cells, true
+}
+
+func splitRawTableRow(line string) []string {
+	core := strings.TrimSpace(line)
+	return strings.Split(core[1:len(core)-1], "|")
+}
+
+func renderTableRow(line string, cells []string) string {
+	leftTrimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
+	prefix := line[:len(line)-len(leftTrimmed)]
+	core := strings.TrimRightFunc(leftTrimmed, unicode.IsSpace)
+	suffix := leftTrimmed[len(core):]
+	return prefix + "|" + strings.Join(cells, "|") + "|" + suffix
 }
 
 func acceptanceCriteria(body, source string) ([]string, error) {
