@@ -46,7 +46,15 @@ agentbox doctor [--json]
 
 The checks cover the platform (the spike targets `darwin/arm64`), the `git`,
 `podman`, `openshell`, and `npm` executables, the Podman connection, the
-OpenShell gateway status, and the installed usage skills. The skills check
+OpenShell gateway status, and the installed usage skills.
+
+Doctor also compares host UTC with the Podman VM clock. The signed delta is host UTC minus VM UTC, so `+27s` means the VM is 27 seconds behind and `-27s` means it is 27 seconds ahead. Differences from zero through two seconds are treated as routine jitter and reported as `ok`; differences above two seconds are reported as `fail`.
+
+A probe timeout, Podman command failure, or invalid RFC3339 response is reported as `unavailable`; it never reports `ok` for an unverified clock. When `openshell sandbox create` fails with a `session token was issued in the future` provisioning failure or a `ContainerExited` cause and the clock check is non-OK or unavailable, the failed run detail prioritizes the clock diagnosis and the exact `agentbox doctor` command before appending as much of the original error as the status-detail limit allows.
+
+For `doctor --json`, every check retains `ok` and adds a `state` field containing `ok`, `fail`, or `unavailable`.
+
+The skills check
 compares every installed usage skill and its templates with the running binary
 and reports stale, modified, invalid, unreadable-canonical, missing-template,
 unreadable-template, broken-link, and legacy states. Each problem names the

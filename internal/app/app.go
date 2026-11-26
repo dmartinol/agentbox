@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/dmartinol/agentbox/internal/skills"
 )
@@ -33,10 +34,19 @@ func New() (*App, error) {
 }
 
 type Check struct {
-	Name   string `json:"name"`
-	OK     bool   `json:"ok"`
-	Detail string `json:"detail"`
+	Name   string     `json:"name"`
+	OK     bool       `json:"ok"`
+	State  CheckState `json:"state,omitempty"`
+	Detail string     `json:"detail"`
 }
+
+type CheckState string
+
+const (
+	CheckStateOK          CheckState = "ok"
+	CheckStateFail        CheckState = "fail"
+	CheckStateUnavailable CheckState = "unavailable"
+)
 
 func (a *App) Doctor(ctx context.Context) []Check {
 	out := []Check{{Name: "platform", OK: runtime.GOOS == "darwin" && runtime.GOARCH == "arm64", Detail: runtime.GOOS + "/" + runtime.GOARCH + " (spike target: darwin/arm64)"}}
@@ -55,7 +65,24 @@ func (a *App) Doctor(ctx context.Context) []Check {
 		out = append(out, Check{Name: "gateway", OK: true, Detail: strings.TrimSpace(string(b))})
 	}
 	out = append(out, a.skillChecks()...)
+	out = append(out, a.podmanClockCheck(ctx, time.Now))
+	for index := range out {
+		out[index] = normalizeCheck(out[index])
+	}
 	return out
+}
+
+func normalizeCheck(check Check) Check {
+	switch check.State {
+	case CheckStateOK, CheckStateFail, CheckStateUnavailable:
+	default:
+		if check.OK {
+			check.State = CheckStateOK
+		} else {
+			check.State = CheckStateFail
+		}
+	}
+	return check
 }
 
 func (a *App) skillChecks() []Check {

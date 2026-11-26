@@ -68,11 +68,7 @@ func dispatch(ctx context.Context, a *app.App, args []string) error {
 			return app.PrintJSON(checks)
 		}
 		for _, c := range checks {
-			state := "FAIL"
-			if c.OK {
-				state = "OK"
-			}
-			fmt.Printf("%-5s %-18s %s\n", state, c.Name, c.Detail)
+			fmt.Printf("%-11s %-18s %s\n", checkStateLabel(c.State), c.Name, c.Detail)
 		}
 		return nil
 	case "settings":
@@ -105,6 +101,17 @@ func dispatch(ctx context.Context, a *app.App, args []string) error {
 		return guiCmd(ctx, a, args[1:])
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
+	}
+}
+
+func checkStateLabel(state app.CheckState) string {
+	switch state {
+	case app.CheckStateOK:
+		return "OK"
+	case app.CheckStateUnavailable:
+		return "UNAVAILABLE"
+	default:
+		return "FAIL"
 	}
 }
 
