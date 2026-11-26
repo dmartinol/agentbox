@@ -777,11 +777,11 @@ have. Install with the same binary that serves the commands, or upgrade with
 A sandbox may show an environment value such as:
 
 ```text
-OPENAI_API_KEY=openshell:resolve:env:<id>_OPENAI_API_KEY
+OPENAI_API_KEY=<resolver-reference>
 ```
 
-This is not the raw secret. It is an OpenShell resolver reference. OpenShell
-resolves the credential when the sandbox accesses the registered provider.
+This value is not the raw secret. It is an OpenShell resolver reference, and
+the gateway rewrites it on the wire for registered, policy-allowed endpoints.
 
 AgentBox never writes the raw secret into:
 
