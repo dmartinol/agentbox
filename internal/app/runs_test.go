@@ -1015,8 +1015,15 @@ func TestStartRequiredHeadPreflight(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if run.Source != source {
+			if !sameResolvedPath(t, run.Source, source) {
 				t.Fatalf("run source = %q, want %q", run.Source, source)
+			}
+			differentSource := filepath.Join(t.TempDir(), "source")
+			if err := os.MkdirAll(differentSource, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if sameResolvedPath(t, run.Source, differentSource) {
+				t.Fatalf("run source = %q; want a different directory than %q", run.Source, differentSource)
 			}
 
 			headIndex := -1
@@ -1049,6 +1056,19 @@ func TestStartRequiredHeadPreflight(t *testing.T) {
 
 func stringPointer(value string) *string {
 	return &value
+}
+
+func sameResolvedPath(t *testing.T, first, second string) bool {
+	t.Helper()
+	firstResolved, err := filepath.EvalSymlinks(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondResolved, err := filepath.EvalSymlinks(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Clean(firstResolved) == filepath.Clean(secondResolved)
 }
 
 func assertRequiredHeadFailure(t *testing.T, runner *fakeRunner, store Store) {
