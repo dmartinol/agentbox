@@ -28,3 +28,4 @@ coverage.*
 
 # Root-level npm lockfile; the GUI owns the only Node package
 /package-lock.json
+docs/.jekyll-cache/

@@ -189,8 +189,9 @@ so local files ride along as specified.
     KEY=VALUE` (repeatable). OpenShell explicitly forbids secrets here,
     and so does this requirement.
   - **Secrets** flow through OpenShell providers: the value stays in the
-    gateway environment, the sandbox environment holds an
-    `openshell:resolve:env:<id>_NAME` reference, and the gateway rewrites
+    gateway environment, the sandbox environment holds a
+    resolver reference shaped like three colon-separated lowercase segments
+    followed by `<id>_NAME`, not the raw secret, and the gateway rewrites
     the credential on the wire for registered, policy-allowed endpoints.
     Provider profiles on current gateways are inference-scoped, so
     secret-requiring MCP servers need a manually created provider and
@@ -327,7 +328,8 @@ host versions: claude 2.1.318 (image: 2.1.321), codex 0.167.1 (image:
 - Secrets attach via `sandbox create --provider <name>`; providers are
   created with `provider create --name <n> --type <profile> --credential
   <ENV_NAME>`. The sandbox environment then holds
-  `openshell:resolve:env:<id>_NAME` references, and the gateway rewrites
+  resolver references shaped like three colon-separated lowercase segments
+  followed by `<id>_NAME`, not the raw secret, and the gateway rewrites
   credentials on the wire for registered, policy-allowed endpoints
   (policy enforcement modes include credential rewrite).
 - Provider profiles on the current gateway are inference-scoped, but the
