@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -17,29 +18,48 @@ func (a *App) podmanClockCheck(ctx context.Context, now func() time.Time) Check 
 	defer cancel()
 
 	hostBefore := now()
-	output, err := a.Runner.Output(probeCtx, "podman", "machine", "ssh", "date", "-u", "+%Y-%m-%dT%H:%M:%SZ")
+	output, err := a.Runner.Output(probeCtx, "podman", "machine", "ssh", "date", "-u", "+%Y-%m-%dT%H:%M:%S.%NZ")
 	hostAfter := now()
 	if err != nil {
-		detail := fmt.Sprintf("Podman VM clock could not be verified: %v; run `agentbox doctor`.", err)
+		detail := unavailablePodmanClockDetail(fmt.Sprintf("%v", err))
 		if probeCtx.Err() != nil {
-			detail = fmt.Sprintf("Podman VM clock could not be verified: probe timed out after %s; run `agentbox doctor`.", podmanClockProbeTimeout)
+			detail = unavailablePodmanClockDetail(fmt.Sprintf("probe timed out after %s", podmanClockProbeTimeout))
 		}
 		return Check{Name: "podman VM clock", OK: false, State: CheckStateUnavailable, Detail: detail}
 	}
 
-	vm, parseErr := time.Parse(time.RFC3339, strings.TrimSpace(string(output)))
+	probeOutput := strings.TrimSpace(string(output))
+	vm, parseErr := time.Parse(time.RFC3339Nano, probeOutput)
 	if parseErr != nil {
 		return Check{
 			Name:   "podman VM clock",
 			OK:     false,
 			State:  CheckStateUnavailable,
-			Detail: fmt.Sprintf("Podman VM clock could not be verified: invalid RFC3339 output %q; run `agentbox doctor`.", strings.TrimSpace(string(output))),
+			Detail: unavailablePodmanClockDetail(fmt.Sprintf("invalid RFC3339 output %q", probeOutput)),
 		}
 	}
-	return classifyPodmanClock(hostBefore.Add(hostAfter.Sub(hostBefore)/2), vm)
+	host := hostBefore.Add(hostAfter.Sub(hostBefore) / 2)
+	hasFraction := strings.ContainsAny(probeOutput, ".,")
+	if !hasFraction {
+		host = host.Truncate(time.Second)
+		vm = vm.Truncate(time.Second)
+	}
+	return classifyPodmanClockAtPrecision(host, vm, hasFraction)
 }
 
 func classifyPodmanClock(host, vm time.Time) Check {
+	return classifyPodmanClockAtPrecision(host, vm, true)
+}
+
+func classifyPodmanClockAtPrecision(host, vm time.Time, fractional bool) Check {
+	if !fractional {
+		host = host.Truncate(time.Second)
+		vm = vm.Truncate(time.Second)
+	}
+	detailLayout := time.RFC3339
+	if fractional {
+		detailLayout = time.RFC3339Nano
+	}
 	delta := host.Sub(vm)
 	absoluteDelta := delta
 	if absoluteDelta < 0 {
@@ -53,8 +73,8 @@ func classifyPodmanClock(host, vm time.Time) Check {
 	remediation := "No action is required; the host and Podman VM clocks are within routine jitter."
 	detail := fmt.Sprintf(
 		"Host UTC: %s\nVM UTC: %s\nSigned delta (host UTC - VM UTC): %s\nRemediation: %s",
-		host.UTC().Format(time.RFC3339),
-		vm.UTC().Format(time.RFC3339),
+		host.UTC().Format(detailLayout),
+		vm.UTC().Format(detailLayout),
 		formatSignedDuration(delta),
 		remediation,
 	)
@@ -65,13 +85,27 @@ func classifyPodmanClock(host, vm time.Time) Check {
 		}
 		detail = fmt.Sprintf(
 			"Host UTC: %s\nVM UTC: %s\nSigned delta (host UTC - VM UTC): %s\nRemediation: %s",
-			host.UTC().Format(time.RFC3339),
-			vm.UTC().Format(time.RFC3339),
+			host.UTC().Format(detailLayout),
+			vm.UTC().Format(detailLayout),
 			formatSignedDuration(delta),
 			remediation,
 		)
 	}
 	return Check{Name: "podman VM clock", OK: state == CheckStateOK, State: state, Detail: detail}
+}
+
+func unavailablePodmanClockDetail(cause string) string {
+	const diagnosis = "Podman VM clock could not be verified: "
+	const remediation = "; run `agentbox doctor`."
+	cause = strings.ToValidUTF8(cause, "�")
+	limit := statusDetailLimit - len(diagnosis) - len(remediation)
+	if len(cause) > limit {
+		for len(cause) > limit && !utf8.ValidString(cause[:limit]) {
+			limit--
+		}
+		cause = cause[:limit]
+	}
+	return diagnosis + cause + remediation
 }
 
 func formatSignedDuration(duration time.Duration) string {

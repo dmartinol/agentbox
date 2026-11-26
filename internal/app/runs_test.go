@@ -202,6 +202,39 @@ func TestStartProvisioningFailureReportsUnavailableClockCheck(t *testing.T) {
 	}
 }
 
+func TestStartProvisioningFailurePreservesDoctorCommandForLongProbeError(t *testing.T) {
+	ctx := context.Background()
+	createErr := errors.New("sandbox JWT validation failed: session token was issued in the future")
+	probeErr := errors.New(strings.Repeat("x", statusDetailLimit+60))
+	fixture := newProvisioningClockFixture(t, createErr, 0, probeErr)
+	run, err := fixture.app.Start(ctx, StartOptions{
+		Profile: fixture.profile.Name,
+		Source:  fixture.source,
+		Gateway: "openshell",
+		Image:   "profile",
+	})
+	if !errors.Is(err, createErr) {
+		t.Fatalf("error = %v, want wrapped %v", err, createErr)
+	}
+	if run.Status != StatusFailed {
+		t.Fatalf("run status = %q, want %q", run.Status, StatusFailed)
+	}
+	if !strings.Contains(run.StatusDetail, "Podman VM clock could not be verified") ||
+		!strings.Contains(run.StatusDetail, "; run `agentbox doctor`.") {
+		t.Fatalf("status detail lacks bounded diagnosis: %q", run.StatusDetail)
+	}
+	if len(run.StatusDetail) > statusDetailLimit {
+		t.Fatalf("status detail length = %d, want at most %d", len(run.StatusDetail), statusDetailLimit)
+	}
+	persisted, err := fixture.store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != StatusFailed || persisted.StatusDetail != run.StatusDetail {
+		t.Fatalf("persisted run = %+v, want failed run with detail %q", persisted, run.StatusDetail)
+	}
+}
+
 func TestDeleteRemovesAllRunArtifactsPoliciesAndRecord(t *testing.T) {
 	app, run, _ := createSyncFixture(t)
 	policy, pending, fragment := seedRunPolicies(t, app.Store, run)

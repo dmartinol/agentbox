@@ -39,7 +39,7 @@ func TestPodmanClockCheckReportsBehindAndAheadVM(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			runner := &fakeRunner{output: func(recordedCommand) ([]byte, error) {
-				return []byte(host.Add(-tc.offset).Format(time.RFC3339) + "\n"), nil
+				return []byte(host.Add(-tc.offset).Format(time.RFC3339Nano) + "\n"), nil
 			}}
 			check := (&App{Runner: runner}).podmanClockCheck(context.Background(), now)
 			if check.OK || check.State != CheckStateFail {
@@ -93,6 +93,98 @@ func TestPodmanClockCheckReportsUnavailableProbe(t *testing.T) {
 	}
 }
 
+func TestPodmanClockCheckUsesFractionalPrecisionAtThreshold(t *testing.T) {
+	host := time.Date(2026, 11, 26, 12, 0, 0, 900000000, time.UTC)
+	now := func() time.Time { return host }
+	cases := []struct {
+		name   string
+		offset time.Duration
+		wantOK bool
+	}{
+		{name: "exactly 2 seconds behind", offset: 2 * time.Second, wantOK: true},
+		{name: "just over 2 seconds behind", offset: 2100 * time.Millisecond, wantOK: false},
+		{name: "exactly 2 seconds ahead", offset: -2 * time.Second, wantOK: true},
+		{name: "just over 2 seconds ahead", offset: -2100 * time.Millisecond, wantOK: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vm := host.Add(-tc.offset)
+			runner := &fakeRunner{output: func(recordedCommand) ([]byte, error) {
+				return []byte(vm.Format(time.RFC3339Nano) + "\n"), nil
+			}}
+			check := (&App{Runner: runner}).podmanClockCheck(context.Background(), now)
+			if check.OK != tc.wantOK {
+				t.Fatalf("check = %+v, want ok = %t", check, tc.wantOK)
+			}
+			assertClockDetailIsConsistent(t, check.Detail)
+		})
+	}
+}
+
+func TestPodmanClockCheckFallsBackToWholeSeconds(t *testing.T) {
+	host := time.Date(2026, 11, 26, 12, 0, 0, 900000000, time.UTC)
+	vm := host.Truncate(time.Second).Add(-2 * time.Second)
+	runner := &fakeRunner{output: func(recordedCommand) ([]byte, error) {
+		return []byte(vm.Format(time.RFC3339) + "\n"), nil
+	}}
+	check := (&App{Runner: runner}).podmanClockCheck(context.Background(), func() time.Time { return host })
+	if !check.OK || check.State != CheckStateOK {
+		t.Fatalf("check = %+v, want ok", check)
+	}
+	assertClockDetailIsConsistent(t, check.Detail)
+}
+
+func assertClockDetailIsConsistent(t *testing.T, detail string) {
+	t.Helper()
+	var hostText, vmText, signed string
+	for _, line := range strings.Split(detail, "\n") {
+		switch {
+		case strings.HasPrefix(line, "Host UTC: "):
+			hostText = strings.TrimPrefix(line, "Host UTC: ")
+		case strings.HasPrefix(line, "VM UTC: "):
+			vmText = strings.TrimPrefix(line, "VM UTC: ")
+		case strings.HasPrefix(line, "Signed delta (host UTC - VM UTC): "):
+			signed = strings.TrimPrefix(line, "Signed delta (host UTC - VM UTC): ")
+		}
+	}
+	host, err := time.Parse(time.RFC3339Nano, hostText)
+	if err != nil {
+		t.Fatalf("parse displayed host %q: %v", hostText, err)
+	}
+	vm, err := time.Parse(time.RFC3339Nano, vmText)
+	if err != nil {
+		t.Fatalf("parse displayed VM %q: %v", vmText, err)
+	}
+	if got := formatSignedDuration(host.Sub(vm)); got != signed {
+		t.Fatalf("signed delta = %q, want %q from displayed values", signed, got)
+	}
+}
+
+func TestPodmanClockUnavailableDetailsAreBounded(t *testing.T) {
+	host := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	now := func() time.Time { return host }
+	longValue := strings.Repeat("x", statusDetailLimit+60)
+	runner := &fakeRunner{output: func(recordedCommand) ([]byte, error) {
+		return nil, errors.New(longValue)
+	}}
+	commandError := (&App{Runner: runner}).podmanClockCheck(context.Background(), now)
+	if !strings.Contains(commandError.Detail, "Podman VM clock could not be verified") ||
+		!strings.Contains(commandError.Detail, "; run `agentbox doctor`.") ||
+		len(commandError.Detail) > statusDetailLimit {
+		t.Fatalf("command error detail = %q", commandError.Detail)
+	}
+
+	runner = &fakeRunner{output: func(recordedCommand) ([]byte, error) {
+		return []byte(longValue + "\n"), nil
+	}}
+	parseError := (&App{Runner: runner}).podmanClockCheck(context.Background(), now)
+	if !strings.Contains(parseError.Detail, "Podman VM clock could not be verified") ||
+		!strings.Contains(parseError.Detail, "; run `agentbox doctor`.") ||
+		len(parseError.Detail) > statusDetailLimit {
+		t.Fatalf("parse error detail = %q", parseError.Detail)
+	}
+}
+
 type clockBlockingRunner struct {
 	commands []recordedCommand
 }
@@ -121,7 +213,7 @@ func TestPodmanClockProbeIsBounded(t *testing.T) {
 	if elapsed < podmanClockProbeTimeout || elapsed > 2*podmanClockProbeTimeout {
 		t.Fatalf("probe elapsed %s, want bounded near %s", elapsed, podmanClockProbeTimeout)
 	}
-	want := recordedCommand{name: "podman", args: []string{"machine", "ssh", "date", "-u", "+%Y-%m-%dT%H:%M:%SZ"}}
+	want := recordedCommand{name: "podman", args: []string{"machine", "ssh", "date", "-u", "+%Y-%m-%dT%H:%M:%S.%NZ"}}
 	if len(runner.commands) != 1 || runner.commands[0].name != want.name || strings.Join(runner.commands[0].args, " ") != strings.Join(want.args, " ") {
 		t.Fatalf("probe command = %#v, want %#v", runner.commands, want)
 	}
