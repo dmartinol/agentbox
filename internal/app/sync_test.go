@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -67,22 +68,55 @@ func createAgentExportWithRepo(t *testing.T, run Run, root string) (map[string]s
 	if err := os.WriteFile(filepath.Join(remote, "untracked.txt"), []byte("new agent file\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	return createSandboxExportArtifacts(t, run, remote, root), remote
+}
+
+func createSandboxExportArtifacts(t *testing.T, run Run, sandbox, root string) map[string]string {
+	t.Helper()
 	bundle := filepath.Join(root, "export.bundle")
-	cmd(t, remote, "git", "bundle", "create", bundle, run.Branch)
+	cmd(t, sandbox, "git", "bundle", "create", bundle, run.Branch)
 	patch := filepath.Join(root, "export.patch")
-	cmd(t, remote, "git", "diff", "HEAD", "--binary", "--full-index", "--output", patch)
+	cmd(t, sandbox, "git", "diff", "HEAD", "--binary", "--full-index", "--output", patch)
 	archive := filepath.Join(root, "export.tar")
 	file, err := os.Create(archive)
 	if err != nil {
 		t.Fatal(err)
 	}
 	writer := tar.NewWriter(file)
-	body := []byte("new agent file\n")
-	if err := writer.WriteHeader(&tar.Header{Name: "untracked.txt", Mode: 0600, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := writer.Write(body); err != nil {
-		t.Fatal(err)
+	list := cmd(t, sandbox, "git", "ls-files", "--others", "--exclude-standard", "-z")
+	for _, name := range splitNUL([]byte(list)) {
+		info, err := os.Lstat(filepath.Join(sandbox, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		header := &tar.Header{Name: name, Mode: int64(info.Mode().Perm())}
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(filepath.Join(sandbox, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			header.Typeflag = tar.TypeSymlink
+			header.Linkname = target
+			if err := writer.WriteHeader(header); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		source, err := os.Open(filepath.Join(sandbox, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		header.Typeflag = tar.TypeReg
+		header.Size = info.Size()
+		if err := writer.WriteHeader(header); err != nil {
+			source.Close()
+			t.Fatal(err)
+		}
+		if _, err := io.Copy(writer, source); err != nil {
+			source.Close()
+			t.Fatal(err)
+		}
+		source.Close()
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
@@ -94,7 +128,7 @@ func createAgentExportWithRepo(t *testing.T, run Run, root string) (map[string]s
 		"/workspace/export.bundle": bundle,
 		"/workspace/export.patch":  patch,
 		"/workspace/export.tar":    archive,
-	}, remote
+	}
 }
 
 func newSyncRunner(t *testing.T, artifacts map[string]string) *fakeRunner {
@@ -123,6 +157,18 @@ func newSyncRunnerWithCheckout(t *testing.T, artifacts map[string]string, checko
 		}
 		if strings.Contains(joined, "tmux has-session -t agent") {
 			return []byte("session=1\ndead=0\ncommand=codex\nactivity={\"state\":\"working\"}\n"), nil
+		}
+		if containsCommand(call.args, "node", "-e") {
+			probe, marshalErr := json.Marshal(syncSnapshot{
+				Branch:     []byte(checkout.CurrentBranch),
+				Head:       checkout.Head,
+				BranchTip:  checkout.BranchTip,
+				DiffSHA256: hashBytes(nil),
+			})
+			if marshalErr != nil {
+				return nil, marshalErr
+			}
+			return probe, nil
 		}
 		if containsCommand(call.args, "/bin/sh", "-c") && strings.Contains(joined, "/workspace/export.bundle") {
 			return []byte(checkout.Head + "\n" + checkout.CurrentBranch + "\n" + checkout.BranchTip + "\n"), nil
@@ -157,6 +203,24 @@ func newSyncRunnerWithProbe(t *testing.T, artifacts map[string]string, probe str
 	runner.output = func(call recordedCommand) ([]byte, error) {
 		if call.name == "openshell" && containsCommand(call.args, "node", "-e") {
 			return []byte(probe), nil
+		}
+		return base(call)
+	}
+	return runner
+}
+
+func newSandboxSyncRunner(t *testing.T, artifacts map[string]string, sandbox, branch string) *fakeRunner {
+	t.Helper()
+	head := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", "refs/heads/"+branch))
+	runner := newSyncRunnerWithCheckout(t, artifacts, sandboxCheckout{
+		Head:          head,
+		CurrentBranch: branch,
+		BranchTip:     head,
+	})
+	base := runner.output
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && containsCommand(call.args, "node", "-e") {
+			return []byte(sandboxProbeJSON(t, sandbox, branch)), nil
 		}
 		return base(call)
 	}
@@ -624,6 +688,161 @@ func TestFailedSyncPreservesSuccessfulSnapshotMetadata(t *testing.T) {
 	}
 	if !after.LastSuccessfulSyncAt.Equal(before.LastSuccessfulSyncAt) || after.SyncedSandboxFingerprint != before.SyncedSandboxFingerprint {
 		t.Fatalf("failed sync changed successful metadata: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestSyncDoesNotSkipChangedSandboxFingerprint(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	sandbox := cloneSandboxRepo(t, run)
+	if err := os.WriteFile(filepath.Join(sandbox, "tracked.txt"), []byte("first agent edit\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd(t, sandbox, "git", "commit", "-qam", "first agent edit")
+	artifacts := createSandboxExportArtifacts(t, run, sandbox, t.TempDir())
+	app.Runner = newSandboxSyncRunner(t, artifacts, sandbox, run.Branch)
+	if err := app.Sync(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	before, err := app.Store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(sandbox, "tracked.txt"), []byte("second agent edit\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd(t, sandbox, "git", "commit", "-qam", "second agent edit")
+	artifacts = createSandboxExportArtifacts(t, run, sandbox, t.TempDir())
+	runner := newSandboxSyncRunner(t, artifacts, sandbox, run.Branch)
+	app.Runner = runner
+	if err := app.Sync(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	sandboxCommit := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", "refs/heads/"+run.Branch))
+	hostCommit := strings.TrimSpace(cmd(t, run.Worktree, "git", "rev-parse", "HEAD"))
+	after, err := app.Store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hostCommit != sandboxCommit || after.LastSynced != sandboxCommit || hostCommit == before.LastSynced {
+		t.Fatalf("changed sandbox snapshot was not transferred: before=%s host=%s sandbox=%s", before.LastSynced, hostCommit, sandboxCommit)
+	}
+	if !after.LastSuccessfulSyncAt.After(before.LastSuccessfulSyncAt) || after.SyncedSandboxFingerprint == before.SyncedSandboxFingerprint {
+		t.Fatalf("changed sandbox sync did not update successful metadata: before=%+v after=%+v", before, after)
+	}
+	foundDownload, foundMerge := false, false
+	for _, call := range runner.outputs {
+		if call.name == "openshell" && containsCommand(call.args, "sandbox", "download") {
+			foundDownload = true
+		}
+		if call.name == "git" && containsCommand(call.args, "merge", "--ff-only") {
+			foundMerge = true
+		}
+	}
+	if !foundDownload || !foundMerge {
+		t.Fatalf("changed sandbox snapshot did not run the transfer path: download=%v merge=%v", foundDownload, foundMerge)
+	}
+}
+
+func TestSyncFallsBackToTransferWhenProbeFails(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	sandbox := cloneSandboxRepo(t, run)
+	if err := os.WriteFile(filepath.Join(sandbox, "tracked.txt"), []byte("first agent edit\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd(t, sandbox, "git", "commit", "-qam", "first agent edit")
+	artifacts := createSandboxExportArtifacts(t, run, sandbox, t.TempDir())
+	app.Runner = newSandboxSyncRunner(t, artifacts, sandbox, run.Branch)
+	if err := app.Sync(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	before, err := app.Store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(sandbox, "tracked.txt"), []byte("second agent edit\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd(t, sandbox, "git", "commit", "-qam", "second agent edit")
+	artifacts = createSandboxExportArtifacts(t, run, sandbox, t.TempDir())
+	runner := newSandboxSyncRunner(t, artifacts, sandbox, run.Branch)
+	base := runner.output
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && containsCommand(call.args, "node", "-e") {
+			return nil, fmt.Errorf("sandbox probe unavailable")
+		}
+		return base(call)
+	}
+	app.Runner = runner
+	if err := app.Sync(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	foundDownload := false
+	for _, call := range runner.outputs {
+		if call.name == "openshell" && containsCommand(call.args, "sandbox", "download") {
+			foundDownload = true
+		}
+	}
+	sandboxCommit := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", "refs/heads/"+run.Branch))
+	hostCommit := strings.TrimSpace(cmd(t, run.Worktree, "git", "rev-parse", "HEAD"))
+	after, err := app.Store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !foundDownload || hostCommit != sandboxCommit || !after.LastSuccessfulSyncAt.After(before.LastSuccessfulSyncAt) {
+		t.Fatalf("probe failure did not fall back to transfer: download=%v host=%s sandbox=%s before=%s after=%s", foundDownload, hostCommit, sandboxCommit, before.LastSuccessfulSyncAt, after.LastSuccessfulSyncAt)
+	}
+}
+
+func TestSyncRequiresSuccessfulSnapshotMetadataToSkip(t *testing.T) {
+	for name, mutate := range map[string]func(*Run){
+		"zero last successful sync":   func(r *Run) { r.LastSuccessfulSyncAt = time.Time{} },
+		"empty synced sandbox digest": func(r *Run) { r.SyncedSandboxFingerprint = "" },
+		"empty host fingerprint":      func(r *Run) { r.Fingerprint = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			app, run, _ := createSyncFixture(t)
+			sandbox := cloneSandboxRepo(t, run)
+			if err := os.WriteFile(filepath.Join(sandbox, "tracked.txt"), []byte("agent edit\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cmd(t, sandbox, "git", "commit", "-qam", "agent edit")
+			artifacts := createSandboxExportArtifacts(t, run, sandbox, t.TempDir())
+			app.Runner = newSandboxSyncRunner(t, artifacts, sandbox, run.Branch)
+			if err := app.Sync(context.Background(), run.ID); err != nil {
+				t.Fatal(err)
+			}
+			stored, err := app.Store.LoadRun(run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutate(&stored)
+			if err := app.Store.SaveRun(stored); err != nil {
+				t.Fatal(err)
+			}
+			runner := newSandboxSyncRunner(t, artifacts, sandbox, run.Branch)
+			app.Runner = runner
+			err = app.Sync(context.Background(), run.ID)
+			if stored.Fingerprint == "" {
+				if err == nil || !strings.Contains(err.Error(), "local run worktree changed") {
+					t.Fatalf("empty host fingerprint unexpectedly bypassed the existing host-drift refusal: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			foundTransfer := false
+			for _, call := range runner.outputs {
+				if call.name == "openshell" && containsCommand(call.args, "sandbox", "download") {
+					foundTransfer = true
+				}
+			}
+			if !foundTransfer {
+				t.Fatal("missing successful-sync metadata skipped the transfer path")
+			}
+		})
 	}
 }
 

@@ -726,6 +726,8 @@ git -C RUN_WORKTREE -c user.name="AgentBox" -c user.email="agentbox@local.invali
 git -C RUN_WORKTREE diff "$BASE_SHA"..HEAD --stat
 ```
 
+After a successful sync, a host-only squash with an unchanged tree is safe to finish because AgentBox recognizes the unchanged sandbox snapshot and keeps the squashed HEAD; if finish reports that the run cannot fast-forward, preserve the current host HEAD, restore the last synced commit, resolve the newer or divergent sandbox work, and retry rather than force-finishing over it.
+
 Push only `orchestrator/<issue>-<slug>`; never push the run branch name. Record `synced_commit` as the worker's commit before the squash and `commit` as the squashed commit. Verify and review must each report `git diff <reviewed-sha>..HEAD --stat` as empty.
 
 ### Orca worker

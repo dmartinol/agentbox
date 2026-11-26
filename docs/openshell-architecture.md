@@ -966,6 +966,7 @@ look like human-in-the-loop prompts: Codex runs with
 - Finish: Ready, Waiting for input, or Stopped. It syncs a running agent, writes
   `/workspace/finished`, ends the tmux session, and records Completed without
   deleting the record, worktree, or transcript. Working is refused.
+  Finish recognizes a host-only squash whose sandbox snapshot still matches the last successful sync, treats that run as already synchronized, and keeps the squashed host HEAD.
 - Delete: refuses active runs unless `--discard`, and refuses `needs_sync` or
   `unknown` sync states. The persisted `synced` flag is not used as proof that
   newer sandbox work does not exist. Delete removes the sandbox first, then the
@@ -1021,6 +1022,7 @@ The existing fields keep their meanings: `synced` is the delete safety flag,
 `last_synced` is the host branch commit SHA, and `fingerprint` is the host
 worktree safety fingerprint used to refuse overwriting local changes. A failed
 sync leaves the last successful timestamp and sandbox fingerprint unchanged.
+A skipped no-op sync sets synced but leaves last_synced, fingerprint, last_successful_sync_at, and synced_sandbox_fingerprint unchanged.
 
 Run JSON also exposes a derived, non-persisted `sync_state`:
 
