@@ -284,7 +284,7 @@ func TestDeleteRetainsRunArtifactsWhenSandboxDeleteFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	artifactPaths := seedRunArtifacts(t, app.Store, run.ID)
-	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, run.Worktree))
+	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, run.Worktree, run.Branch))
 	base := runner.output
 	runner.output = func(call recordedCommand) ([]byte, error) {
 		if call.name == "openshell" && containsCommand(call.args, "sandbox", "delete") {
@@ -423,7 +423,7 @@ func TestDeleteRefusesUnsyncedRun(t *testing.T) {
 	if err := app.Store.SaveRun(run); err != nil {
 		t.Fatal(err)
 	}
-	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, sandbox))
+	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, sandbox, run.Branch))
 	app.Runner = runner
 	err = app.Delete(ctx, run.ID, false)
 	if err == nil || !strings.Contains(err.Error(), "unsynced") {
@@ -448,6 +448,38 @@ func TestDeleteRefusesUnknownSyncState(t *testing.T) {
 	assertNoSandboxRemoval(t, runner)
 }
 
+func TestDeleteRefusesWrongCheckoutRun(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	sandbox := cloneSandboxRepo(t, run)
+	cmd(t, sandbox, "git", "switch", "-q", "-c", "agent/delete-side-work")
+	if err := os.WriteFile(filepath.Join(sandbox, "side.txt"), []byte("side branch work\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd(t, sandbox, "git", "add", "side.txt")
+	cmd(t, sandbox, "git", "commit", "-qm", "side branch work")
+	run.Status = StatusCompleted
+	run.Synced = true
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, sandbox, run.Branch))
+	app.Runner = runner
+	err := app.Delete(context.Background(), run.ID, false)
+	if err == nil || !strings.Contains(err.Error(), "wrong checkout") || !strings.Contains(err.Error(), "pass --discard") {
+		t.Fatalf("wrong-checkout delete refusal = %v", err)
+	}
+	assertNoSandboxRemoval(t, runner)
+	if _, err := app.Store.LoadRun(run.ID); err != nil {
+		t.Fatalf("run record was removed: %v", err)
+	}
+	if _, err := os.Stat(run.Worktree); err != nil {
+		t.Fatalf("host worktree was removed: %v", err)
+	}
+	if branches := cmd(t, run.Source, "git", "branch", "--list", run.Branch); strings.TrimSpace(branches) == "" {
+		t.Fatalf("run branch was removed: %s", branches)
+	}
+}
+
 func TestDeleteRefusesReviewChanges(t *testing.T) {
 	app, run, _ := createSyncFixture(t)
 	run.Status = StatusStopped
@@ -458,7 +490,7 @@ func TestDeleteRefusesReviewChanges(t *testing.T) {
 	if err := app.Store.SaveRun(run); err != nil {
 		t.Fatal(err)
 	}
-	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, run.Worktree))
+	runner := newSyncRunnerWithProbe(t, nil, sandboxProbeJSON(t, run.Worktree, run.Branch))
 	app.Runner = runner
 	err := app.Delete(context.Background(), run.ID, false)
 	if err == nil || !strings.Contains(err.Error(), "review changes") {
@@ -625,6 +657,52 @@ func TestResumeRelaunchesExitedAgentInPlace(t *testing.T) {
 	stored, err := app.Store.LoadRun(run.ID)
 	if err != nil || stored.Status != StatusWorking {
 		t.Fatalf("resume did not return a working run: %+v, %v", stored, err)
+	}
+}
+
+func TestResumeSyncsWrongCheckoutBeforeLaunch(t *testing.T) {
+	app, run, sandbox, runner := newSyncStateFixture(t)
+	branchTip := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", "refs/heads/"+run.Branch))
+	cmd(t, sandbox, "git", "switch", "-q", "-c", "agent/resume-side-work")
+	if err := os.WriteFile(filepath.Join(sandbox, "side.txt"), []byte("side branch work\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd(t, sandbox, "git", "add", "side.txt")
+	cmd(t, sandbox, "git", "commit", "-qm", "side branch work")
+	sideHead := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", "HEAD"))
+	run.Status = StatusReady
+	run.Synced = false
+	run.SyncedSandboxFingerprint = ""
+	run.LastSuccessfulSyncAt = time.Time{}
+	if err := app.Store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	base := runner.output
+	launched := false
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		joined := strings.Join(call.args, " ")
+		if call.name == "openshell" && strings.Contains(joined, probeMarker) {
+			return []byte(exitedProbe), nil
+		}
+		if call.name == "openshell" && strings.Contains(joined, "agent-entry.sh") && (strings.Contains(joined, "tmux new-session") || strings.Contains(joined, "tmux send-keys")) {
+			launched = true
+			return nil, nil
+		}
+		if call.name == "openshell" && containsCommand(call.args, "/bin/sh", "-c") && strings.Contains(joined, "export.bundle") {
+			return []byte(sideHead + "\nagent/resume-side-work\n" + branchTip + "\n"), nil
+		}
+		return base(call)
+	}
+	err := app.Resume(context.Background(), run.ID)
+	if err == nil || !strings.Contains(err.Error(), "sync before resume failed") || !strings.Contains(err.Error(), "refusing sync") || !strings.Contains(err.Error(), "agent/resume-side-work") {
+		t.Fatalf("wrong-checkout resume refusal = %v", err)
+	}
+	if launched {
+		t.Fatal("resume launched the agent on the wrong checkout")
+	}
+	stored, err := app.Store.LoadRun(run.ID)
+	if err != nil || stored.Status != StatusReady {
+		t.Fatalf("run did not remain resumable: %+v, %v", stored, err)
 	}
 }
 

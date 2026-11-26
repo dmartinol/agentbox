@@ -2111,12 +2111,13 @@ describe('readable fleet layout', () => {
   });
 
   it('renders every sync state with text and a glyph in Fleet rows', async () => {
-    const states = ['no_changes', 'up_to_date', 'needs_sync', 'blocked', 'unknown'] as const;
+    const states = ['no_changes', 'up_to_date', 'needs_sync', 'blocked', 'wrong_checkout', 'unknown'] as const;
     const labels = {
       no_changes: 'No changes',
       up_to_date: 'Up to date',
       needs_sync: 'Sync needed',
       blocked: 'Sync blocked',
+      wrong_checkout: 'Wrong checkout',
       unknown: 'Unable to check'
     } as const;
     const stateRuns = states.map((state) => ({
@@ -2184,6 +2185,29 @@ describe('readable fleet layout', () => {
     const panel = await screen.findByRole('complementary', { name: 'Agent details' });
     expect(within(panel).getByText('Sync blocked')).toBeInTheDocument();
     expect(within(panel).getByText('The host run worktree changed, so sync will refuse to overwrite it.')).toBeInTheDocument();
+  });
+
+  it('explains a wrong-checkout sync refusal in agent details', async () => {
+    const wrongCheckoutRun = {
+      ...runs[0],
+      id: 'run-wrong-checkout',
+      name: 'wrong-checkout-run',
+      sync_state: 'wrong_checkout' as const,
+      last_successful_sync_at: '2026-01-01T10:30:00Z'
+    };
+    mockRoutes({
+      ...defaultRoutes(),
+      'GET /api/overview': { ...overview, tree: [], runs: [wrongCheckoutRun] },
+      'GET /api/runs': [wrongCheckoutRun]
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    const row = (await screen.findByText('wrong-checkout-run')).closest('tr');
+    if (!row) throw new Error('wrong-checkout row missing');
+    await user.click(row);
+    const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+    expect(within(panel).getByText('Wrong checkout')).toBeInTheDocument();
+    expect(within(panel).getByText('Sandbox HEAD is not the run branch tip, so sync is refused. Move the intended commit onto the run branch, then retry.')).toBeInTheDocument();
   });
 
   it('groups resolved profile defaults behind a disclosure when starting an agent', async () => {

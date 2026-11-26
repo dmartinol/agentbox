@@ -24,11 +24,12 @@ import (
 type SyncState string
 
 const (
-	SyncStateNoChanges SyncState = "no_changes"
-	SyncStateUpToDate  SyncState = "up_to_date"
-	SyncStateNeedsSync SyncState = "needs_sync"
-	SyncStateBlocked   SyncState = "blocked"
-	SyncStateUnknown   SyncState = "unknown"
+	SyncStateNoChanges     SyncState = "no_changes"
+	SyncStateUpToDate      SyncState = "up_to_date"
+	SyncStateNeedsSync     SyncState = "needs_sync"
+	SyncStateBlocked       SyncState = "blocked"
+	SyncStateWrongCheckout SyncState = "wrong_checkout"
+	SyncStateUnknown       SyncState = "unknown"
 )
 
 func (s SyncState) Label() string {
@@ -41,6 +42,8 @@ func (s SyncState) Label() string {
 		return "Sync needed"
 	case SyncStateBlocked:
 		return "Sync blocked"
+	case SyncStateWrongCheckout:
+		return "Wrong checkout"
 	case SyncStateUnknown:
 		return "Unable to check"
 	default:
@@ -71,6 +74,7 @@ type syncProbeCacheEntry struct {
 type syncSnapshot struct {
 	Branch     []byte              `json:"branch"`
 	Head       string              `json:"head"`
+	BranchTip  string              `json:"branch_tip"`
 	DiffSHA256 string              `json:"diff_sha256"`
 	Untracked  []syncSnapshotEntry `json:"untracked"`
 }
@@ -125,11 +129,17 @@ func (s syncSnapshot) clean(baseline string) bool {
 // sandboxSyncProbeScript prints one JSON object describing the outbound
 // snapshot in /workspace/project. It deliberately hashes only the tracked diff
 // and non-ignored untracked entries; clean tracked files are never read.
-const sandboxSyncProbeScript = `
+func sandboxSyncProbeScript(branch string) string {
+	encodedBranch, err := json.Marshal(branch)
+	if err != nil {
+		panic(err)
+	}
+	return `
 const { execFileSync } = require("child_process");
 const crypto = require("crypto");
 const fs = require("fs");
 const root = "/workspace/project";
+const runBranch = ` + string(encodedBranch) + `;
 function git(args) {
   return execFileSync("git", ["-C", root].concat(args), { maxBuffer: 256 * 1024 * 1024 });
 }
@@ -139,6 +149,7 @@ try {
   branch = Buffer.from(branch.toString("utf8").trim());
 } catch (_) {}
 const head = git(["rev-parse", "HEAD"]).toString("utf8").trim();
+const branchTip = git(["rev-parse", "--verify", "refs/heads/" + runBranch]).toString("utf8").trim();
 const diff = git(["diff", "HEAD", "--binary", "--full-index"]);
 const untracked = [];
 const raw = git(["ls-files", "--others", "--exclude-standard", "-z"]);
@@ -168,10 +179,12 @@ for (const name of names) {
 process.stdout.write(JSON.stringify({
   branch: branch.toString("base64"),
   head,
+  branch_tip: branchTip,
   diff_sha256: crypto.createHash("sha256").update(diff).digest("hex"),
   untracked
 }));
 `
+}
 
 func (a *App) syncProbeStore() *syncProbeStore {
 	syncProbeInitMu.Lock()
@@ -209,7 +222,7 @@ func (a *App) invalidateSyncProbe(id string) {
 }
 
 func (a *App) sandboxSyncSnapshot(ctx context.Context, r Run) (syncSnapshot, error) {
-	out, err := a.sandboxExec(ctx, r, "node", "-e", sandboxSyncProbeScript)
+	out, err := a.sandboxExec(ctx, r, "node", "-e", sandboxSyncProbeScript(r.Branch))
 	if err != nil {
 		return syncSnapshot{}, err
 	}
@@ -226,6 +239,9 @@ func (a *App) sandboxSyncSnapshot(ctx context.Context, r Run) (syncSnapshot, err
 func validateSyncSnapshot(snapshot syncSnapshot) error {
 	if snapshot.Head == "" {
 		return fmt.Errorf("sandbox sync probe returned no commit")
+	}
+	if snapshot.BranchTip == "" {
+		return fmt.Errorf("sandbox sync probe returned no run-branch tip")
 	}
 	if len(snapshot.DiffSHA256) != sha256.Size*2 {
 		return fmt.Errorf("sandbox sync probe returned an invalid diff fingerprint")
@@ -282,6 +298,9 @@ func (a *App) deriveSyncState(ctx context.Context, r Run, fresh bool) SyncState 
 	if err != nil {
 		return SyncStateUnknown
 	}
+	if snapshot.Head != snapshot.BranchTip {
+		return SyncStateWrongCheckout
+	}
 	if r.SyncedSandboxFingerprint == "" && snapshot.clean(r.Baseline) {
 		return SyncStateNoChanges
 	}
@@ -311,6 +330,7 @@ func snapshotFromExport(branch, head string, patch []byte, archive string) (sync
 	return syncSnapshot{
 		Branch:     []byte(branch),
 		Head:       head,
+		BranchTip:  head,
 		DiffSHA256: hashBytes(patch),
 		Untracked:  entries,
 	}, nil
@@ -361,13 +381,17 @@ func tarSnapshotEntries(path string) ([]syncSnapshotEntry, error) {
 // path uses it for tests and diagnostics; production success bookkeeping uses
 // snapshotFromExport so the recorded fingerprint comes from the transferred
 // snapshot itself.
-func collectSnapshotDir(ctx context.Context, runner CommandRunner, dir string) (syncSnapshot, error) {
+func collectSnapshotDir(ctx context.Context, runner CommandRunner, dir, expectedBranch string) (syncSnapshot, error) {
 	branchOut, err := runner.Output(ctx, "git", "-C", dir, "symbolic-ref", "--quiet", "--short", "HEAD")
 	var branch []byte
 	if err == nil {
 		branch = []byte(strings.TrimSpace(string(branchOut)))
 	}
 	headOut, err := runner.Output(ctx, "git", "-C", dir, "rev-parse", "HEAD")
+	if err != nil {
+		return syncSnapshot{}, err
+	}
+	branchTipOut, err := runner.Output(ctx, "git", "-C", dir, "rev-parse", "--verify", "refs/heads/"+expectedBranch)
 	if err != nil {
 		return syncSnapshot{}, err
 	}
@@ -418,6 +442,7 @@ func collectSnapshotDir(ctx context.Context, runner CommandRunner, dir string) (
 	return syncSnapshot{
 		Branch:     branch,
 		Head:       strings.TrimSpace(string(headOut)),
+		BranchTip:  strings.TrimSpace(string(branchTipOut)),
 		DiffSHA256: hashBytes(diffOut),
 		Untracked:  entries,
 	}, nil

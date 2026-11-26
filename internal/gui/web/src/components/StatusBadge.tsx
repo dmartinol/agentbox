@@ -121,6 +121,12 @@ const syncMeta: Record<SyncState, SyncMeta> = {
     explanation: 'The host run worktree changed, so sync will refuse to overwrite it.',
     glyph: <TriangleAlert className={glyphClass} />
   },
+  wrong_checkout: {
+    tone: 'danger',
+    label: 'Wrong checkout',
+    explanation: 'Sandbox HEAD is not the run branch tip, so sync is refused. Move the intended commit onto the run branch, then retry.',
+    glyph: <TriangleAlert className={glyphClass} />
+  },
   unknown: {
     tone: 'neutral',
     label: 'Unable to check',
