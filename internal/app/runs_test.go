@@ -160,6 +160,48 @@ func TestDeleteToleratesWorktreeRemovedOutOfBand(t *testing.T) {
 	}
 }
 
+func TestStartProvisioningFailureReportsUnavailableClockCheck(t *testing.T) {
+	ctx := context.Background()
+	createErr := errors.New("sandbox JWT validation failed: session token was issued in the future")
+	probeErr := errors.New("machine is not running")
+	fixture := newProvisioningClockFixture(t, createErr, 0, probeErr)
+	run, err := fixture.app.Start(ctx, StartOptions{
+		Profile: fixture.profile.Name,
+		Source:  fixture.source,
+		Gateway: "openshell",
+		Image:   "profile",
+	})
+	if !errors.Is(err, createErr) {
+		t.Fatalf("error = %v, want wrapped %v", err, createErr)
+	}
+	if run.Status != StatusFailed {
+		t.Fatalf("run status = %q, want %q", run.Status, StatusFailed)
+	}
+	for _, want := range []string{
+		"Podman VM clock could not be verified",
+		"machine is not running",
+		"`agentbox doctor`",
+		"Original error: " + createErr.Error(),
+	} {
+		if !strings.Contains(run.StatusDetail, want) {
+			t.Fatalf("status detail %q lacks %q", run.StatusDetail, want)
+		}
+	}
+	if strings.Contains(run.StatusDetail, "Signed delta (host UTC - VM UTC):") {
+		t.Fatalf("unavailable status detail unexpectedly reports a signed delta: %q", run.StatusDetail)
+	}
+	if len(run.StatusDetail) > statusDetailLimit {
+		t.Fatalf("status detail length = %d, want at most %d", len(run.StatusDetail), statusDetailLimit)
+	}
+	persisted, err := fixture.store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != StatusFailed || persisted.StatusDetail != run.StatusDetail {
+		t.Fatalf("persisted run = %+v, want failed run with detail %q", persisted, run.StatusDetail)
+	}
+}
+
 func TestDeleteRemovesAllRunArtifactsPoliciesAndRecord(t *testing.T) {
 	app, run, _ := createSyncFixture(t)
 	policy, pending, fragment := seedRunPolicies(t, app.Store, run)
@@ -1761,15 +1803,16 @@ func TestBootstrapSavesTheRenderedScreenBeforeRemovingTheSession(t *testing.T) {
 }
 
 type provisioningClockFixture struct {
-	app       App
-	store     Store
-	profile   Profile
-	source    string
-	createErr error
-	clockSkew time.Duration
+	app           App
+	store         Store
+	profile       Profile
+	source        string
+	createErr     error
+	clockSkew     time.Duration
+	clockProbeErr error
 }
 
-func newProvisioningClockFixture(t *testing.T, createErr error, clockSkew time.Duration) provisioningClockFixture {
+func newProvisioningClockFixture(t *testing.T, createErr error, clockSkew time.Duration, clockProbeErr error) provisioningClockFixture {
 	t.Helper()
 	ctx := context.Background()
 	source := filepath.Join(t.TempDir(), "source")
@@ -1817,6 +1860,9 @@ func newProvisioningClockFixture(t *testing.T, createErr error, clockSkew time.D
 		case call.name == "openshell" && commandHasArg(call, "provider"):
 			return []byte(`{"providers":[{"name":"unit-provider","type":"gateway-bearer"}]}`), nil
 		case call.name == "podman" && commandHasArg(call, "machine"):
+			if clockProbeErr != nil {
+				return nil, clockProbeErr
+			}
 			return []byte(time.Now().UTC().Add(-clockSkew).Format(time.RFC3339)), nil
 		case call.name == "podman" && commandHasArg(call, "inspect"):
 			return []byte(`{}`), nil
@@ -1825,12 +1871,30 @@ func newProvisioningClockFixture(t *testing.T, createErr error, clockSkew time.D
 		}
 	}}
 	return provisioningClockFixture{
-		app:       App{Store: store, Runner: runner},
-		store:     store,
-		profile:   profile,
-		source:    source,
-		createErr: createErr,
-		clockSkew: clockSkew,
+		app:           App{Store: store, Runner: runner},
+		store:         store,
+		profile:       profile,
+		source:        source,
+		createErr:     createErr,
+		clockSkew:     clockSkew,
+		clockProbeErr: clockProbeErr,
+	}
+}
+
+func TestIsProvisioningClockFailure(t *testing.T) {
+	cases := []struct {
+		message string
+		want    bool
+	}{
+		{message: "sandbox JWT validation failed: session token was issued in the future", want: true},
+		{message: "SANDBOX JWT VALIDATION FAILED: SESSION TOKEN WAS ISSUED IN THE FUTURE", want: true},
+		{message: "ContainerExited: sandbox failed during provisioning", want: true},
+		{message: "disk space exhausted", want: false},
+	}
+	for _, tc := range cases {
+		if got := isProvisioningClockFailure(errors.New(tc.message)); got != tc.want {
+			t.Fatalf("isProvisioningClockFailure(%q) = %v, want %v", tc.message, got, tc.want)
+		}
 	}
 }
 
@@ -1844,8 +1908,8 @@ func TestStartProvisioningFailureReportsClockSkew(t *testing.T) {
 		futureText bool
 	}{
 		{
-			name:       "future token with 27 second skew",
-			createErr:  errors.New("future-token: token is not valid yet"),
+			name:       "future session token with 27 second skew",
+			createErr:  errors.New("sandbox JWT validation failed: session token was issued in the future"),
 			clockSkew:  27 * time.Second,
 			signed:     "+27",
 			futureText: true,
@@ -1865,7 +1929,7 @@ func TestStartProvisioningFailureReportsClockSkew(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fixture := newProvisioningClockFixture(t, tc.createErr, tc.clockSkew)
+			fixture := newProvisioningClockFixture(t, tc.createErr, tc.clockSkew, nil)
 			run, err := fixture.app.Start(ctx, StartOptions{
 				Profile: fixture.profile.Name,
 				Source:  fixture.source,
@@ -1915,11 +1979,11 @@ func TestStartProvisioningFailureReportsClockSkew(t *testing.T) {
 func TestStartProvisioningFailureWithoutSkewKeepsOriginalDetail(t *testing.T) {
 	ctx := context.Background()
 	for _, createErr := range []error{
-		errors.New("future-token: token is not valid yet"),
+		errors.New("sandbox JWT validation failed: session token was issued in the future"),
 		errors.New("ContainerExited: sandbox failed during provisioning"),
 	} {
 		t.Run(createErr.Error(), func(t *testing.T) {
-			fixture := newProvisioningClockFixture(t, createErr, 0)
+			fixture := newProvisioningClockFixture(t, createErr, 0, nil)
 			run, err := fixture.app.Start(ctx, StartOptions{
 				Profile: fixture.profile.Name,
 				Source:  fixture.source,

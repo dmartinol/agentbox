@@ -347,15 +347,16 @@ func (a *App) provisioningClockDiagnosis(ctx context.Context, err error) (Check,
 		return Check{}, false
 	}
 	check := a.podmanClockCheck(ctx, time.Now)
-	if check.State != CheckStateFail {
+	if check.State != CheckStateFail && check.State != CheckStateUnavailable {
 		return Check{}, false
 	}
 	return check, true
 }
 
 func isProvisioningClockFailure(err error) bool {
-	message := err.Error()
-	return strings.Contains(message, "future-token") || strings.Contains(strings.ToLower(message), "containerexited")
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "session token was issued in the future") ||
+		strings.Contains(message, "containerexited")
 }
 
 func provisioningClockStatusDetail(diagnosis string, cause error) string {
