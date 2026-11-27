@@ -1373,10 +1373,21 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		}
 		return a.Attach(ctx, args[1])
 	case "logs":
-		if err := need(args[1:], 1); err != nil {
+		f := flags("agent logs")
+		raw := f.Bool("raw", false, "read the raw agent stream instead of the rendered terminal output")
+		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
-		b, err := a.Logs(ctx, args[1])
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		var b []byte
+		var err error
+		if *raw {
+			b, err = a.RawLogs(ctx, f.Args()[0])
+		} else {
+			b, err = a.Logs(ctx, f.Args()[0])
+		}
 		if err != nil {
 			return err
 		}

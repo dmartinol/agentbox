@@ -798,6 +798,8 @@ type RunLogs struct {
 
 const logSourceMarker = "agentbox-source:"
 
+const rawAgentLogPath = "/workspace/state/agent.log"
+
 // logSourcePrint reports the source the log script chose. The GUI splits this
 // line from the text so it can label a fallback instead of presenting it as
 // normal output.
@@ -889,6 +891,22 @@ func (a *App) runLogs(ctx context.Context, id string, limit int) (RunLogs, error
 func (a *App) Logs(ctx context.Context, id string) ([]byte, error) {
 	logs, err := a.LogOutput(ctx, id)
 	return []byte(logs.Text), err
+}
+
+// RawLogs returns the agent's raw stream without terminal rendering.
+func (a *App) RawLogs(ctx context.Context, id string) ([]byte, error) {
+	r, err := a.Store.LoadRun(id)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := a.sandboxExec(ctx, r, "test", "-f", rawAgentLogPath); err != nil {
+		return nil, fmt.Errorf("raw stream is missing for run %s; expected %s in sandbox %s: %w", id, rawAgentLogPath, r.Sandbox, err)
+	}
+	out, err := a.sandboxExec(ctx, r, "cat", rawAgentLogPath)
+	if err != nil {
+		return nil, fmt.Errorf("read raw stream for run %s (%s): %w", id, rawAgentLogPath, err)
+	}
+	return out, nil
 }
 
 // LogOutput is Logs with the source that produced the text.

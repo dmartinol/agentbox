@@ -2177,6 +2177,23 @@ func TestLogOutputPrefersTheRenderedPane(t *testing.T) {
 	}
 }
 
+func TestLogsDefaultUsesTheRenderedScreenWhenSessionExists(t *testing.T) {
+	app, run := logFixture(t, func(recordedCommand) ([]byte, error) {
+		return []byte("agentbox-source:screen\nrendered screen\n"), nil
+	})
+	logs, err := app.Logs(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(logs) != "rendered screen\n" {
+		t.Fatalf("default logs = %q", logs)
+	}
+	script := lastSandboxScript(t, app.Runner.(*fakeRunner))
+	if !strings.Contains(script, "capture-pane") {
+		t.Fatalf("default logs did not prefer the rendered pane: %s", script)
+	}
+}
+
 func TestLogOutputReportsTheSnapshotSource(t *testing.T) {
 	app, run := logFixture(t, func(recordedCommand) ([]byte, error) {
 		return []byte("agentbox-source:snapshot\nfinal screen\n"), nil
@@ -2201,6 +2218,37 @@ func TestLogOutputKeepsTheRawStreamUntrimmed(t *testing.T) {
 	}
 	if logs.Source != LogSourceStream || logs.Text != raw {
 		t.Fatalf("raw stream = %+v", logs)
+	}
+}
+
+func TestRawLogsReturnsALongSingleLineArtifactIntact(t *testing.T) {
+	raw := strings.Repeat("artifact-", 26)
+	app, run := logFixture(t, func(recordedCommand) ([]byte, error) {
+		return []byte(raw), nil
+	})
+	got, err := app.RawLogs(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != raw || strings.ContainsRune(string(got), '\n') {
+		t.Fatalf("raw logs = %q", got)
+	}
+	script := lastSandboxScript(t, app.Runner.(*fakeRunner))
+	if !strings.Contains(script, "cat "+rawAgentLogPath) || strings.Contains(script, "capture-pane") {
+		t.Fatalf("raw logs did not read the raw stream: %s", script)
+	}
+}
+
+func TestRawLogsReportsMissingRawStream(t *testing.T) {
+	app, run := logFixture(t, func(call recordedCommand) ([]byte, error) {
+		if containsCommand(call.args, "test", "-f") && commandHasArg(call, rawAgentLogPath) {
+			return nil, errors.New("file not found")
+		}
+		return nil, nil
+	})
+	_, err := app.RawLogs(context.Background(), run.ID)
+	if err == nil || !strings.Contains(err.Error(), "raw stream is missing") || !strings.Contains(err.Error(), rawAgentLogPath) {
+		t.Fatalf("missing raw stream error = %v", err)
 	}
 }
 
