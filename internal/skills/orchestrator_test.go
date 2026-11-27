@@ -240,6 +240,76 @@ func TestOrchestratorSkillStageDispatch(t *testing.T) {
 	)
 }
 
+// TestOrchestratorSkillImplementationBaseSHA requires a recorded starting
+// commit and a stale-base check before the changed-file list can be trusted.
+func TestOrchestratorSkillImplementationBaseSHA(t *testing.T) {
+	wantAll(t, collapsed(t),
+		"Before accepting `changed_files`, compare the implementer handoff's `base_sha` with the issue's current base commit",
+		"A stale base is a handoff violation: block publication and rebase or restart the implementation from the current base",
+	)
+}
+
+// TestSkillAgentLogsRawForExactStageText distinguishes rendered reads from
+// byte-exact evidence capture.
+func TestSkillAgentLogsRawForExactStageText(t *testing.T) {
+	cli, err := Embedded("agentbox-cli", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAll(t, string(cli),
+		"agentbox agent logs RUN_ID        # rendered terminal output for a quick read",
+		"agentbox agent logs --raw RUN_ID  # exact raw agent stream",
+		"The default form reads the rendered tmux pane and deliberately omits terminal escape sequences and repaint frames",
+		"`--raw` preserves the exact bytes of the raw agent stream; use it when the output will be captured, quoted, or digested",
+	)
+
+	wantAll(t, collapsed(t),
+		"Use `agentbox agent logs RUN_ID` only for a quick rendered read",
+		"When capturing exact stage text — for evidence, quoted output, or digesting bytes — use `agentbox agent logs --raw RUN_ID`",
+		"it preserves the raw agent stream, while the rendered form deliberately removes terminal escape sequences and repaint frames",
+	)
+}
+
+// TestOrchestratorConventionalCommitTypeMatchesPRMetadata pins both outcomes
+// of the final-commit, title, and Kind comparison.
+func TestOrchestratorConventionalCommitTypeMatchesPRMetadata(t *testing.T) {
+	conventionalCommitType := func(subject string) string {
+		typeAndScope, _, _ := strings.Cut(subject, ":")
+		commitType, _, _ := strings.Cut(typeAndScope, "(")
+		return commitType
+	}
+	for _, tc := range []struct {
+		commitSubject string
+		title         string
+		kind          string
+		wantMatch     bool
+	}{
+		{commitSubject: "docs(skill): require the full verify artifact schema", title: "docs(skill): require the full verify artifact schema", kind: "docs", wantMatch: true},
+		{commitSubject: "feat(cli): add a command", title: "fix(cli): add a command", kind: "fix", wantMatch: false},
+	} {
+		commitType := conventionalCommitType(tc.commitSubject)
+		titleType := conventionalCommitType(tc.title)
+		gotMatch := commitType == titleType && commitType == tc.kind
+		if gotMatch != tc.wantMatch {
+			t.Fatalf("match for %q, %q, %q = %t", tc.commitSubject, tc.title, tc.kind, gotMatch)
+		}
+	}
+
+	wantAll(t, collapsed(t),
+		"Parse the Conventional Commits type from the final commit subject",
+		"require the pull request title type and `## At a glance` Kind to match it",
+		"A mismatch blocks publication with `commit type mismatch: final commit <type>, PR title <type>, At a glance Kind <type>; amend the final commit subject or update the PR title and Kind consistently`",
+	)
+	pr, err := EmbeddedFile("agentbox-orchestrator", "pr.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAll(t, string(pr),
+		"Before publication, parse the Conventional Commits type from the final commit subject and make the pull request title type and At a glance Kind match it.",
+		"| Kind | feat / fix / docs / refactor / chore — must equal the final commit subject type |",
+	)
+}
+
 // TestOrchestratorSkillFeedbackFollowUps pins the flow changes made after the
 // first long orchestration run: a simple-fix fast path, completed stage
 // records, concurrent verify and review, and the state comment's purpose.
@@ -259,6 +329,31 @@ func TestOrchestratorSkillFeedbackFollowUps(t *testing.T) {
 		"Codex provisions its helper aliases under `$CODEX_HOME/tmp`",
 		"Do not accept a hand-built patch shim as the fix",
 	)
+}
+
+// TestOrchestratorIndependentChecksPendingDuringOverlap keeps pending rows
+// expected while verify and review run concurrently at the same head.
+func TestOrchestratorIndependentChecksPendingDuringOverlap(t *testing.T) {
+	for name, wants := range map[string][]string{
+		"pr.md": {
+			"Pending rows are expected while verification and review overlap at the same commit",
+			"they become missing evidence only after a stage due at that commit fails to report",
+		},
+		"review-task.md": {
+			"Treat an `Independent checks` row still `pending` during the verify/review overlap as not yet available",
+			"do not raise a finding for the pending row itself",
+		},
+		"verdict.md": {
+			"Independent checks: not yet available — `pending` during the verify/review overlap",
+			"a pending row itself is not a finding",
+		},
+	} {
+		content, err := EmbeddedFile("agentbox-orchestrator", name, "9.9.9")
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantAll(t, string(content), wants...)
+	}
 }
 
 // TestOrchestratorSkillPinsExactHeadSHA requires verify and review workers to
@@ -796,17 +891,29 @@ func TestOrchestratorSkillFindingLedger(t *testing.T) {
 	)
 }
 
-// TestOrchestratorSkillVerifyIsNotAReviewer keeps verify to gates and
-// observations and forbids promoting an observation into a requirement.
+// TestOrchestratorSkillVerifyIsNotAReviewer requires the full verify artifact
+// while forbidding verifier judgments.
 func TestOrchestratorSkillVerifyIsNotAReviewer(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
-		"reports only `gates` and `observations`",
+		"reports the complete `verify-task.md` artifact schema — `commit`, `result`, `head_check`, `gates`, `git_probe`, and `observations`",
 		"it never reports required changes, findings, or a verdict",
 		"it is not a second reviewer",
 		"MUST NOT forward a verifier observation to the reviewer as a requirement",
 		"observations enter the ledger only after the reviewer classifies them",
 	)
+
+	verifyTask, err := EmbeddedFile("agentbox-orchestrator", "verify-task.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyBody := string(verifyTask)
+	wantAll(t, verifyBody,
+		"Return every key in the Output block: `commit`, `result`, `head_check`, `gates`, `git_probe`, and `observations`",
+	)
+	if strings.Contains(verifyBody, "Return only `gates` and `observations`") {
+		t.Fatal("verify task returned to the partial artifact schema")
+	}
 }
 
 // TestOrchestratorSkillReviewCap pins the hard cap and its single exit

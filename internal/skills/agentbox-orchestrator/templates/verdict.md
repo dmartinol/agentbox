@@ -42,6 +42,7 @@ State the basis on the face of the verdict, not only in the footer:
 - Reviewed range: `base..<full-sha>` for cycle 1, `prev_head..<full-sha>` for later cycles.
 - Head check: `git diff <reviewed-sha>..HEAD --stat` is empty.
 - Gates observed: `<command>` — result.
+- Independent checks: not yet available — `pending` during the verify/review overlap; a pending row itself is not a finding.
 - Worktree: fresh checkout at the pull request head, not the implementer's worktree.
 - Real-git probe: the observed result per state, when the change derives behavior from git state.
 

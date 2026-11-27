@@ -35,7 +35,7 @@ it and never rewrites the plan. Repository contract: AGENTS.md.
 
 ## Gate list
 
-Use the repository's Makefile targets rather than the raw tool invocation. A raw `npm` command inside the sandbox can fail with `EACCES` on the cache; `make test` and `make build` already wrap it with a writable cache.
+Use the repository's Makefile targets rather than the raw tool invocation. A raw `npm` command inside the sandbox can fail with `EACCES` on the cache; `make test` and `make build` already wrap it with a writable cache. Every focused Vitest gate names the exact resolved test file path, not only a package or directory filter.
 
 | Gate | Command | Why it must pass |
 | --- | --- | --- |

@@ -94,6 +94,7 @@ func TestEmbeddedHandoffRoleContracts(t *testing.T) {
 		shell                 bool
 		materializedInputPath string
 		legacyPhrases         []string
+		roleSpecificRules     []string
 	}
 
 	cases := []handoffRoleContract{
@@ -114,6 +115,10 @@ func TestEmbeddedHandoffRoleContracts(t *testing.T) {
 			shell:                 true,
 			materializedInputPath: "",
 			legacyPhrases:         []string{"return the result in one final message"},
+			roleSpecificRules: []string{
+				"Write `.agentbox-stage/implement-<iteration>.md` with exactly these top-level result fields: `base_sha`, `commit`, `branch`, `changed_files`, `gates`, and `remaining_risk`.",
+				"Record the exact commit the sandbox started from as `base_sha` before making changes; do not substitute the final head, a tree-equal snapshot, or a remembered base.",
+			},
 		},
 		{
 			name:                  "agentbox-fixer",
@@ -222,6 +227,7 @@ func TestEmbeddedHandoffRoleContracts(t *testing.T) {
 			if !tc.write {
 				requiredInstructions = append(requiredInstructions, "Write the handoff only through your retained shell after confirming its path is untracked; do not use a native edit tool.")
 			}
+			requiredInstructions = append(requiredInstructions, tc.roleSpecificRules...)
 			for _, phrase := range requiredInstructions {
 				if !strings.Contains(instructions, phrase) {
 					t.Fatalf("role %s is missing instruction %q", tc.name, phrase)
@@ -623,6 +629,27 @@ func TestEmbeddedRoleContracts(t *testing.T) {
 		"The orchestrator, not you, applies every label and state change",
 		"without adding another workflow label",
 		"single action that unblocks it",
+		"When the issue asserts a concrete implementation fact the snapshot cannot verify — such as a derived filesystem path or a default value — do not use `ready-simple`; return `ready` so the planner resolves the fact from source before writing acceptance criteria",
+	)
+
+	planner, err := RoleByName("agentbox-planner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAll(t, flat(planner.Instructions),
+		"Resolve every concrete implementation fact the issue or triage disposition asserts — such as a derived filesystem path or a default value — from source before recording acceptance criteria",
+		"never carry an unverified snapshot assertion into the criteria",
+		"For every focused Vitest gate, resolve and record the exact test file path; a package or directory filter alone is not a focused gate",
+	)
+	plan, err := EmbeddedFile("agentbox-orchestrator", "plan.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAll(t, string(plan),
+		"Every focused Vitest gate names the exact resolved test file path, not only a package or directory filter",
+	)
+	wantAll(t, collapsed(t),
+		"Every focused Vitest gate must name the resolved test file path; a package-only or directory-only command is not focused enough for the plan or task spec",
 	)
 
 	implementer, err := RoleByName("agentbox-implementer")

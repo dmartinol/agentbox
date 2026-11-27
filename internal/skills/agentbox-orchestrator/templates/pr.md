@@ -11,6 +11,8 @@ What changed, Reviewer guide, Changes, Evidence, AGENTS.md check, Risks, and
 Follow-ups. The verifier fills only its row under Independent checks. The
 reviewer fills only its row and Follow-ups. The orchestrator owns the
 provenance line, the footer, and merge. Repository contract: AGENTS.md.
+
+Before publication, parse the Conventional Commits type from the final commit subject and make the pull request title type and At a glance Kind match it.
 -->
 
 Closes #<issue>
@@ -19,7 +21,7 @@ Closes #<issue>
 
 | Field | Value |
 | --- | --- |
-| Kind | feat / fix / docs / refactor / chore |
+| Kind | feat / fix / docs / refactor / chore — must equal the final commit subject type |
 | Issue | `#<issue>` — what it delivers, slice `n/m` of `#<epic>` |
 | Workflow | `workflow-id` · [agent roles](../blob/HEAD/README.md#agent-roles) |
 | Surface | CLI `command` · Fleet · Setup → tab · API · skills · backend only |
@@ -65,7 +67,7 @@ Results at the reviewed commit, not at the implementer's last local edit.
 | Vet | `make vet` | pass | `sha` |
 | Build | `make build` | pass | `sha` |
 
-**Independent checks** — the orchestrator fills these in; `pending` until the stage reports.
+**Independent checks** — the orchestrator fills these in; `pending` until the stage reports. Pending rows are expected while verification and review overlap at the same commit, and they become missing evidence only after a stage due at that commit fails to report.
 
 | Stage | Role | Result | Evidence |
 | --- | --- | --- | --- |
