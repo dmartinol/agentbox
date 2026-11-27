@@ -6,11 +6,28 @@ command: provider
 order: 8
 subcommands:
   - setup
+  - list
 ---
 
 Providers register inference endpoints with OpenShell. Provider configuration
 is separate from per-run agent configuration; gateway-mode profiles reference
 a provider by name.
+
+## list
+{: #provider-list }
+
+List providers registered with OpenShell.
+
+```text
+agentbox provider list [--gateway NAME] [--json]
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--gateway` | — | Gateway whose providers should be listed. |
+| `--json` | `false` | Print the OpenShell provider records as JSON. |
+
+Without `--json`, provider names and kinds are printed as text rows.
 
 ## setup
 {: #provider-setup }
