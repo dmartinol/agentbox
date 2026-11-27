@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -18,7 +19,7 @@ func orchestratorCmd(a *app.App, args []string) error {
 	case "config":
 		return orchestratorConfigCmd(a, args)
 	case "gate":
-		return orchestratorGateCmd(args[1:])
+		return orchestratorGateCmd(a, args[1:])
 	default:
 		return fmt.Errorf("orchestrator config path|show|validate · gate pr-body|pr-merge required")
 	}
@@ -80,7 +81,7 @@ func orchestratorConfigCmd(a *app.App, args []string) error {
 	return fmt.Errorf("unknown orchestrator config command %q", args[1])
 }
 
-func orchestratorGateCmd(args []string) error {
+func orchestratorGateCmd(a *app.App, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("orchestrator gate pr-body|pr-merge required")
 	}
@@ -90,6 +91,9 @@ func orchestratorGateCmd(args []string) error {
 		prBodyPath := f.String("pr-body", "", "pull request body file")
 		issueBodyPath := f.String("issue-body", "", "issue body file")
 		issueNumber := f.Int("issue", 0, "issue number")
+		headSHA := f.String("head", "", "reviewed head SHA")
+		baseRef := f.String("base", "", "base ref for the reviewed diff stat")
+		repo := f.String("repo", ".", "repository checkout")
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -105,6 +109,9 @@ func orchestratorGateCmd(args []string) error {
 		if *issueNumber <= 0 {
 			return fmt.Errorf("orchestrator gate pr-body requires --issue")
 		}
+		if strings.TrimSpace(*baseRef) != "" && strings.TrimSpace(*headSHA) == "" {
+			return fmt.Errorf("orchestrator gate pr-body --base also requires --head")
+		}
 		prBody, err := os.ReadFile(*prBodyPath)
 		if err != nil {
 			return err
@@ -115,6 +122,20 @@ func orchestratorGateCmd(args []string) error {
 		}
 		if err := app.ValidateReviewPRBody(string(prBody), string(issueBody), *issueNumber); err != nil {
 			return err
+		}
+		if strings.TrimSpace(*headSHA) != "" {
+			if err := app.ValidateReviewEvidenceAtHead(string(prBody), strings.TrimSpace(*headSHA)); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(*headSHA) != "" && strings.TrimSpace(*baseRef) != "" {
+			stat, err := a.DiffStat(context.Background(), strings.TrimSpace(*repo), strings.TrimSpace(*baseRef), strings.TrimSpace(*headSHA))
+			if err != nil {
+				return err
+			}
+			if err := app.ValidateReviewPRSize(string(prBody), stat); err != nil {
+				return err
+			}
 		}
 		fmt.Println("pr-body: valid")
 		return nil
@@ -164,6 +185,9 @@ func orchestratorGateCmd(args []string) error {
 				}
 				return err
 			}
+		}
+		if err := app.ValidateReviewEvidenceAtHead(string(prBody), strings.TrimSpace(*headSHA)); err != nil {
+			return err
 		}
 		if err := app.ValidateReviewChecks(string(prBody), strings.TrimSpace(*headSHA)); err != nil {
 			return err

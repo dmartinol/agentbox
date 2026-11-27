@@ -1,13 +1,15 @@
 ---
 layout: docs
-title: Orchestrator configuration commands
-nav_title: Orchestrator configuration
+title: Orchestrator commands
+nav_title: Orchestrator
 command: orchestrator
 order: 13
 subcommands:
   - config path
   - config show
   - config validate
+  - gate pr-body
+  - gate pr-merge
 ---
 
 `agentbox orchestrator config` reads the user-owned registry that selects the
@@ -19,6 +21,11 @@ repositories at `$AGENTBOX_HOME/orchestration.yaml` (default
 The registry never contains credentials. Refer to credential environment
 variables by name only, and start the GUI, gateway, and agent processes in an
 environment where those variables exist.
+
+`agentbox orchestrator gate` runs the offline pull request gates the skill calls
+before dispatch and before merge. Both gates read files from the host, print a
+single confirmation line on success, and exit non-zero on the first failing
+check.
 
 The shipped skill is the consumer of these commands. It resolves the registry
 with `config show --json`, reports the selected configuration and inherited
@@ -361,4 +368,77 @@ path in the registry.
 ```sh
 agentbox orchestrator config validate
 agentbox orchestrator config validate --file ./orchestration.yaml --json
+```
+
+## gate pr-body
+{: #orchestrator-gate-pr-body }
+
+Check a pull request body against its issue and, when the reviewed head is
+known, against the diff at that head.
+
+```text
+agentbox orchestrator gate pr-body --pr-body PATH --issue-body PATH --issue N [--head SHA [--base REF [--repo DIR]]]
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--pr-body` | — | Pull request body file. Required. |
+| `--issue-body` | — | Issue body file whose acceptance criteria must match. Required. |
+| `--issue` | — | Issue number the body must close with `Closes #N`. Required. |
+| `--head` | — | Reviewed head SHA. Enables the Evidence row check. |
+| `--base` | — | Base ref of the reviewed diff. Requires `--head` and enables the Size row check. |
+| `--repo` | `.` | Checkout used for `git diff --numstat <base>..<head>`. |
+
+The gate always checks the provenance marker, the acceptance criteria list, and
+the `Closes` line. With `--head`, every data row of the `## Evidence` table must
+name that head in its Commit cell as the full 40-character SHA or an unambiguous
+prefix of at least seven hexadecimal characters; a stale or foreign commit
+fails. With `--base` as well, the `Size` row must agree with
+`git diff --numstat <base>..<head>` on the file count, insertions, and
+deletions. The commit count in that row is not checked. The two
+`Independent checks` rows are never read by these two checks.
+
+The gate prints `pr-body: valid` and exits 0 on success, or prints the first
+failing field and exits non-zero.
+
+**Example**
+
+```sh
+agentbox orchestrator gate pr-body --pr-body /tmp/pr-body.md \
+  --issue-body /tmp/issue-body.md --issue 215 \
+  --head "$(git rev-parse HEAD)" --base origin/main
+```
+
+## gate pr-merge
+{: #orchestrator-gate-pr-merge }
+
+Check the body about to merge against the reviewed body and the merge head.
+
+```text
+agentbox orchestrator gate pr-merge --pr-body PATH --head SHA [--reviewed-body PATH --reviewed-body-sha256 HEX64]
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--pr-body` | — | Pull request body file. Required. |
+| `--head` | — | Merge head SHA. Required; must be the full 40-character commit SHA. |
+| `--reviewed-body` | — | Durable copy of the reviewed body, taken when review was dispatched. |
+| `--reviewed-body-sha256` | — | Exact lowercase SHA-256 of the reviewed body file. |
+
+The gate requires the reviewed body and its digest together. It rejects a
+digest mismatch, and it compares the canonical forms so only the two
+`Independent checks` rows may change between the reviewed body and the current
+one. Every `## Evidence` row must name the merge head, and both
+`Independent checks` rows must be filled and link only that head.
+
+The gate prints `pr-merge: valid` and exits 0 on success, or prints the first
+failing check and exits non-zero.
+
+**Example**
+
+```sh
+agentbox orchestrator gate pr-merge --pr-body /tmp/pr-body.md \
+  --head 0b4deea8f5fbb846a8419d21db28e73c81ddc065 \
+  --reviewed-body ~/.agentbox/orchestrator/workflow/review-1-pr-body.md \
+  --reviewed-body-sha256 "$(shasum -a 256 /tmp/reviewed.md | cut -d' ' -f1)"
 ```

@@ -3,9 +3,11 @@ package app
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -189,6 +191,135 @@ func TestValidateReviewChecks(t *testing.T) {
 				t.Fatalf("ValidateReviewChecks() error = %v, want %q", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func sizeEvidenceReviewPRBody(size string, commits ...string) string {
+	body := "<!-- orchestrator-workflow: {\"workflow\":\"workflow\",\"commit\":\"0123456789abcdef0123456789abcdef01234567\"} -->\n\n"
+	body += "Closes #151\n\n## Acceptance criteria\n\n- [ ] Add the gate.\n\n"
+	body += "## At a glance\n\n| Field | Value |\n| --- | --- |\n| Size | " + size + " |\n\n"
+	body += "## Evidence\n\n| Gate | Command | Result | Commit |\n| --- | --- | --- | --- |\n"
+	for index, commit := range commits {
+		body += "| Gate " + fmt.Sprintf("%d", index+1) + " | command | pass | " + commit + " |\n"
+	}
+	body += "\n**Independent checks**\n\n| Stage | Role | Result | Evidence |\n| --- | --- | --- | --- |\n"
+	body += "| Verify | agentbox-verifier | gates pass | 0123456789abcdef0123456789abcdef01234567 |\n"
+	body += "| Review | agentbox-reviewer | approve | 0123456789abcdef0123456789abcdef01234567 |\n"
+	return body
+}
+
+func TestValidateReviewPRBodyEvidenceAcceptsEscapedPipes(t *testing.T) {
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	body := strings.Replace(
+		sizeEvidenceReviewPRBody("1 files · 1 commits · +2/−3", head),
+		"| Gate 1 | command | pass |",
+		"| Gate 1 | `go test -run 'A\\|B'` | pass |",
+		1,
+	)
+	if err := ValidateReviewEvidenceAtHead(body, head); err != nil {
+		t.Fatalf("ValidateReviewEvidenceAtHead() error = %v", err)
+	}
+}
+
+func TestValidateReviewPRBodySize(t *testing.T) {
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	tests := []struct {
+		name    string
+		size    string
+		stat    DiffStat
+		wantErr string
+	}{
+		{
+			name: "green with backticks and ASCII minus",
+			size: "`1 files · 1 commits · +2/-3`",
+			stat: DiffStat{Files: 1, Insertions: 2, Deletions: 3},
+		},
+		{
+			name:    "wrong file count",
+			size:    "2 files · 1 commits · +2/−3",
+			stat:    DiffStat{Files: 1, Insertions: 2, Deletions: 3},
+			wantErr: "PR body Size row says 2 files, +2/−3; reviewed head " + head + " has 1 files, +2/−3; refresh the Size row from git diff --stat at the reviewed head",
+		},
+		{
+			name:    "wrong insertions",
+			size:    "1 files · 1 commits · +3/−3",
+			stat:    DiffStat{Files: 1, Insertions: 2, Deletions: 3},
+			wantErr: "PR body Size row says 1 files, +3/−3; reviewed head " + head + " has 1 files, +2/−3; refresh the Size row from git diff --stat at the reviewed head",
+		},
+		{
+			name:    "wrong deletions",
+			size:    "1 files · 1 commits · +2/−4",
+			stat:    DiffStat{Files: 1, Insertions: 2, Deletions: 3},
+			wantErr: "PR body Size row says 1 files, +2/−4; reviewed head " + head + " has 1 files, +2/−3; refresh the Size row from git diff --stat at the reviewed head",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateReviewPRSize(sizeEvidenceReviewPRBody(test.size, head), test.stat)
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateReviewPRSize() error = %v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != test.wantErr {
+				t.Fatalf("ValidateReviewPRSize() error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateReviewPRBodyEvidenceAtHead(t *testing.T) {
+	const head = "0123456789abcdef0123456789abcdef01234567"
+	const foreign = "fedcba9876543210fedcba9876543210fedcba98"
+	tests := []struct {
+		name    string
+		commits []string
+		wantErr string
+	}{
+		{name: "full SHA", commits: []string{head}},
+		{name: "seven-character prefix", commits: []string{head[:7]}},
+		{
+			name:    "stale full SHA",
+			commits: []string{foreign},
+			wantErr: "Evidence Gate 1 row: Commit \"" + foreign + "\" does not name reviewed head " + head + "; use the full SHA or an unambiguous prefix of at least 7 hexadecimal characters",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateReviewEvidenceAtHead(sizeEvidenceReviewPRBody("1 files · 1 commits · +2/−3", test.commits...), head)
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateReviewEvidenceAtHead() error = %v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != test.wantErr {
+				t.Fatalf("ValidateReviewEvidenceAtHead() error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestDiffStat(t *testing.T) {
+	runner := &fakeRunner{output: func(recordedCommand) ([]byte, error) {
+		return []byte("2\t0\tfile.txt\n-\t-\timage.bin\n"), nil
+	}}
+	application := App{Runner: runner}
+	got, err := application.DiffStat(context.Background(), "/repo", "main", "0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := DiffStat{Files: 2, Insertions: 2, Deletions: 0}
+	if got != want {
+		t.Fatalf("DiffStat() = %+v, want %+v", got, want)
+	}
+	if len(runner.outputs) != 1 || runner.outputs[0].name != "git" {
+		t.Fatalf("DiffStat commands = %#v", runner.outputs)
+	}
+	wantArgs := []string{"-C", "/repo", "diff", "--numstat", "main..0123456789abcdef"}
+	if strings.Join(runner.outputs[0].args, " ") != strings.Join(wantArgs, " ") {
+		t.Fatalf("DiffStat args = %#v, want %#v", runner.outputs[0].args, wantArgs)
 	}
 }
 

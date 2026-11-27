@@ -3,8 +3,10 @@ package app
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -17,6 +19,7 @@ const (
 
 var acceptanceCriterionPattern = regexp.MustCompile(`^\s*-\s+\[[ xX]\]\s+(.*)$`)
 var commitReferencePattern = regexp.MustCompile(`(?i)(?:/commit/([0-9a-f]{40})(?:$|[^0-9a-f])|(?:^|[^0-9a-f])([0-9a-f]{40})(?:$|[^0-9a-f]))`)
+var reviewPRSizePattern = regexp.MustCompile(`(?i)^\s*(\d+)\s+files?\s+·\s+(\d+)\s+commits?\s+·\s+\+(\d+)\s*/\s*[−-]\s*(\d+)`)
 
 func CanonicalReviewPRBody(body string) (string, error) {
 	if _, err := parseIndependentChecks(body); err != nil {
@@ -202,6 +205,200 @@ func ValidateReviewPRBody(prBody, issueBody string, issueNumber int) error {
 		return fmt.Errorf("missing Closes #%d line", issueNumber)
 	}
 	return nil
+}
+
+type DiffStat struct {
+	Files      int
+	Insertions int
+	Deletions  int
+}
+
+func ValidateReviewPRSize(prBody string, stat DiffStat) error {
+	parsed, err := reviewPRSize(prBody)
+	if err != nil {
+		return err
+	}
+	if parsed == stat {
+		return nil
+	}
+	source := "the reviewed diff"
+	if head := reviewedHeadFromProvenance(prBody); head != "" {
+		source = fmt.Sprintf("reviewed head %s", head)
+	}
+	return fmt.Errorf(
+		"PR body Size row says %s; %s has %s; refresh the Size row from git diff --stat at the reviewed head",
+		formatDiffStat(parsed),
+		source,
+		formatDiffStat(stat),
+	)
+}
+
+func ValidateReviewEvidenceAtHead(prBody, headSHA string) error {
+	if !isFullCommitSHA(headSHA) {
+		return fmt.Errorf("reviewed head SHA %q must be a full 40-character commit SHA", headSHA)
+	}
+	rows, err := evidenceTableDataRows(prBody)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		commit := strings.Trim(row[3], "`")
+		if namesReviewedHead(commit, headSHA) {
+			continue
+		}
+		return fmt.Errorf(
+			"Evidence %s row: Commit %q does not name reviewed head %s; use the full SHA or an unambiguous prefix of at least 7 hexadecimal characters",
+			row[0],
+			commit,
+			headSHA,
+		)
+	}
+	return nil
+}
+
+func reviewPRSize(prBody string) (DiffStat, error) {
+	inSection := false
+	for _, line := range strings.Split(prBody, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "## At a glance" {
+			inSection = true
+			continue
+		}
+		if inSection && strings.HasPrefix(trimmed, "## ") {
+			break
+		}
+		if !inSection {
+			continue
+		}
+		cells, ok := splitTableRow(line)
+		if !ok || len(cells) != 2 || cells[0] != "Size" {
+			continue
+		}
+		match := reviewPRSizePattern.FindStringSubmatch(strings.ReplaceAll(cells[1], "`", ""))
+		if match == nil {
+			return DiffStat{}, fmt.Errorf("invalid At a glance Size row: expected `n files · n commits · +x/−y`")
+		}
+		files, filesErr := strconv.Atoi(match[1])
+		insertions, insertionsErr := strconv.Atoi(match[3])
+		deletions, deletionsErr := strconv.Atoi(match[4])
+		if filesErr != nil || insertionsErr != nil || deletionsErr != nil {
+			return DiffStat{}, fmt.Errorf("invalid At a glance Size row: expected `n files · n commits · +x/−y`")
+		}
+		return DiffStat{Files: files, Insertions: insertions, Deletions: deletions}, nil
+	}
+	return DiffStat{}, fmt.Errorf("missing At a glance Size row")
+}
+
+func reviewedHeadFromProvenance(prBody string) string {
+	for _, line := range strings.Split(prBody, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if !strings.HasPrefix(line, "<!-- orchestrator-workflow:") || !strings.HasSuffix(line, "-->") {
+			continue
+		}
+		var marker struct {
+			Commit string `json:"commit"`
+		}
+		payload := strings.TrimSuffix(strings.TrimPrefix(line, "<!-- orchestrator-workflow:"), "-->")
+		if err := json.Unmarshal([]byte(payload), &marker); err != nil {
+			return ""
+		}
+		return marker.Commit
+	}
+	return ""
+}
+
+func evidenceTableDataRows(prBody string) ([][]string, error) {
+	const header = "| Gate | Command | Result | Commit |"
+	const separator = "| --- | --- | --- | --- |"
+	lines := strings.Split(prBody, "\n")
+	inSection := false
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "## Evidence" {
+			inSection = true
+			continue
+		}
+		if !inSection {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "## ") {
+			break
+		}
+		if trimmed != header {
+			continue
+		}
+		if index+1 >= len(lines) || strings.TrimSpace(lines[index+1]) != separator {
+			return nil, fmt.Errorf("invalid Evidence table shape: expected %s", header)
+		}
+		var rows [][]string
+		for _, tableLine := range lines[index+2:] {
+			trimmedTableLine := strings.TrimSpace(tableLine)
+			if trimmedTableLine == "" {
+				break
+			}
+			cells, ok := splitEvidenceRow(tableLine)
+			if !ok || len(cells) != 4 {
+				return nil, fmt.Errorf("invalid Evidence table shape: expected %s", header)
+			}
+			rows = append(rows, cells)
+		}
+		if len(rows) == 0 {
+			return nil, fmt.Errorf("Evidence table has no data rows")
+		}
+		return rows, nil
+	}
+	return nil, fmt.Errorf("missing Evidence table")
+}
+
+// splitEvidenceRow splits an Evidence table row on cell separators while
+// keeping an escaped `\|` inside a cell, because gate commands commonly carry
+// an alternation such as `-run 'A\|B'` that Markdown requires escaping.
+func splitEvidenceRow(line string) ([]string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "|") || !strings.HasSuffix(trimmed, "|") {
+		return nil, false
+	}
+	var cells []string
+	var current strings.Builder
+	escaped := false
+	for _, char := range trimmed[1 : len(trimmed)-1] {
+		switch {
+		case escaped:
+			if char != '|' {
+				current.WriteRune('\\')
+			}
+			current.WriteRune(char)
+			escaped = false
+		case char == '\\':
+			escaped = true
+		case char == '|':
+			cells = append(cells, strings.TrimSpace(current.String()))
+			current.Reset()
+		default:
+			current.WriteRune(char)
+		}
+	}
+	if escaped {
+		current.WriteRune('\\')
+	}
+	cells = append(cells, strings.TrimSpace(current.String()))
+	return cells, true
+}
+
+func namesReviewedHead(commit, headSHA string) bool {
+	if len(commit) < 7 || len(commit) > len(headSHA) {
+		return false
+	}
+	for _, char := range commit {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", char) {
+			return false
+		}
+	}
+	return strings.HasPrefix(strings.ToLower(headSHA), strings.ToLower(commit))
+}
+
+func formatDiffStat(stat DiffStat) string {
+	return fmt.Sprintf("%d files, +%d/−%d", stat.Files, stat.Insertions, stat.Deletions)
 }
 
 func ValidateReviewChecks(prBody, mergedHeadSHA string) error {

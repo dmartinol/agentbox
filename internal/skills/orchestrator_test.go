@@ -928,6 +928,37 @@ func TestOrchestratorSkillReviewCap(t *testing.T) {
 	)
 }
 
+func TestOrchestratorSkillFixCycleRefreshesPRBodyEvidence(t *testing.T) {
+	skill := rawSkill(t, "agentbox-orchestrator")
+	text := strings.Join(strings.Fields(skill), " ")
+	wantAll(t, text,
+		"After the fixer returns a new head and before the next review dispatch",
+		"the fix-cycle task must tell the fixer to refresh the pull request body's Size row from `git diff --stat` at that head",
+		"set every Evidence row's Commit cell to that head",
+		"only the two Independent checks rows may still change between the reviewed body and the final body",
+	)
+	prBody, err := EmbeddedFile("agentbox-orchestrator", "pr.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAll(t, strings.Join(strings.Fields(string(prBody)), " "),
+		"Fill the Size row from `git diff --stat <base>..<head>` at the reviewed head",
+		"name that head in every Evidence Commit cell as the full SHA or an unambiguous prefix of at least seven hexadecimal characters",
+		"Those are values for the reviewer, not sentences to copy into the body",
+	)
+	// The guidance belongs in the authoring comment, not in the body the
+	// implementer publishes.
+	rendered := string(prBody)
+	if index := strings.Index(rendered, "Closes #<issue>"); index >= 0 {
+		rendered = rendered[index:]
+	}
+	for _, leaked := range []string{"must match", "Every Commit cell", "Those are values for the reviewer"} {
+		if strings.Contains(rendered, leaked) {
+			t.Fatalf("pr.md leaks authoring guidance into the body: %q", leaked)
+		}
+	}
+}
+
 // TestOrchestratorSkillReviewerDiversity pins first-pass diversity and same
 // selection for consecutive cycles.
 func TestOrchestratorSkillReviewerDiversity(t *testing.T) {
@@ -977,10 +1008,16 @@ func TestOrchestratorSkillMaterializesStageInputs(t *testing.T) {
 		"the worker never reads `$AGENTBOX_HOME`",
 		"A forge client, forge credential, or forge egress rule is never a stage-input mechanism",
 		"A pull-request body reaches the reviewer as a materialized file, owned by #151",
-		"Before dispatching review, fetch the posted pull request body, `headRefOid`, and `pr_updated_at` on the host through the tracker adapter, write the exact body bytes to `orchestrator/<workflow-id>/review-<iteration>-pr-body.md` under `$AGENTBOX_HOME`, compute its lowercase SHA-256 as `body_sha256`, compute its canonical review-body SHA-256 as `review_content_sha256`, and copy the exact bytes to `.agentbox-stage/context/pr-body.md` in the reviewer worktree.",
+		"Before dispatching review, fetch the posted pull request body, `headRefOid`, and `pr_updated_at` on the host through the tracker adapter, write the exact body bytes to `orchestrator/<workflow-id>/review-<iteration>-pr-body.md` under `$AGENTBOX_HOME`, compute its lowercase SHA-256 as `body_sha256`, and compute its canonical review-body SHA-256 as `review_content_sha256`.",
+		"After `agentbox agent start` returns the reviewer sandbox, upload the durable body with `openshell sandbox upload <sandbox> <local-body> /workspace/project/.agentbox-stage/context/pr-body.md --no-git-ignore`",
+		"The sandbox working directory is `/workspace` and the run worktree is `/workspace/project`, so a relative destination lands outside the worktree the worker reads",
+		"uploads the exact bytes with `openshell sandbox upload <sandbox> <local> /workspace/project/.agentbox-stage/context/<name> --no-git-ignore`",
+		"verify the uploaded copy's `sha256` equals `body_sha256`",
+		"dispatch the reviewer only after it matches",
+		"Placing the body in `--source` is not sufficient because AgentBox snapshots only the tracked tree",
+		"On review resume, resolve `pr_body_path`, require non-empty bytes, recompute SHA-256, block on mismatch, and recreate the run worktree's `.agentbox-stage/context/pr-body.md` through the same upload-and-`sha256` step after `agentbox agent start` returns the sandbox, before dispatching the reviewer",
 		"The review stage entry records non-empty `pr_body_path`, `body_sha256`, `review_content_sha256`, `headRefOid`, and `pr_updated_at`, and the task spec names `.agentbox-stage/context/pr-body.md`; a host-only path or forge client is never the reviewer's body source.",
 		"Run the offline pre-review body gate against the durable canonical body and the normalized issue body before dispatch; a failure blocks dispatch with the exact field name.",
-		"On review resume, resolve `pr_body_path`, require non-empty bytes, recompute SHA-256, block on mismatch, and recreate `.agentbox-stage/context/pr-body.md` from the durable copy before re-rendering the task spec.",
 		"Invalidate the review verdict and rerun review at the current head when `headRefOid`, the canonical content, or any non-owned byte changes; filling the two orchestrator-owned `Independent checks` rows never invalidates it.",
 		"Always reject a durable reviewed-body digest mismatch before comparing canonical content",
 		"stop a legacy review stage entry without `review_content_sha256` with `pr-merge: review stage entry is missing review_content_sha256; rerun review to upgrade the digest contract`",
