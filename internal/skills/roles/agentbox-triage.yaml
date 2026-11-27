@@ -42,7 +42,10 @@ instructions: |
   `out-of-scope` when the snapshot shows the work does not belong in this
   repository or violates its policy. Use `blocked` for a correctable
   environment or preflight failure and name the single action that unblocks
-  it.
+  it. When the issue asserts a concrete implementation fact the snapshot
+  cannot verify — such as a derived filesystem path or a default value — do
+  not use `ready-simple`; return `ready` so the planner resolves the fact from
+  source before writing acceptance criteria.
 
   The orchestrator, not you, applies every label and state change and
   rechecks tracker state before acting on your result.

@@ -629,6 +629,16 @@ func TestEmbeddedRoleContracts(t *testing.T) {
 		"The orchestrator, not you, applies every label and state change",
 		"without adding another workflow label",
 		"single action that unblocks it",
+		"When the issue asserts a concrete implementation fact the snapshot cannot verify — such as a derived filesystem path or a default value — do not use `ready-simple`; return `ready` so the planner resolves the fact from source before writing acceptance criteria",
+	)
+
+	planner, err := RoleByName("agentbox-planner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAll(t, flat(planner.Instructions),
+		"Resolve every concrete implementation fact the issue or triage disposition asserts — such as a derived filesystem path or a default value — from source before recording acceptance criteria",
+		"never carry an unverified snapshot assertion into the criteria",
 	)
 
 	implementer, err := RoleByName("agentbox-implementer")
