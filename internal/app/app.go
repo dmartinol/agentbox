@@ -276,8 +276,26 @@ func (a *App) GatewayRemove(ctx context.Context, name string) error {
 	if dependents := usage[name]; len(dependents) > 0 {
 		return &ConflictError{Resource: "gateway", Name: name, Reason: "non-terminal runs use it", Dependents: dependents}
 	}
+	if err := a.checkGatewayRemoveCapability(ctx); err != nil {
+		return err
+	}
 	_, err = a.Runner.Output(ctx, "openshell", "gateway", "remove", name)
 	return err
+}
+
+func (a *App) checkGatewayRemoveCapability(ctx context.Context) error {
+	output, err := a.Runner.Output(ctx, "openshell", "gateway", "--help")
+	detail := "gateway help does not list the remove command"
+	if err != nil {
+		detail = err.Error()
+	} else {
+		for _, token := range strings.Fields(string(output)) {
+			if token == "remove" {
+				return nil
+			}
+		}
+	}
+	return &UnsupportedCapabilityError{Command: "openshell gateway remove", Detail: detail}
 }
 
 func (a *App) GatewayInfo(ctx context.Context, name string) ([]byte, error) {

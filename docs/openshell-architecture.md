@@ -100,6 +100,12 @@ default even when its profile currently references another policy, so a blank
 policy field can round-trip without losing the file that would be reused. After
 the profile is deleted, its orphaned generated policy may be deleted.
 
+Gateway removal requires an OpenShell CLI that provides
+`openshell gateway remove`; the capability was verified with `openshell 0.1.4`. AgentBox checks
+`openshell gateway --help` before deletion. If that output does not list
+`remove`, run `brew upgrade openshell`, re-check the help output, and retry the
+removal.
+
 Each guard returns a typed conflict from `internal/app`. The local API maps it
 to `409` with `{"error": "...", "dependents": ["..."]}` and maps a missing
 resource to `404`. React renders the list-derived reason, disables the button

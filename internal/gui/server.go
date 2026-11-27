@@ -197,6 +197,7 @@ func writeError(w http.ResponseWriter, err error) {
 	}
 	var conflict *app.ConflictError
 	var missing *app.NotFoundError
+	var unsupported *app.UnsupportedCapabilityError
 	if errors.As(err, &conflict) {
 		status = http.StatusConflict
 		writeJSON(w, status, map[string]any{"error": err.Error(), "dependents": conflict.Dependents})
@@ -204,6 +205,9 @@ func writeError(w http.ResponseWriter, err error) {
 	}
 	if errors.As(err, &missing) {
 		status = http.StatusNotFound
+	}
+	if errors.As(err, &unsupported) {
+		status = http.StatusConflict
 	}
 	var validation *app.ValidationError
 	if errors.As(err, &validation) {

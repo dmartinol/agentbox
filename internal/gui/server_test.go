@@ -2197,14 +2197,20 @@ func TestImageRefreshEndpointBuildsAllAgentsWithoutDeletingImages(t *testing.T) 
 }
 
 type lifecycleRunner struct {
-	commands [][]string
+	commands    [][]string
+	gatewayHelp string
 }
 
 func (r *lifecycleRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
 	r.commands = append(r.commands, append([]string{name}, args...))
 	switch {
-	case name == "openshell" && len(args) > 0 && args[0] == "gateway" && len(args) > 1 && args[1] == "list":
+	case name == "openshell" && len(args) > 1 && args[0] == "gateway" && args[1] == "list":
 		return []byte(`[{"name":"gateway-one","active":true,"endpoint":"https://gateway.example","type":"podman","auth":"bearer","source":"remote"}]`), nil
+	case name == "openshell" && len(args) > 1 && args[0] == "gateway" && args[1] == "--help":
+		if r.gatewayHelp != "" {
+			return []byte(r.gatewayHelp), nil
+		}
+		return []byte("Available Commands:\n  remove Remove a gateway\n"), nil
 	case name == "podman" && len(args) > 0 && args[0] == "images":
 		return []byte(`[]`), nil
 	case name == "openshell":
@@ -2458,13 +2464,26 @@ func TestGatewayDeleteEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner.commands = nil
+	runner.gatewayHelp = "Available Commands:\n  list List gateways\n"
+	var unsupported struct {
+		Error string `json:"error"`
+	}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/gateways/gateway-one/delete", nil, &unsupported); response.StatusCode != http.StatusConflict || !strings.Contains(unsupported.Error, "upgrade openshell and retry") {
+		t.Fatalf("unsupported status=%d body=%+v", response.StatusCode, unsupported)
+	}
+	if len(runner.commands) != 1 || !slices.Equal(runner.commands[0], []string{"openshell", "gateway", "--help"}) {
+		t.Fatalf("unsupported commands = %#v", runner.commands)
+	}
+
+	runner.commands = nil
+	runner.gatewayHelp = ""
 	var deleted struct {
 		Deleted bool `json:"deleted"`
 	}
 	if response := requestJSON(t, http.MethodPost, server.URL+"/api/gateways/gateway-one/delete", nil, &deleted); response.StatusCode != http.StatusOK || !deleted.Deleted {
 		t.Fatalf("delete status=%d deleted=%v", response.StatusCode, deleted)
 	}
-	if len(runner.commands) != 1 || !slices.Equal(runner.commands[0], []string{"openshell", "gateway", "remove", "gateway-one"}) {
+	if len(runner.commands) != 2 || !slices.Equal(runner.commands[0], []string{"openshell", "gateway", "--help"}) || !slices.Equal(runner.commands[1], []string{"openshell", "gateway", "remove", "gateway-one"}) {
 		t.Fatalf("commands = %#v", runner.commands)
 	}
 }
