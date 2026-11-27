@@ -1295,6 +1295,14 @@ func printRunState(ctx context.Context, a *app.App, id, message string) error {
 	return nil
 }
 
+const agentSyncUsage = `Usage: agentbox agent sync ID
+
+Sync a run's results into the AgentBox run worktree at
+~/.agentbox/worktrees/agentbox/<name>. The --source option to
+agentbox agent start names only the input checkout; it is not the sync
+destination.
+`
+
 func agentCmd(ctx context.Context, a *app.App, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("agent start|list|show|attach|logs|denials|sleep|resume|finish|stop|sync|diff|delete|prune required")
@@ -1496,10 +1504,19 @@ func agentCmd(ctx context.Context, a *app.App, args []string) error {
 		}
 		return printRunState(ctx, a, args[1], "asleep; resume with `agentbox agent resume %s`")
 	case "sync":
+		if len(args) > 1 && (args[1] == "--help" || args[1] == "-h") {
+			fmt.Print(agentSyncUsage)
+			return nil
+		}
 		if err := need(args[1:], 1); err != nil {
 			return err
 		}
-		return a.Sync(ctx, args[1])
+		result, err := a.SyncWithResult(ctx, args[1])
+		if err != nil {
+			return err
+		}
+		fmt.Printf("synced to %s\n", result.Worktree)
+		return nil
 	case "diff":
 		if err := need(args[1:], 1); err != nil {
 			return err

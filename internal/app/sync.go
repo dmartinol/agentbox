@@ -266,6 +266,21 @@ func (a *App) Sync(ctx context.Context, id string) (err error) {
 	return a.Store.SaveRun(r)
 }
 
+type SyncResult struct {
+	Worktree string
+}
+
+func (a *App) SyncWithResult(ctx context.Context, id string) (SyncResult, error) {
+	if err := a.Sync(ctx, id); err != nil {
+		return SyncResult{}, err
+	}
+	r, err := a.Store.LoadRun(id)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	return SyncResult{Worktree: r.Worktree}, nil
+}
+
 func validateTar(path string) error {
 	f, err := os.Open(path)
 	if err != nil {

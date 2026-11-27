@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -43,6 +44,127 @@ func captureStdout(t *testing.T, action func() error) (string, error) {
 		t.Fatal(readErr)
 	}
 	return string(bytes.TrimSpace(body)), callErr
+}
+
+type agentSyncCLIRunner struct {
+	run       app.Run
+	head      string
+	artifacts map[string]string
+}
+
+func (runner agentSyncCLIRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if name == "git" {
+		return app.OSRunner{}.Output(ctx, "git", args...)
+	}
+	if name != "openshell" {
+		return nil, nil
+	}
+	if argPresent(args, "node") && argPresent(args, "-e") {
+		return []byte(fmt.Sprintf(`{"head":%q,"branch_tip":%q,"diff_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","untracked":[]}`, runner.head, runner.head)), nil
+	}
+	if argPresent(args, "/bin/sh") && strings.Contains(strings.Join(args, " "), "/workspace/export.bundle") {
+		return []byte(strings.Join([]string{runner.head, runner.run.Branch, runner.head}, "\n")), nil
+	}
+	for index, arg := range args {
+		if arg != "download" || index+3 >= len(args) {
+			continue
+		}
+		if local, ok := runner.artifacts[args[index+2]]; ok {
+			body, err := os.ReadFile(local)
+			if err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(args[index+3], body, 0600); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		}
+	}
+	return []byte(`{}`), nil
+}
+
+func (agentSyncCLIRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error {
+	return nil
+}
+
+func agentSyncCLIFixture(t *testing.T) (*app.App, app.Run) {
+	t.Helper()
+	ctx := context.Background()
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	if err := os.Mkdir(source, 0700); err != nil {
+		t.Fatal(err)
+	}
+	runGit := func(dir string, args ...string) {
+		t.Helper()
+		command := exec.Command("git", args...)
+		command.Dir = dir
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
+	runGit(source, "init", "-q")
+	runGit(source, "config", "user.name", "Unit Tester")
+	runGit(source, "config", "user.email", "unit@example.invalid")
+	if err := os.WriteFile(filepath.Join(source, "tracked.txt"), []byte("base\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(source, "add", ".")
+	runGit(source, "commit", "-qm", "base")
+	store := app.Store{Base: filepath.Join(root, "state")}
+	a := &app.App{Store: store, Runner: app.OSRunner{}}
+	run, err := a.CreateWorktree(ctx, source, "run-sync-cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Status = app.StatusWorking
+	run.Gateway = "gateway-one"
+	run.Sandbox = "sandbox-sync-cli"
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+
+	sandbox := filepath.Join(root, "sandbox")
+	runGit(root, "clone", "-q", run.Worktree, sandbox)
+	runGit(sandbox, "config", "user.name", "Sandbox Agent")
+	runGit(sandbox, "config", "user.email", "sandbox@example.invalid")
+	if err := os.WriteFile(filepath.Join(sandbox, "tracked.txt"), []byte("agent edit\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(sandbox, "add", ".")
+	runGit(sandbox, "commit", "-qm", "agent edit")
+	headOutput, err := app.OSRunner{}.Output(ctx, "git", "-C", sandbox, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := strings.TrimSpace(string(headOutput))
+
+	bundle := filepath.Join(root, "export.bundle")
+	runGit(sandbox, "bundle", "create", bundle, run.Branch)
+	archive := filepath.Join(root, "export.tar")
+	file, err := os.Create(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tar.NewWriter(file).Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	a.Runner = agentSyncCLIRunner{
+		run:  run,
+		head: head,
+		artifacts: map[string]string{
+			"/workspace/export.bundle": bundle,
+			"/workspace/export.patch":  filepath.Join(root, "empty.patch"),
+			"/workspace/export.tar":    archive,
+		},
+	}
+	if err := os.WriteFile(filepath.Join(root, "empty.patch"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return a, run
 }
 
 func TestDoctorJSONIsParseable(t *testing.T) {
@@ -1035,6 +1157,42 @@ func TestAgentStartHelpListsRequireHead(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "-require-head") || !strings.Contains(stderr, "full source commit SHA required before run creation") {
 		t.Fatalf("agent start help is missing --require-head:\n%s", stderr)
+	}
+}
+
+func TestAgentSyncHelpExplainsDestination(t *testing.T) {
+	for _, helpFlag := range []string{"--help", "-h"} {
+		t.Run(helpFlag, func(t *testing.T) {
+			output, err := captureStdout(t, func() error {
+				return dispatch(context.Background(), &app.App{}, []string{"agent", "sync", helpFlag})
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{
+				"Usage: agentbox agent sync ID",
+				"~/.agentbox/worktrees/agentbox/<name>",
+				"The --source option to",
+				"names only the input checkout",
+			} {
+				if !strings.Contains(output, want) {
+					t.Fatalf("agent sync help missing %q:\n%s", want, output)
+				}
+			}
+		})
+	}
+}
+
+func TestAgentSyncPrintsDestinationWorktree(t *testing.T) {
+	a, run := agentSyncCLIFixture(t)
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"agent", "sync", run.ID})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "synced to " + run.Worktree; output != want {
+		t.Fatalf("output = %q; want %q", output, want)
 	}
 }
 

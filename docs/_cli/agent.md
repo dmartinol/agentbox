@@ -245,6 +245,11 @@ Prints a deprecation warning and behaves like `agentbox agent sleep ID`.
 
 Sync a run's results into its local worktree.
 
+The destination is the AgentBox run worktree at
+`~/.agentbox/worktrees/agentbox/<name>`. The `--source` option to
+`agentbox agent start` names only the input checkout; it is not the sync
+destination.
+
 ```text
 agentbox agent sync ID
 ```

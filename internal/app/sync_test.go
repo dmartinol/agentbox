@@ -325,8 +325,12 @@ func TestSyncRecordsTransferredCommitAndTree(t *testing.T) {
 		return base(call)
 	}
 	app.Runner = runner
-	if err := app.Sync(context.Background(), run.ID); err != nil {
+	result, err := app.SyncWithResult(context.Background(), run.ID)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result.Worktree != run.Worktree {
+		t.Fatalf("sync result worktree = %q; want %q", result.Worktree, run.Worktree)
 	}
 	stored, err := app.Store.LoadRun(run.ID)
 	if err != nil {
