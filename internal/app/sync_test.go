@@ -259,6 +259,37 @@ func sandboxSnapshotFingerprint(t *testing.T, dir, branch string) string {
 	return snapshot.Fingerprint()
 }
 
+func TestCollectSnapshotDirNormalizesBranchAtRunBranchTip(t *testing.T) {
+	_, run, _ := createSyncFixture(t)
+	_, sandbox := createAgentExportWithRepo(t, run, t.TempDir())
+	head := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", "refs/heads/"+run.Branch))
+	sideBranch := "agent/side-work"
+
+	for name, checkout := range map[string]string{
+		"detached HEAD": "",
+		"named branch":  sideBranch,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if checkout == "" {
+				cmd(t, sandbox, "git", "switch", "-q", "--detach", "HEAD")
+			} else {
+				cmd(t, sandbox, "git", "switch", "-q", "-c", checkout)
+			}
+			snapshot, err := collectSnapshotDir(context.Background(), OSRunner{}, sandbox, run.Branch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(snapshot.Branch) != run.Branch {
+				t.Fatalf("snapshot branch = %q; want run branch %q", snapshot.Branch, run.Branch)
+			}
+			if snapshot.Head != head || snapshot.BranchTip != head {
+				t.Fatalf("snapshot head/tip = %q/%q; want %q", snapshot.Head, snapshot.BranchTip, head)
+			}
+			cmd(t, sandbox, "git", "switch", "-q", run.Branch)
+		})
+	}
+}
+
 func newSandboxStateRunner(t *testing.T, sandbox, branch string) *fakeRunner {
 	t.Helper()
 	runner := &fakeRunner{}

@@ -122,7 +122,7 @@ func TestInspectRunSuccessfulProbeAfterMissingSandbox(t *testing.T) {
 	}
 
 	app.Runner = statusRunnerFor("running", "session=1\ndead=0\ncommand=sh\n")
-	got, err := app.inspectRunWithSync(ctx, run, false)
+	got, err := app.inspectRunWithSync(ctx, missingAgain, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1326,6 +1326,13 @@ func TestStartRequiredHeadPreflight(t *testing.T) {
 			if sameResolvedPath(t, run.Source, differentSource) {
 				t.Fatalf("run source = %q; want a different directory than %q", run.Source, differentSource)
 			}
+			prefixSource := source + "-other"
+			if err := os.MkdirAll(prefixSource, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if sameResolvedPath(t, run.Source, prefixSource) {
+				t.Fatalf("run source = %q; want a different directory than prefix-sharing path %q", run.Source, prefixSource)
+			}
 
 			headIndex := -1
 			externalIndex := len(runner.outputs)
@@ -1357,8 +1364,13 @@ func TestStartRequiredHeadPreflight(t *testing.T) {
 
 func TestStartRequiredHeadReportsUnreadableSourceHEAD(t *testing.T) {
 	ctx := context.Background()
-	source := filepath.Join(t.TempDir(), "source")
-	if err := os.MkdirAll(source, 0o700); err != nil {
+	root := t.TempDir()
+	sourceRoot := filepath.Join(root, "source-root")
+	source := filepath.Join(root, "source")
+	if err := os.MkdirAll(sourceRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(sourceRoot, source); err != nil {
 		t.Fatal(err)
 	}
 	store := Store{Base: t.TempDir()}
@@ -1375,7 +1387,7 @@ func TestStartRequiredHeadReportsUnreadableSourceHEAD(t *testing.T) {
 	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
 		switch {
 		case call.name == "git" && commandHasArg(call, "--show-toplevel"):
-			return []byte(source), nil
+			return []byte(sourceRoot), nil
 		case call.name == "git" && containsCommand(call.args, "rev-parse", "HEAD"):
 			return nil, headError
 		default:
