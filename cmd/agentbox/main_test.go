@@ -282,6 +282,30 @@ func (*appfakeRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, s
 	return nil
 }
 
+type agentStartCLIRunner struct {
+	source string
+	head   string
+}
+
+func (runner agentStartCLIRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	switch {
+	case name == "git" && argPresent(args, "--show-toplevel"):
+		return []byte(runner.source), nil
+	case name == "git" && argPresent(args, "HEAD"):
+		return []byte(runner.head), nil
+	case name == "openshell" && argPresent(args, "info"):
+		return []byte(`{"type":"podman"}`), nil
+	case name == "openshell" && argPresent(args, "list"):
+		return []byte(`{"providers":[{"name":"unit-provider","type":"gateway-bearer"}]}`), nil
+	default:
+		return []byte(`{}`), nil
+	}
+}
+
+func (agentStartCLIRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error {
+	return nil
+}
+
 type providerListRunner struct {
 	output []byte
 	args   []string
@@ -1157,6 +1181,59 @@ func TestAgentStartHelpListsRequireHead(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "-require-head") || !strings.Contains(stderr, "full source commit SHA required before run creation") {
 		t.Fatalf("agent start help is missing --require-head:\n%s", stderr)
+	}
+}
+
+func TestAgentStartRequireHeadExplicitEmptyDiffersFromOmitted(t *testing.T) {
+	ctx := context.Background()
+	source := filepath.Join(t.TempDir(), "source")
+	if err := os.MkdirAll(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store := app.Store{Base: t.TempDir()}
+	policy, err := store.CreatePolicyConfiguration("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := app.Profile{
+		Version:   1,
+		Name:      "unit-profile",
+		Agent:     "codex",
+		Image:     "localhost/openshell-codex:1.2.3-r3",
+		Mode:      "gateway",
+		Provider:  "unit-provider",
+		Model:     "unit-model",
+		BaseURL:   "https://models.example.test/v1",
+		APIKeyEnv: "UNIT_MODEL_KEY",
+		Policy:    policy.Path,
+		Approval:  "prompted",
+	}
+	if err := store.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	runner := agentStartCLIRunner{
+		source: source,
+		head:   "0123456789abcdef0123456789abcdef01234567",
+	}
+	a := &app.App{Store: store, Runner: runner}
+
+	err = dispatch(ctx, a, []string{
+		"agent", "start", "--profile", profile.Name, "--source", source,
+		"--gateway", "openshell", "--require-head=", "--dry-run",
+	})
+	wantError := "--require-head requires a full 40-character commit SHA; required HEAD \"\", source HEAD \"0123456789abcdef0123456789abcdef01234567\""
+	if err == nil || err.Error() != wantError {
+		t.Fatalf("explicit empty --require-head error = %v, want %q", err, wantError)
+	}
+
+	_, err = captureStdout(t, func() error {
+		return dispatch(ctx, a, []string{
+			"agent", "start", "--profile", profile.Name, "--source", source,
+			"--gateway", "openshell", "--dry-run",
+		})
+	})
+	if err != nil {
+		t.Fatalf("omitted --require-head error = %v", err)
 	}
 }
 

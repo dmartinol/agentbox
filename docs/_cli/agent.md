@@ -33,7 +33,8 @@ Start an agent run.
 agentbox agent start \
   [--project NAME] [--source PATH] [--profile NAME] [--gateway NAME] \
   [--name NAME] [--image IMAGE] [--model MODEL] \
-  [--approval MODE] [--prompt TEXT] [--mcp NAME] [--dry-run] [--json]
+  [--approval MODE] [--prompt TEXT] [--mcp NAME] \
+  [--require-head FULL_SHA] [--dry-run] [--json]
 ```
 
 | Flag | Default | Description |
@@ -48,6 +49,7 @@ agentbox agent start \
 | `--approval` | — | Approval override. |
 | `--prompt` | — | Task prompt; empty starts the agent interactively. |
 | `--mcp` | — | MCP tools entry whose agent matches the profile. |
+| `--require-head` | — | full source commit SHA required before run creation. |
 | `--dry-run` | `false` | Preview startup. |
 | `--json` | `false` | Print structured start output. |
 
@@ -61,6 +63,8 @@ prints the run ID, agent, and worktree path, and warns on standard error when
 the run has no project. `--dry-run` previews the startup plan and returns JSON
 output. `--mcp` selects an MCP tools entry; missing server names produce
 warnings on standard error, not failures.
+An explicit empty `--require-head` value is rejected; an omitted
+`--require-head` flag is accepted.
 
 The selected profile is the sole source of run mode. The former
 `agent start --mode` flag is unsupported; edit the profile when its provider
