@@ -245,6 +245,14 @@ Prints a deprecation warning and behaves like `agentbox agent sleep ID`.
 
 Sync a run's results into its local worktree.
 
+The destination is the run's isolated worktree. The exact path is printed by
+`agentbox agent sync` and shown as `worktree` by `agentbox agent show ID`.
+The default is `~/.agentbox/worktrees/<project>/<name>` for a project run, or
+`~/.agentbox/worktrees/<name>` without a project. The root is configurable with
+`agentbox settings set --worktree-root` or `AGENTBOX_HOME`. The `--source`
+option to `agentbox agent start` names only the input checkout; it is not the
+sync destination.
+
 ```text
 agentbox agent sync ID
 ```
