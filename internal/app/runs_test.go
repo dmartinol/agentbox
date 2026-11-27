@@ -1394,7 +1394,10 @@ func TestStartRequiredHeadReportsUnreadableSourceHEAD(t *testing.T) {
 	if err == nil {
 		t.Fatal("start succeeded with an unreadable source HEAD")
 	}
-	sourceRoot := runner.outputs[0].args[1]
+	sourceRoot, resolveErr := filepath.EvalSymlinks(source)
+	if resolveErr != nil {
+		t.Fatal(resolveErr)
+	}
 	wantError := fmt.Sprintf("could not read source HEAD at %q for --require-head: source HEAD unavailable", sourceRoot)
 	if err.Error() != wantError {
 		t.Fatalf("error = %v, want %q", err, wantError)
