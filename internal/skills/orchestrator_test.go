@@ -249,6 +249,46 @@ func TestOrchestratorSkillImplementationBaseSHA(t *testing.T) {
 	)
 }
 
+// TestOrchestratorConventionalCommitTypeMatchesPRMetadata pins both outcomes
+// of the final-commit, title, and Kind comparison.
+func TestOrchestratorConventionalCommitTypeMatchesPRMetadata(t *testing.T) {
+	conventionalCommitType := func(subject string) string {
+		typeAndScope, _, _ := strings.Cut(subject, ":")
+		commitType, _, _ := strings.Cut(typeAndScope, "(")
+		return commitType
+	}
+	for _, tc := range []struct {
+		commitSubject string
+		title         string
+		kind          string
+		wantMatch     bool
+	}{
+		{commitSubject: "docs(skill): require the full verify artifact schema", title: "docs(skill): require the full verify artifact schema", kind: "docs", wantMatch: true},
+		{commitSubject: "feat(cli): add a command", title: "fix(cli): add a command", kind: "fix", wantMatch: false},
+	} {
+		commitType := conventionalCommitType(tc.commitSubject)
+		titleType := conventionalCommitType(tc.title)
+		gotMatch := commitType == titleType && commitType == tc.kind
+		if gotMatch != tc.wantMatch {
+			t.Fatalf("match for %q, %q, %q = %t", tc.commitSubject, tc.title, tc.kind, gotMatch)
+		}
+	}
+
+	wantAll(t, collapsed(t),
+		"Parse the Conventional Commits type from the final commit subject",
+		"require the pull request title type and `## At a glance` Kind to match it",
+		"A mismatch blocks publication with `commit type mismatch: final commit <type>, PR title <type>, At a glance Kind <type>; amend the final commit subject or update the PR title and Kind consistently`",
+	)
+	pr, err := EmbeddedFile("agentbox-orchestrator", "pr.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAll(t, string(pr),
+		"Before publication, parse the Conventional Commits type from the final commit subject and make the pull request title type and At a glance Kind match it.",
+		"| Kind | feat / fix / docs / refactor / chore — must equal the final commit subject type |",
+	)
+}
+
 // TestOrchestratorSkillFeedbackFollowUps pins the flow changes made after the
 // first long orchestration run: a simple-fix fast path, completed stage
 // records, concurrent verify and review, and the state comment's purpose.
