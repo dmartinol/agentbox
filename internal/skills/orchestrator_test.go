@@ -796,17 +796,29 @@ func TestOrchestratorSkillFindingLedger(t *testing.T) {
 	)
 }
 
-// TestOrchestratorSkillVerifyIsNotAReviewer keeps verify to gates and
-// observations and forbids promoting an observation into a requirement.
+// TestOrchestratorSkillVerifyIsNotAReviewer requires the full verify artifact
+// while forbidding verifier judgments.
 func TestOrchestratorSkillVerifyIsNotAReviewer(t *testing.T) {
 	body := collapsed(t)
 	wantAll(t, body,
-		"reports only `gates` and `observations`",
+		"reports the complete `verify-task.md` artifact schema — `commit`, `result`, `head_check`, `gates`, `git_probe`, and `observations`",
 		"it never reports required changes, findings, or a verdict",
 		"it is not a second reviewer",
 		"MUST NOT forward a verifier observation to the reviewer as a requirement",
 		"observations enter the ledger only after the reviewer classifies them",
 	)
+
+	verifyTask, err := EmbeddedFile("agentbox-orchestrator", "verify-task.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyBody := string(verifyTask)
+	wantAll(t, verifyBody,
+		"Return every key in the Output block: `commit`, `result`, `head_check`, `gates`, `git_probe`, and `observations`",
+	)
+	if strings.Contains(verifyBody, "Return only `gates` and `observations`") {
+		t.Fatal("verify task returned to the partial artifact schema")
+	}
 }
 
 // TestOrchestratorSkillReviewCap pins the hard cap and its single exit

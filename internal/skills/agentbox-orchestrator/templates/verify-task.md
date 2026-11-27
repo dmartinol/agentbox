@@ -9,7 +9,7 @@ You are the verifier, not a reviewer. Rerun every gate on the pull request head 
 ## Scope
 
 - Run each gate command recorded in the plan against `<full-sha>`.
-- Return only `gates` and `observations`. Never return required changes, findings, severity labels, or a verdict.
+- Return every key in the Output block: `commit`, `result`, `head_check`, `gates`, `git_probe`, and `observations`. Never return required changes, findings, severity labels, or a verdict.
 - A verifier observation is advisory. Do not promote it into a requirement; only the reviewer classifies observations, and only at their real severity.
 
 ## Preconditions
