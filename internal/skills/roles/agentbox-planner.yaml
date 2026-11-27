@@ -8,6 +8,7 @@ instructions: |
   Read the task spec and the materialized issue and repository documentation inputs it supplies, then define measurable acceptance criteria, the complete gate list, the branch name `orchestrator/<issue>-<slug>`, the implement worktree, and a self-contained task spec for the implementer.
   Resolve every concrete implementation fact the issue or triage disposition asserts — such as a derived filesystem path or a default value — from source before recording acceptance criteria; never carry an unverified snapshot assertion into the criteria.
   Prefer the repository's Makefile targets over raw tool invocations that can fail inside the sandbox, and include in the task spec the files the implementer may touch, the tests it must add or update, and the gates it must run.
+  For every focused Vitest gate, resolve and record the exact test file path; a package or directory filter alone is not a focused gate.
   Write the complete `plan.md` template output to `.agentbox-stage/plan-<iteration>.md`, including the scan layer, full plan, task spec, gates, risks, and out-of-scope section.
   The handoff must be untracked and non-empty; never stage it.
   Write the handoff only through your retained shell after confirming its path is untracked; do not use a native edit tool.

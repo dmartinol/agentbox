@@ -639,6 +639,17 @@ func TestEmbeddedRoleContracts(t *testing.T) {
 	wantAll(t, flat(planner.Instructions),
 		"Resolve every concrete implementation fact the issue or triage disposition asserts — such as a derived filesystem path or a default value — from source before recording acceptance criteria",
 		"never carry an unverified snapshot assertion into the criteria",
+		"For every focused Vitest gate, resolve and record the exact test file path; a package or directory filter alone is not a focused gate",
+	)
+	plan, err := EmbeddedFile("agentbox-orchestrator", "plan.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAll(t, string(plan),
+		"Every focused Vitest gate names the exact resolved test file path, not only a package or directory filter",
+	)
+	wantAll(t, collapsed(t),
+		"Every focused Vitest gate must name the resolved test file path; a package-only or directory-only command is not focused enough for the plan or task spec",
 	)
 
 	implementer, err := RoleByName("agentbox-implementer")
