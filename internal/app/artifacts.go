@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -10,6 +11,12 @@ import (
 	"strconv"
 	"strings"
 )
+
+type imageNotFoundError struct{ reference string }
+
+func (e *imageNotFoundError) Error() string {
+	return fmt.Sprintf("local AgentBox image %q not found", e.reference)
+}
 
 type ImageArtifact struct {
 	Reference string `json:"reference"`
@@ -202,7 +209,7 @@ func (a *App) LocalImage(ctx context.Context, reference string) (ImageArtifact, 
 			return image, nil
 		}
 	}
-	return ImageArtifact{}, fmt.Errorf("local AgentBox image %q not found", reference)
+	return ImageArtifact{}, &imageNotFoundError{reference: reference}
 }
 
 // ImageUsage maps local AgentBox image references to the profiles and
@@ -254,7 +261,11 @@ func terminalRunStatus(status RunStatus) bool {
 func (a *App) ImageRemove(ctx context.Context, reference string) error {
 	image, err := a.LocalImage(ctx, reference)
 	if err != nil {
-		return &NotFoundError{Resource: "image", Name: reference}
+		var notFound *imageNotFoundError
+		if errors.As(err, &notFound) {
+			return &NotFoundError{Resource: "image", Name: reference}
+		}
+		return fmt.Errorf("cannot inspect local image %q: %w", reference, err)
 	}
 	usage, err := a.ImageUsage()
 	if err != nil {
