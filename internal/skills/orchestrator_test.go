@@ -249,6 +249,27 @@ func TestOrchestratorSkillImplementationBaseSHA(t *testing.T) {
 	)
 }
 
+// TestSkillAgentLogsRawForExactStageText distinguishes rendered reads from
+// byte-exact evidence capture.
+func TestSkillAgentLogsRawForExactStageText(t *testing.T) {
+	cli, err := Embedded("agentbox-cli", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAll(t, string(cli),
+		"agentbox agent logs RUN_ID        # rendered terminal output for a quick read",
+		"agentbox agent logs --raw RUN_ID  # exact raw agent stream",
+		"The default form reads the rendered tmux pane and deliberately omits terminal escape sequences and repaint frames",
+		"`--raw` preserves the exact bytes of the raw agent stream; use it when the output will be captured, quoted, or digested",
+	)
+
+	wantAll(t, collapsed(t),
+		"Use `agentbox agent logs RUN_ID` only for a quick rendered read",
+		"When capturing exact stage text — for evidence, quoted output, or digesting bytes — use `agentbox agent logs --raw RUN_ID`",
+		"it preserves the raw agent stream, while the rendered form deliberately removes terminal escape sequences and repaint frames",
+	)
+}
+
 // TestOrchestratorConventionalCommitTypeMatchesPRMetadata pins both outcomes
 // of the final-commit, title, and Kind comparison.
 func TestOrchestratorConventionalCommitTypeMatchesPRMetadata(t *testing.T) {

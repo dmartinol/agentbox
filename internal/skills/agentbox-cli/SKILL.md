@@ -113,10 +113,13 @@ agentbox repo setup           # build the repository image and write the policy 
 ## Observe a run
 
 ```sh
-agentbox agent logs RUN_ID        # agent log snapshot from the sandbox
+agentbox agent logs RUN_ID        # rendered terminal output for a quick read
+agentbox agent logs --raw RUN_ID  # exact raw agent stream
 agentbox agent attach RUN_ID      # live tmux session; detach with Ctrl-b d
 agentbox agent diff RUN_ID        # changes the agent made in its worktree
 ```
+
+The default form reads the rendered tmux pane and deliberately omits terminal escape sequences and repaint frames. `--raw` preserves the exact bytes of the raw agent stream; use it when the output will be captured, quoted, or digested.
 
 `attach` streams your terminal into the existing session; detaching does not stop the run. `agent list` is the cheapest way to answer "what needs me?" — look for running, failed, or awaiting-approval runs.
 
