@@ -492,6 +492,53 @@ func TestSyncAllowsDetachedHeadAtRunBranchTip(t *testing.T) {
 	if hostTree != sandboxTree {
 		t.Fatalf("detached-at-tip tree mismatch: host=%s sandbox=%s", hostTree, sandboxTree)
 	}
+	updated, err := app.GetRunWithSyncState(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.SyncState != SyncStateUpToDate || updated.SyncState.Label() != "Up to date" {
+		t.Fatalf("detached-at-tip sync state = %s (%s); want %s (%s)", updated.SyncState, updated.SyncState.Label(), SyncStateUpToDate, SyncStateUpToDate.Label())
+	}
+}
+
+func TestSyncAllowsSideBranchAtRunBranchTip(t *testing.T) {
+	app, run, _ := createSyncFixture(t)
+	artifacts, sandbox := createAgentExportWithRepo(t, run, t.TempDir())
+	branchTip := strings.TrimSpace(cmd(t, sandbox, "git", "rev-parse", "refs/heads/"+run.Branch))
+	sideBranch := "agent/side-work"
+	cmd(t, sandbox, "git", "switch", "-q", "-c", sideBranch)
+	runner := newSyncRunnerWithCheckout(t, artifacts, sandboxCheckout{
+		Head:          branchTip,
+		CurrentBranch: sideBranch,
+		BranchTip:     branchTip,
+	})
+	var snapshot syncSnapshot
+	if err := json.Unmarshal([]byte(sandboxProbeJSON(t, sandbox, run.Branch)), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Branch = []byte(sideBranch)
+	probe, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := runner.output
+	runner.output = func(call recordedCommand) ([]byte, error) {
+		if call.name == "openshell" && containsCommand(call.args, "node", "-e") {
+			return probe, nil
+		}
+		return base(call)
+	}
+	app.Runner = runner
+	if err := app.Sync(context.Background(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := app.GetRunWithSyncState(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.SyncState != SyncStateUpToDate || updated.SyncState.Label() != "Up to date" {
+		t.Fatalf("side-branch-at-tip sync state = %s (%s); want %s (%s)", updated.SyncState, updated.SyncState.Label(), SyncStateUpToDate, SyncStateUpToDate.Label())
+	}
 }
 
 func TestSyncTransfersCommitAndUncommittedFilesToRunWorktree(t *testing.T) {
