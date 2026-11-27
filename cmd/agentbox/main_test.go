@@ -1268,6 +1268,63 @@ func TestAgentSyncHelpExplainsDestination(t *testing.T) {
 	}
 }
 
+func TestAgentSyncHelpMatchesDocumentedDestination(t *testing.T) {
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), &app.App{}, []string{"agent", "sync", "--help"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs, err := os.ReadFile(filepath.Join("..", "..", "docs", "_cli", "agent.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongCheckoutDocs := "`agentbox agent show ID` then reports the derived `sync_state` `wrong_checkout`."
+	normalizedDocs := strings.Join(strings.Fields(string(docs)), " ")
+	if !strings.Contains(normalizedDocs, wrongCheckoutDocs) {
+		t.Fatalf("docs missing wrong_checkout state wording:\n%s", docs)
+	}
+	if strings.Contains(normalizedDocs, "sync exits non-zero with `wrong_checkout`") {
+		t.Fatalf("docs claim sync prints wrong_checkout:\n%s", docs)
+	}
+	exactTarget := "The exact path is printed by `agentbox agent sync` and shown as `worktree` by `agentbox agent show ID`."
+	for name, text := range map[string]string{"help": output, "docs": string(docs)} {
+		normalized := strings.Join(strings.Fields(text), " ")
+		if !strings.Contains(normalized, exactTarget) {
+			t.Fatalf("%s missing exact destination wording:\n%s", name, text)
+		}
+	}
+
+	root := t.TempDir()
+	store := app.Store{Base: filepath.Join(root, "state"), WorktreeRoot: filepath.Join(root, "worktrees")}
+	settings := app.Settings{
+		Version:   1,
+		Worktrees: app.WorktreeSettings{Root: store.WorktreesDir(), BranchPrefix: "nondefault-branch"},
+	}
+	if err := store.SaveSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	application := &app.App{Store: store}
+	worktree, branch, err := application.WorktreeLocation("nondefault-project", "focused-run", "run-test123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	documentedDestination := strings.Replace("~/.agentbox/worktrees/<project>/<name>", "~/.agentbox/worktrees", store.WorktreesDir(), 1)
+	documentedDestination = strings.ReplaceAll(documentedDestination, "<project>", "nondefault-project")
+	documentedDestination = strings.ReplaceAll(documentedDestination, "<name>", "focused-run")
+	if worktree != documentedDestination {
+		t.Fatalf("worktree location = %q; want documented destination %q", worktree, documentedDestination)
+	}
+	if branch != "nondefault-branch/nondefault-project/focused-run" {
+		t.Fatalf("branch = %q; want nondefault-branch/nondefault-project/focused-run", branch)
+	}
+	for name, text := range map[string]string{"help": output, "docs": string(docs)} {
+		if strings.Contains(text, "<branch-prefix>/") || strings.Contains(text, "nondefault-branch/") {
+			t.Fatalf("%s names a branch prefix as a directory:\n%s", name, text)
+		}
+	}
+}
+
 func TestAgentSyncPrintsDestinationWorktree(t *testing.T) {
 	a, run := agentSyncCLIFixture(t)
 	output, err := captureStdout(t, func() error {

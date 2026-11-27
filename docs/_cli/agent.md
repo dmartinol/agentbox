@@ -266,10 +266,11 @@ from the sandbox back into the local worktree. Sync refuses to overwrite a
 worktree that changed since the last sync. The sandbox `HEAD` must equal the
 tip of the run branch by commit SHA; a detached `HEAD` or differently named
 branch at that exact commit is allowed and leaves the run `up_to_date` after a
-successful sync. If the sandbox is at another commit, sync exits non-zero with
-`wrong_checkout` without changing the host worktree or run sync metadata. Move
-the intended commit onto the run branch, for example with `git switch
-RUN_BRANCH` followed by `git cherry-pick SANDBOX_HEAD`, then retry the command.
+successful sync. If the sandbox is at another commit, sync refuses without
+changing the host worktree or run sync metadata; `agentbox agent show ID` then
+reports the derived `sync_state` `wrong_checkout`. Move the intended commit
+onto the run branch, for example with `git switch RUN_BRANCH` followed by `git
+cherry-pick SANDBOX_HEAD`, then retry the command.
 
 On success, the run record's `last_synced` field contains the transferred
 commit SHA.
