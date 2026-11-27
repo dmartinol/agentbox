@@ -100,6 +100,18 @@ func TestParseRepoConfigValid(t *testing.T) {
 				}
 			},
 		},
+		"long hyphenated binary paths": {
+			yaml: "schema: 1\nimage:\n  toolchains:\n    - name: uv\n      url: https://example.test/uv.tar.gz\n      sha256: 7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840\n      bin: /usr/local/uv-aarch64-unknown-linux-gnu/uv\nhosts:\n  - host: files.pythonhosted.org\n    port: 443\n    binaries: [/usr/local/uv-aarch64-unknown-linux-gnu/uv]\n",
+			check: func(t *testing.T, cfg RepoConfig) {
+				const uv = "/usr/local/uv-aarch64-unknown-linux-gnu/uv"
+				if got := cfg.Image.Toolchains[0].Bin; got != uv {
+					t.Fatalf("toolchain bin = %q", got)
+				}
+				if got := cfg.Hosts[0].Binaries[0]; got != uv {
+					t.Fatalf("binary = %q", got)
+				}
+			},
+		},
 		"uppercase sha256 normalized": {
 			yaml: "schema: 1\nimage:\n  toolchains:\n    - name: go\n      url: https://go.dev/dl/go1.27.4.linux-amd64.tar.gz\n      sha256: 7226736C2339719CDA28FBF3A54D71AA63BCEFE376E98CEF00034268DAB24840\n      bin: /usr/local/go/bin/go\n",
 			check: func(t *testing.T, cfg RepoConfig) {
@@ -203,7 +215,12 @@ func TestParseRepoConfigRejections(t *testing.T) {
 		"high entropy value":   {"schema: 1\nimage:\n  packages: [ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefgh]\n", []string{"image.packages[0]", "credential-free"}},
 		"alias-hidden secret":  {"schema: 1\nverify:\n  - &cmd ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefgh\n", []string{"verify[0]", "credential-free"}},
 		"binary-encoded value": {"schema: 1\nverify:\n  - !!binary Z2hwX3NlY3JldA==\n", []string{"verify[0]", "credential-free"}},
-		"invalid yaml":         {"schema: [1\n", []string{"invalid YAML"}},
+		"credential in host binary path": {
+			"schema: 1\nhosts:\n  - host: example.com\n    port: 443\n    binaries: ['/usr/local/uv-aarch64-unknown-linux-gnu/uv?token=abc123']\n",
+			[]string{"binaries", "credential-free"},
+		},
+		"opaque value outside path fields": {"schema: 1\nverify:\n  - YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY3ODkw\n", []string{"verify[0]", "opaque run of 40+ characters"}},
+		"invalid yaml":                     {"schema: [1\n", []string{"invalid YAML"}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -113,6 +113,26 @@ hosts:
 	}
 }
 
+func TestAppendRepoHostRuleAllowsLongHyphenatedBinaryPath(t *testing.T) {
+	manifest := []byte("schema: 1\nimage:\n  packages: []\nverify: []\nhosts: []\n")
+	const uv = "/usr/local/uv-aarch64-unknown-linux-gnu/uv"
+	rule := RepoHostRule{Host: "files.pythonhosted.org", Port: 443, Binaries: []string{uv}}
+	if err := ValidateHostRule(rule); err != nil {
+		t.Fatalf("long hyphenated binary path rejected: %v", err)
+	}
+	next, err := AppendRepoHostRule(manifest, rule)
+	if err != nil {
+		t.Fatalf("append rejected long hyphenated binary path: %v", err)
+	}
+	cfg, err := ParseRepoConfig(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Hosts) != 1 || cfg.Hosts[0].Host != "files.pythonhosted.org" || cfg.Hosts[0].Binaries[0] != uv {
+		t.Fatalf("hosts = %+v", cfg.Hosts)
+	}
+}
+
 func TestAppendRepoHostRuleRejectsUnsafeScopes(t *testing.T) {
 	manifest := []byte("schema: 1\nimage:\n  packages: []\nverify: []\nhosts: []\n")
 	if _, err := AppendRepoHostRule(manifest, RepoHostRule{Host: "*.example.com", Port: 443, Binaries: []string{"/usr/bin/curl"}}); err == nil {

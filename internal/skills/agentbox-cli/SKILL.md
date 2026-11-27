@@ -159,7 +159,7 @@ Symptom: the agent log shows a connection, DNS, TLS, or HTTP 403 failure for a h
    agentbox policy edit --allow-host api.example.com --port 443 \
      --binary /usr/bin/curl RUN_ID
    ```
-   Preview with `--dry-run` first when unsure. `--binary` is required with `--allow-host` and must be the exact absolute path from the denial; use the same host and port. Wildcards, directory paths, invalid ports, and secret-like values are refused. The rule is written to the run's own policy copy under `$AGENTBOX_HOME/policies`, not to a reusable policy configuration.
+   Preview with `--dry-run` first when unsure. `--binary` is required with `--allow-host` and must be the exact absolute path from the denial; use the same host and port. Wildcards, directory paths, invalid ports, and secret-like values are refused; long hyphenated binary paths such as `/usr/local/uv-aarch64-unknown-linux-gnu/uv` are accepted because binary paths are exempt from the entropy heuristic. The rule is written to the run's own policy copy under `$AGENTBOX_HOME/policies`, not to a reusable policy configuration.
 4. Network-only changes apply live with `openshell policy set --wait`, so retry the operation. Static changes are written to a pending policy for the next sandbox; the command prints which case applies.
 5. To keep the rule for future runs, use the GUI's **Persist in .agentbox/config.yaml** option, or add the same `host`/`port`/`binaries` entry to the manifest's `hosts` section and run `agentbox repo setup` to regenerate the fragment. Commit the manifest and fragment so future runs start with the host allowed. Never hand-edit policy files to persist a host.
 6. Never weaken hard isolation, disable Landlock, or bypass the sandbox to make a command run.

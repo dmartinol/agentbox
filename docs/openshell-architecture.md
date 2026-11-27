@@ -519,9 +519,13 @@ the run's `policy_provenance.agent_binary` before validation, provided the
 basenames match. The denial keeps the logged path in `observedBinary` so the
 drawer and the Add-host dialog show what the sandbox reported. Globs, directory
 paths, invalid ports, and secret-like values are still rejected by the same
-manifest validation used for `.agentbox/config.yaml`. When a rule for
-the same host and port already exists, the missing binary is appended instead
-of creating a duplicate host/port entry.
+manifest validation used for `.agentbox/config.yaml`. That validation exempts
+binary paths from its opaque-run entropy heuristic, because `/` and `-` are
+inside the heuristic's character class and long hyphenated paths such as
+`/usr/local/uv-aarch64-unknown-linux-gnu/uv` are ordinary; embedded credential
+strings are still rejected. When a rule for the same host and port already
+exists, the missing binary is appended instead of creating a duplicate
+host/port entry.
 
 The GUI endpoints are:
 
