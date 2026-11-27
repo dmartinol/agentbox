@@ -230,10 +230,18 @@ func (a *App) sandboxSyncSnapshot(ctx context.Context, r Run) (syncSnapshot, err
 	if err := json.Unmarshal(bytes.TrimSpace(out), &snapshot); err != nil {
 		return syncSnapshot{}, fmt.Errorf("sandbox sync probe was unreadable: %w", err)
 	}
+	snapshot = normalizeSyncSnapshotBranch(snapshot, r.Branch)
 	if err := validateSyncSnapshot(snapshot); err != nil {
 		return syncSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+func normalizeSyncSnapshotBranch(snapshot syncSnapshot, branch string) syncSnapshot {
+	if snapshot.Head == snapshot.BranchTip {
+		snapshot.Branch = []byte(branch)
+	}
+	return snapshot
 }
 
 func validateSyncSnapshot(snapshot syncSnapshot) error {
@@ -439,11 +447,11 @@ func collectSnapshotDir(ctx context.Context, runner CommandRunner, dir, expected
 		}
 		entries = append(entries, syncSnapshotEntry{Path: []byte(name), Kind: "file", Mode: mode, SHA256: hex.EncodeToString(h.Sum(nil))})
 	}
-	return syncSnapshot{
+	return normalizeSyncSnapshotBranch(syncSnapshot{
 		Branch:     branch,
 		Head:       strings.TrimSpace(string(headOut)),
 		BranchTip:  strings.TrimSpace(string(branchTipOut)),
 		DiffSHA256: hashBytes(diffOut),
 		Untracked:  entries,
-	}, nil
+	}, expectedBranch), nil
 }
