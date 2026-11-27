@@ -75,7 +75,9 @@ func TestGatewayRemoveLifecycle(t *testing.T) {
 	if err := store.SaveRun(Run{ID: "run-live123", Name: "live-run", Gateway: "gateway-one", Status: StatusWorking}); err != nil {
 		t.Fatal(err)
 	}
-	runner := &fakeRunner{}
+	runner := &fakeRunner{output: func(recordedCommand) ([]byte, error) {
+		return []byte("Available Commands:\n  remove Remove a gateway\n"), nil
+	}}
 	app := App{Store: store, Runner: runner}
 	err := app.GatewayRemove(context.Background(), "gateway-one")
 	var conflict *ConflictError
@@ -92,7 +94,45 @@ func TestGatewayRemoveLifecycle(t *testing.T) {
 	if err := app.GatewayRemove(context.Background(), "gateway-one"); err != nil {
 		t.Fatal(err)
 	}
-	if len(runner.outputs) != 1 || runner.outputs[0].name != "openshell" || !reflect.DeepEqual(runner.outputs[0].args, []string{"gateway", "remove", "gateway-one"}) {
+	if len(runner.outputs) != 2 || runner.outputs[0].name != "openshell" || !reflect.DeepEqual(runner.outputs[0].args, []string{"gateway", "--help"}) || runner.outputs[1].name != "openshell" || !reflect.DeepEqual(runner.outputs[1].args, []string{"gateway", "remove", "gateway-one"}) {
 		t.Fatalf("commands = %#v", runner.outputs)
+	}
+}
+
+func TestGatewayRemoveCapabilityPreflight(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		output func(recordedCommand) ([]byte, error)
+	}{
+		{
+			name: "help does not list remove",
+			output: func(recordedCommand) ([]byte, error) {
+				return []byte("Available Commands:\n  list List gateways\n"), nil
+			},
+		},
+		{
+			name:   "help fails",
+			output: func(recordedCommand) ([]byte, error) { return nil, errors.New("openshell unavailable") },
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &fakeRunner{output: test.output}
+			app := App{Store: store, Runner: runner}
+			err := app.GatewayRemove(context.Background(), "gateway-one")
+			var unsupported *UnsupportedCapabilityError
+			if err == nil || !errors.As(err, &unsupported) || unsupported.Command != "openshell gateway remove" {
+				t.Fatalf("error = %v; want unsupported gateway remove capability", err)
+			}
+			for _, call := range runner.outputs {
+				if call.name == "openshell" && len(call.args) > 1 && call.args[0] == "gateway" && call.args[1] == "remove" {
+					t.Fatalf("gateway removal was invoked: %#v", call)
+				}
+			}
+		})
 	}
 }

@@ -35,6 +35,21 @@ func (e *NotFoundError) Error() string {
 	return fmt.Sprintf("%s %q not found", e.Resource, e.Name)
 }
 
+// UnsupportedCapabilityError reports that the installed CLI lacks a required
+// subcommand. It maps to HTTP 409 so the GUI shows the message in the dialog.
+type UnsupportedCapabilityError struct {
+	Command string
+	Detail  string
+}
+
+func (e *UnsupportedCapabilityError) Error() string {
+	detail := ""
+	if e.Detail != "" {
+		detail = ": " + e.Detail
+	}
+	return fmt.Sprintf("installed OpenShell CLI does not support %q%s; upgrade openshell and retry (see docs/openshell-architecture.md#resource-deletion-guards)", e.Command, detail)
+}
+
 // NoLiveSandboxError reports that a host policy edit cannot be applied because
 // the run has no live sandbox to update. It maps to HTTP 409.
 type NoLiveSandboxError struct{}

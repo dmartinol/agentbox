@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -112,5 +113,54 @@ func TestImageRemoveConflictExposesDependents(t *testing.T) {
 	}
 	if len(conflict.Dependents) != 1 || conflict.Dependents[0] != "profile codex-default" {
 		t.Fatalf("dependents = %#v", conflict.Dependents)
+	}
+}
+
+func TestImageRemoveClassifiesLookupErrors(t *testing.T) {
+	reference := "localhost/openshell:codex-1.0.0-r1"
+	podmanFailure := errors.New("podman unavailable")
+	tests := []struct {
+		name      string
+		output    func(recordedCommand) ([]byte, error)
+		wantCause error
+	}{
+		{
+			name:   "missing image",
+			output: func(recordedCommand) ([]byte, error) { return []byte(`[]`), nil },
+		},
+		{
+			name:      "podman failure",
+			output:    func(recordedCommand) ([]byte, error) { return nil, podmanFailure },
+			wantCause: podmanFailure,
+		},
+		{
+			name:   "invalid JSON",
+			output: func(recordedCommand) ([]byte, error) { return []byte(`{`), nil },
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &fakeRunner{output: test.output}
+			app := App{Runner: runner}
+			err := app.ImageRemove(context.Background(), reference)
+			if err == nil {
+				t.Fatal("ImageRemove unexpectedly succeeded")
+			}
+			var notFound *NotFoundError
+			if errors.As(err, &notFound) != (test.name == "missing image") {
+				t.Fatalf("error = %v; want NotFoundError for a missing image only", err)
+			}
+			if !strings.Contains(err.Error(), reference) {
+				t.Fatalf("error does not name the image: %v", err)
+			}
+			if test.wantCause != nil && !errors.Is(err, test.wantCause) {
+				t.Fatalf("error = %v; want cause %v", err, test.wantCause)
+			}
+			for _, call := range runner.outputs {
+				if call.name == "podman" && len(call.args) >= 2 && call.args[0] == "image" && call.args[1] == "rm" {
+					t.Fatalf("image removal was invoked: %#v", call)
+				}
+			}
+		})
 	}
 }
