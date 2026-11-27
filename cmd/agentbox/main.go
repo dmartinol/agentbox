@@ -134,7 +134,7 @@ func usage() {
 	fmt.Println("  image versions|build|list|push|pull|rm|prune|registry")
 	fmt.Println("  repo setup [--agent codex,claude] [--dry]")
 	fmt.Println("  gateway list|connect|start|info")
-	fmt.Println("  provider setup")
+	fmt.Println("  provider setup|list")
 	fmt.Println("  policy show|edit")
 	fmt.Println("  mcp list|show|create|delete|servers")
 	fmt.Println("  skill list|show|create|delete|available")
@@ -719,23 +719,61 @@ func gatewayCmd(ctx context.Context, a *app.App, args []string) error {
 }
 
 func providerCmd(ctx context.Context, a *app.App, args []string) error {
-	if len(args) == 0 || args[0] != "setup" {
-		return fmt.Errorf("provider setup required")
+	if len(args) == 0 {
+		return fmt.Errorf("provider setup|list required")
 	}
-	f := flags("provider setup")
-	kind := f.String("type", "gateway-bearer", "gateway-bearer, gateway-header, or built-in openai/anthropic")
-	host := f.String("host", "", "gateway host (gateway provider types)")
-	credential := f.String("credential", "AGENTBOX_MODEL_KEY", "environment variable holding the API key")
-	gateway := f.String("gateway", "", "gateway name")
-	dry := f.Bool("dry-run", false, "preview")
-	update := f.Bool("update", false, "update an existing AgentBox provider profile")
-	if err := f.Parse(args[1:]); err != nil {
-		return err
+	switch args[0] {
+	case "setup":
+		f := flags("provider setup")
+		kind := f.String("type", "gateway-bearer", "gateway-bearer, gateway-header, or built-in openai/anthropic")
+		host := f.String("host", "", "gateway host (gateway provider types)")
+		credential := f.String("credential", "AGENTBOX_MODEL_KEY", "environment variable holding the API key")
+		gateway := f.String("gateway", "", "gateway name")
+		dry := f.Bool("dry-run", false, "preview")
+		update := f.Bool("update", false, "update an existing AgentBox provider profile")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if err := need(f.Args(), 1); err != nil {
+			return err
+		}
+		return a.ProviderSetup(ctx, *kind, f.Args()[0], *host, *credential, *gateway, *dry, *update)
+	case "list":
+		f := flags("provider list")
+		gateway := f.String("gateway", "", "gateway name")
+		jsonOut := f.Bool("json", false, "JSON output")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		data, err := a.ProviderList(ctx, *gateway)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			_, err = os.Stdout.Write(data)
+			return err
+		}
+		var payload struct {
+			Providers []struct {
+				Name         string `json:"name"`
+				Type         string `json:"type"`
+				ProviderType string `json:"provider_type"`
+			} `json:"providers"`
+		}
+		if err := json.Unmarshal(data, &payload); err != nil {
+			return fmt.Errorf("provider list is invalid JSON: %w", err)
+		}
+		for _, provider := range payload.Providers {
+			kind := provider.Type
+			if kind == "" {
+				kind = provider.ProviderType
+			}
+			fmt.Printf("%-20s %s\n", provider.Name, kind)
+		}
+		return nil
+	default:
+		return fmt.Errorf("provider setup|list required")
 	}
-	if err := need(f.Args(), 1); err != nil {
-		return err
-	}
-	return a.ProviderSetup(ctx, *kind, f.Args()[0], *host, *credential, *gateway, *dry, *update)
 }
 
 func policyCmd(ctx context.Context, a *app.App, args []string) error {

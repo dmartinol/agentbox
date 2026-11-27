@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -157,6 +158,80 @@ func (*appfakeRunner) Output(context.Context, string, ...string) ([]byte, error)
 }
 func (*appfakeRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error {
 	return nil
+}
+
+type providerListRunner struct {
+	output []byte
+	args   []string
+}
+
+func (runner *providerListRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	runner.args = args
+	return runner.output, nil
+}
+
+func (*providerListRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error {
+	return nil
+}
+
+func TestProviderListPrintsProviderRecords(t *testing.T) {
+	runner := &providerListRunner{output: []byte(`{"providers":[{"name":"model-gateway","type":"gateway-bearer"},{"name":"direct-openai","provider_type":"openai"}]}`)}
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: runner}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"provider", "list", "--gateway", "unit-gateway"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output != "model-gateway        gateway-bearer\ndirect-openai        openai" {
+		t.Fatalf("provider list output = %q", output)
+	}
+	want := []string{"provider", "list", "-o", "json", "--gateway", "unit-gateway"}
+	if !reflect.DeepEqual(runner.args, want) {
+		t.Fatalf("provider list command = %#v; want %#v", runner.args, want)
+	}
+}
+
+func TestProviderListJSONIsParseable(t *testing.T) {
+	body := `{"providers":[{"name":"model-gateway","type":"gateway-bearer"}]}`
+	runner := &providerListRunner{output: []byte(body)}
+	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: runner}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"provider", "list", "--json"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Providers []struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("provider list JSON is invalid: %s (%v)", output, err)
+	}
+	if len(payload.Providers) != 1 || payload.Providers[0].Name != "model-gateway" || payload.Providers[0].Type != "gateway-bearer" {
+		t.Fatalf("provider list JSON = %+v", payload)
+	}
+}
+
+func TestProviderCommandRequiresKnownSubcommand(t *testing.T) {
+	for _, command := range [][]string{{"provider"}, {"provider", "unknown"}} {
+		t.Run(strings.Join(command, " "), func(t *testing.T) {
+			a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
+			err := dispatch(context.Background(), a, command)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if !strings.Contains(err.Error(), "setup") || !strings.Contains(err.Error(), "list") {
+				t.Fatalf("provider usage error = %v", err)
+			}
+			if strings.Contains(err.Error(), "provider setup required") {
+				t.Fatalf("provider usage error used the old message: %v", err)
+			}
+		})
+	}
 }
 
 type pruneOutputRunner struct{}
@@ -769,6 +844,19 @@ func TestUsageListsSkillsCommand(t *testing.T) {
 	}
 	if !strings.Contains(output, "skills install|update|remove|list|show") {
 		t.Fatalf("usage is missing the skills command: %s", output)
+	}
+}
+
+func TestUsageListsProviderListCommand(t *testing.T) {
+	output, err := captureStdout(t, func() error {
+		usage()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "provider setup|list") {
+		t.Fatalf("usage is missing the provider list command: %s", output)
 	}
 }
 
