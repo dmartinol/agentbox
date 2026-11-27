@@ -261,6 +261,31 @@ func TestOrchestratorSkillFeedbackFollowUps(t *testing.T) {
 	)
 }
 
+// TestOrchestratorIndependentChecksPendingDuringOverlap keeps pending rows
+// expected while verify and review run concurrently at the same head.
+func TestOrchestratorIndependentChecksPendingDuringOverlap(t *testing.T) {
+	for name, wants := range map[string][]string{
+		"pr.md": {
+			"Pending rows are expected while verification and review overlap at the same commit",
+			"they become missing evidence only after a stage due at that commit fails to report",
+		},
+		"review-task.md": {
+			"Treat an `Independent checks` row still `pending` during the verify/review overlap as not yet available",
+			"do not raise a finding for the pending row itself",
+		},
+		"verdict.md": {
+			"Independent checks: not yet available — `pending` during the verify/review overlap",
+			"a pending row itself is not a finding",
+		},
+	} {
+		content, err := EmbeddedFile("agentbox-orchestrator", name, "9.9.9")
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantAll(t, string(content), wants...)
+	}
+}
+
 // TestOrchestratorSkillPinsExactHeadSHA requires verify and review workers to
 // prove that HEAD is the requested commit, not merely a tree-equal snapshot.
 func TestOrchestratorSkillPinsExactHeadSHA(t *testing.T) {

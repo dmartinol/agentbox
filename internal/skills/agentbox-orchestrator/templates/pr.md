@@ -65,7 +65,7 @@ Results at the reviewed commit, not at the implementer's last local edit.
 | Vet | `make vet` | pass | `sha` |
 | Build | `make build` | pass | `sha` |
 
-**Independent checks** — the orchestrator fills these in; `pending` until the stage reports.
+**Independent checks** — the orchestrator fills these in; `pending` until the stage reports. Pending rows are expected while verification and review overlap at the same commit, and they become missing evidence only after a stage due at that commit fails to report.
 
 | Stage | Role | Result | Evidence |
 | --- | --- | --- | --- |
