@@ -109,3 +109,52 @@ func TestDeleteProfileAllowsLastProfileForAgent(t *testing.T) {
 		t.Fatalf("profile file still exists: %v", err)
 	}
 }
+
+func TestDeleteProfileGuardsUnattributedLegacyRuns(t *testing.T) {
+	store := Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	policy := filepath.Join(store.PolicyDir(), "policy.yaml")
+	if err := os.WriteFile(policy, DefaultPolicy(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveProfile(profileFixture("legacy", "codex", policy)); err != nil {
+		t.Fatal(err)
+	}
+	run := Run{ID: "run-legacy123", Name: "legacy-run", Status: StatusWorking}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	app := App{Store: store, Runner: &fakeRunner{}}
+	usage, err := app.ProfileUsage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(usage.UsedBy) != 0 || !slices.Equal(usage.Unattributed, []string{"run legacy-run (working, no profile recorded)"}) {
+		t.Fatalf("usage = %#v", usage)
+	}
+	err = app.DeleteProfile("legacy")
+	var conflict *ConflictError
+	if err == nil || !errors.As(err, &conflict) {
+		t.Fatalf("unattributed guard = %v", err)
+	}
+	if conflict.Reason != "non-terminal runs without recorded profile attribution may use any profile" || !slices.Equal(conflict.Dependents, []string{"run legacy-run (working, no profile recorded)"}) {
+		t.Fatalf("conflict = %+v", conflict)
+	}
+
+	run.Status = StatusCompleted
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	usage, err = app.ProfileUsage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(usage.UsedBy) != 0 || len(usage.Unattributed) != 0 {
+		t.Fatalf("terminal usage = %#v", usage)
+	}
+	if err := app.DeleteProfile("legacy"); err != nil {
+		t.Fatalf("terminal unattributed run blocked deletion: %v", err)
+	}
+}

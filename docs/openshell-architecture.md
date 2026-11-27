@@ -100,6 +100,11 @@ default even when its profile currently references another policy, so a blank
 policy field can round-trip without losing the file that would be reused. After
 the profile is deleted, its orphaned generated policy may be deleted.
 
+Runs created before profile attribution have no `profile` field. While such a run
+is non-terminal, profile deletion is refused and names the blocking run, because
+it may depend on any profile. Stop or delete those runs first. Historical
+terminal runs are ignored, and no migration rewrites run records.
+
 Gateway removal requires an OpenShell CLI that provides
 `openshell gateway remove`; the capability was verified with `openshell 0.1.4`. AgentBox checks
 `openshell gateway --help` before deletion. If that output does not list

@@ -2361,15 +2361,26 @@ func TestProfileDeleteEndpoint(t *testing.T) {
 	if err := store.SaveRun(app.Run{ID: "run-live123", Name: "live-run", ProfileName: "one", Status: app.StatusWorking}); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.SaveRun(app.Run{ID: "run-legacy123", Name: "legacy-run", Status: app.StatusWorking}); err != nil {
+		t.Fatal(err)
+	}
 	server := newLifecycleServer(t, store, &lifecycleRunner{})
 
 	var conflict struct {
+		Error      string   `json:"error"`
 		Dependents []string `json:"dependents"`
 	}
 	if response := requestJSON(t, http.MethodPost, server.URL+"/api/profiles/one/delete", nil, &conflict); response.StatusCode != http.StatusConflict || !slices.Equal(conflict.Dependents, []string{"live-run"}) {
 		t.Fatalf("active status=%d body=%+v", response.StatusCode, conflict)
 	}
 	if err := store.SaveRun(app.Run{ID: "run-live123", Status: app.StatusCompleted}); err != nil {
+		t.Fatal(err)
+	}
+	wantDependents := []string{"run legacy-run (working, no profile recorded)"}
+	if response := requestJSON(t, http.MethodPost, server.URL+"/api/profiles/one/delete", nil, &conflict); response.StatusCode != http.StatusConflict || !slices.Equal(conflict.Dependents, wantDependents) || !strings.Contains(conflict.Error, "legacy-run") {
+		t.Fatalf("unattributed status=%d body=%+v", response.StatusCode, conflict)
+	}
+	if err := store.SaveRun(app.Run{ID: "run-legacy123", Status: app.StatusCompleted}); err != nil {
 		t.Fatal(err)
 	}
 	var deleted struct {
