@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -21,6 +22,9 @@ import (
 // finished runs still have a readable log. The temporary file protects an older
 // snapshot from being truncated when the session is already gone.
 const captureAgentScreen = `tmux capture-pane -p -S - -t agent > /workspace/state/agent.screen.tmp 2>/dev/null && mv /workspace/state/agent.screen.tmp /workspace/state/agent.screen || rm -f /workspace/state/agent.screen.tmp`
+
+const provisioningGrace = 2 * time.Minute
+const provisioningUnreachableRecovery = "run agentbox doctor, then retry or delete this run"
 
 const bootstrapScript = `#!/bin/sh
 set -eu
@@ -328,18 +332,16 @@ func (a *App) Start(ctx context.Context, opt StartOptions) (Run, error) {
 
 func (a *App) failProvisioningRun(ctx context.Context, r Run, err error) (Run, error) {
 	diagnosis, diagnosed := a.provisioningClockDiagnosis(ctx, err)
-	if !diagnosed {
-		r.Status = StatusFailed
-		r.StatusDetail = truncateDetail(err.Error())
-		_ = a.Store.SaveRun(r)
-		return r, err
+	classifiedError := strings.TrimSpace(err.Error())
+	returnError := err
+	if diagnosed {
+		classifiedError = strings.TrimSpace(diagnosis.Detail)
+		returnError = fmt.Errorf("%s: %w", diagnosis.Detail, err)
 	}
-
-	wrapped := fmt.Errorf("%s: %w", diagnosis.Detail, err)
-	r.Status = StatusFailed
-	r.StatusDetail = provisioningClockStatusDetail(diagnosis.Detail, err)
+	r.Status = StatusUnreachable
+	r.StatusDetail = provisioningUnreachableDetail(fmt.Sprintf("sandbox %s provisioning failed: %s", r.Sandbox, classifiedError))
 	_ = a.Store.SaveRun(r)
-	return r, wrapped
+	return r, returnError
 }
 
 func (a *App) provisioningClockDiagnosis(ctx context.Context, err error) (Check, bool) {
@@ -353,33 +355,38 @@ func (a *App) provisioningClockDiagnosis(ctx context.Context, err error) (Check,
 	return check, true
 }
 
+func withinProvisioningGrace(created, now time.Time) bool {
+	if created.IsZero() || created.After(now.Add(provisioningGrace)) {
+		return false
+	}
+	return now.Sub(created) < provisioningGrace
+}
+
+func provisioningUnreachableDetail(prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	detail := prefix + "; " + provisioningUnreachableRecovery
+	if len(detail) <= statusDetailLimit {
+		return detail
+	}
+	suffix := "; " + provisioningUnreachableRecovery
+	limit := statusDetailLimit - len(suffix) - len("…")
+	for limit > 0 && !utf8.ValidString(prefix[:limit]) {
+		limit--
+	}
+	if limit <= 0 {
+		return detail[:statusDetailLimit]
+	}
+	return prefix[:limit] + "…" + suffix
+}
+
+func isProvisioningUnreachableDetail(detail string) bool {
+	return strings.HasSuffix(strings.TrimSpace(detail), "; "+provisioningUnreachableRecovery)
+}
+
 func isProvisioningClockFailure(err error) bool {
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "session token was issued in the future") ||
 		strings.Contains(message, "containerexited")
-}
-
-func provisioningClockStatusDetail(diagnosis string, cause error) string {
-	detail := strings.TrimSpace(diagnosis)
-	detail = strings.Replace(
-		detail,
-		"Restart or resynchronize the Podman VM, then run `agentbox doctor`. Newly issued OpenShell JWTs may appear future-dated.",
-		"Restart or resynchronize the Podman VM, then run `agentbox doctor`; new JWTs may seem future-dated.",
-		1,
-	)
-	if len(detail) > statusDetailLimit {
-		return detail[:statusDetailLimit]
-	}
-	label := "\nOriginal error: "
-	remaining := statusDetailLimit - len(detail) - len(label)
-	if remaining <= 0 {
-		return truncateDetail(detail)
-	}
-	original := strings.TrimSpace(cause.Error())
-	if len(original) > remaining {
-		original = original[:remaining]
-	}
-	return detail + label + original
 }
 
 func sandboxCreateArgs(r Run, p Profile, gateway string) []string {
@@ -484,10 +491,23 @@ func (a *App) inspectRunWithSync(ctx context.Context, r Run, freshSyncProbe bool
 	probed := false
 	b, err := a.Runner.Output(ctx, "openshell", a.sandboxArgs(r, "sandbox", "get", r.Sandbox, "-o", "json")...)
 	if err != nil {
-		// A prepared record has no sandbox yet; keep Creating instead of
-		// reporting the missing sandbox, which is the expected state.
-		if sandboxNotFound(err) && (r.Status == StatusCreating) {
+		if sandboxNotFound(err) {
+			// A prepared record has no sandbox yet; keep Creating instead of
+			// reporting the missing sandbox, which is the expected state.
+			if r.Status == StatusCreating && withinProvisioningGrace(r.Created, time.Now()) {
+				r.SyncState = SyncStateUnknown
+				return r, nil
+			}
+			if r.Status == StatusUnreachable && isProvisioningUnreachableDetail(r.StatusDetail) {
+				r.SyncState = SyncStateUnknown
+				return r, a.Store.SaveRun(r)
+			}
+			r.Status = StatusUnreachable
+			r.StatusDetail = provisioningUnreachableDetail(fmt.Sprintf("sandbox %s not found after 2m; provisioning may have failed", r.Sandbox))
 			r.SyncState = SyncStateUnknown
+			if err := a.Store.SaveRun(r); err != nil {
+				return Run{}, err
+			}
 			return r, nil
 		}
 		evidence.InspectErr = err.Error()

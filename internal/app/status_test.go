@@ -271,7 +271,7 @@ func TestInspectRunCachesDerivedStatus(t *testing.T) {
 	ctx := context.Background()
 	store := Store{Base: t.TempDir()}
 	app := App{Store: store}
-	run := Run{ID: "run-probe123", Sandbox: "sandbox-probe", Gateway: "gw", Status: StatusCreating}
+	run := Run{ID: "run-probe123", Sandbox: "sandbox-probe", Gateway: "gw", Status: StatusCreating, Created: time.Now().UTC()}
 	if err := store.SaveRun(run); err != nil {
 		t.Fatal(err)
 	}
