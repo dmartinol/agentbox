@@ -64,8 +64,9 @@ flag-based subcommands also accept `--help`.
 - `agentbox agent start --require-head FULL_SHA` requires a full 40-character hexadecimal
   commit SHA after trimming. AgentBox resolves the profile and source, then reads
   `git -C <source-root> rev-parse HEAD` before any run-creation side effect or
-  OpenShell or Podman command. It compares commit identity only, so a matching
-  but dirty source still passes.
+  OpenShell or Podman command. It compares commit identity only during the HEAD
+  comparison, so a matching but dirty source still passes that check. Direct-run
+  mode still requires a clean checkout in `internal/app/gitrun.go`.
 - Success exits with status `0`. Errors print `error: ...` to standard error and
   exit with status `1`.
 - Names for projects, profiles, providers, gateways, settings prefixes, and run

@@ -1355,6 +1355,56 @@ func TestStartRequiredHeadPreflight(t *testing.T) {
 	}
 }
 
+func TestStartRequiredHeadReportsUnreadableSourceHEAD(t *testing.T) {
+	ctx := context.Background()
+	source := filepath.Join(t.TempDir(), "source")
+	if err := os.MkdirAll(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store := Store{Base: t.TempDir()}
+	policy, err := store.CreatePolicyConfiguration("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := testProfile("codex", "gateway", "prompted")
+	profile.Policy = policy.Path
+	if err := store.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	headError := errors.New("source HEAD unavailable")
+	runner := &fakeRunner{output: func(call recordedCommand) ([]byte, error) {
+		switch {
+		case call.name == "git" && commandHasArg(call, "--show-toplevel"):
+			return []byte(source), nil
+		case call.name == "git" && containsCommand(call.args, "rev-parse", "HEAD"):
+			return nil, headError
+		default:
+			return []byte(`{}`), nil
+		}
+	}}
+	application := App{Store: store, Runner: runner}
+	_, err = application.Start(ctx, StartOptions{
+		Profile:     profile.Name,
+		Source:      source,
+		Gateway:     "openshell",
+		Image:       "profile",
+		RequireHead: stringPointer(strings.ToUpper("0123456789abcdef0123456789abcdef01234567")),
+		Dry:         true,
+	})
+	if err == nil {
+		t.Fatal("start succeeded with an unreadable source HEAD")
+	}
+	sourceRoot := runner.outputs[0].args[1]
+	wantError := fmt.Sprintf("could not read source HEAD at %q for --require-head: source HEAD unavailable", sourceRoot)
+	if err.Error() != wantError {
+		t.Fatalf("error = %v, want %q", err, wantError)
+	}
+	if !errors.Is(err, headError) {
+		t.Fatalf("error does not wrap the Git failure: %v", err)
+	}
+	assertRequiredHeadFailure(t, runner, store)
+}
+
 func stringPointer(value string) *string {
 	return &value
 }
