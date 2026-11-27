@@ -714,7 +714,7 @@ agentbox agent start --profile PROFILE --project PROJECT --source FIX_WORKTREE -
   --approval unattended
 ```
 
-Record the fix worktree, the head SHA the fixer started from, and the commit it returned. A fix stage is a new `stages[]` entry with the next `iteration`.
+Record the fix worktree, the head SHA the fixer started from, and the commit it returned. A fix stage is a new `stages[]` entry with the next `iteration`. After the fixer returns a new head and before the next review dispatch, the fix-cycle task must tell the fixer to refresh the pull request body's Size row from `git diff --stat` at that head and set every Evidence row's Commit cell to that head; only the two Independent checks rows may still change between the reviewed body and the final body.
 
 #### Normalize the branch before push
 

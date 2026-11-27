@@ -13,6 +13,8 @@ reviewer fills only its row and Follow-ups. The orchestrator owns the
 provenance line, the footer, and merge. Repository contract: AGENTS.md.
 
 Before publication, parse the Conventional Commits type from the final commit subject and make the pull request title type and At a glance Kind match it.
+
+Fill the Size row from `git diff --stat <base>..<head>` at the reviewed head, and name that head in every Evidence Commit cell as the full SHA or an unambiguous prefix of at least seven hexadecimal characters. Those are values for the reviewer, not sentences to copy into the body.
 -->
 
 Closes #<issue>

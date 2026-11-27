@@ -928,6 +928,37 @@ func TestOrchestratorSkillReviewCap(t *testing.T) {
 	)
 }
 
+func TestOrchestratorSkillFixCycleRefreshesPRBodyEvidence(t *testing.T) {
+	skill := rawSkill(t, "agentbox-orchestrator")
+	text := strings.Join(strings.Fields(skill), " ")
+	wantAll(t, text,
+		"After the fixer returns a new head and before the next review dispatch",
+		"the fix-cycle task must tell the fixer to refresh the pull request body's Size row from `git diff --stat` at that head",
+		"set every Evidence row's Commit cell to that head",
+		"only the two Independent checks rows may still change between the reviewed body and the final body",
+	)
+	prBody, err := EmbeddedFile("agentbox-orchestrator", "pr.md", "9.9.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAll(t, strings.Join(strings.Fields(string(prBody)), " "),
+		"Fill the Size row from `git diff --stat <base>..<head>` at the reviewed head",
+		"name that head in every Evidence Commit cell as the full SHA or an unambiguous prefix of at least seven hexadecimal characters",
+		"Those are values for the reviewer, not sentences to copy into the body",
+	)
+	// The guidance belongs in the authoring comment, not in the body the
+	// implementer publishes.
+	rendered := string(prBody)
+	if index := strings.Index(rendered, "Closes #<issue>"); index >= 0 {
+		rendered = rendered[index:]
+	}
+	for _, leaked := range []string{"must match", "Every Commit cell", "Those are values for the reviewer"} {
+		if strings.Contains(rendered, leaked) {
+			t.Fatalf("pr.md leaks authoring guidance into the body: %q", leaked)
+		}
+	}
+}
+
 // TestOrchestratorSkillReviewerDiversity pins first-pass diversity and same
 // selection for consecutive cycles.
 func TestOrchestratorSkillReviewerDiversity(t *testing.T) {

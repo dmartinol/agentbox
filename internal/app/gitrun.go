@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -215,6 +216,41 @@ func (a *App) MakeBundle(ctx context.Context, r Run) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+func (a *App) DiffStat(ctx context.Context, repo, base, head string) (DiffStat, error) {
+	output, err := a.git(ctx, repo, "diff", "--numstat", base+".."+head)
+	if err != nil {
+		return DiffStat{}, err
+	}
+	var stat DiffStat
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, "\t", 3)
+		if len(fields) != 3 {
+			return DiffStat{}, fmt.Errorf("invalid git diff --numstat line: %s", line)
+		}
+		insertions := 0
+		if fields[0] != "-" {
+			insertions, err = strconv.Atoi(fields[0])
+			if err != nil {
+				return DiffStat{}, fmt.Errorf("invalid git diff --numstat line: %s", line)
+			}
+		}
+		deletions := 0
+		if fields[1] != "-" {
+			deletions, err = strconv.Atoi(fields[1])
+			if err != nil {
+				return DiffStat{}, fmt.Errorf("invalid git diff --numstat line: %s", line)
+			}
+		}
+		stat.Files++
+		stat.Insertions += insertions
+		stat.Deletions += deletions
+	}
+	return stat, nil
 }
 
 func (a *App) Diff(ctx context.Context, r Run) ([]byte, error) {
