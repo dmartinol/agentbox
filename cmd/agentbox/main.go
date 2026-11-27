@@ -1297,10 +1297,17 @@ func printRunState(ctx context.Context, a *app.App, id, message string) error {
 
 const agentSyncUsage = `Usage: agentbox agent sync ID
 
-Sync a run's results into the AgentBox run worktree at
-~/.agentbox/worktrees/agentbox/<name>. The --source option to
-agentbox agent start names only the input checkout; it is not the sync
-destination.
+Sync a run's results into its isolated run worktree. The exact path is
+printed by ` + "`agentbox agent sync`" + ` and shown as ` + "`worktree`" + ` by
+` + "`agentbox agent show ID`" + `.
+
+The default destination is ` + "`~/.agentbox/worktrees/<project>/<name>`" + ` for
+a project run, or ` + "`~/.agentbox/worktrees/<name>`" + ` without a project. The
+root is configurable with ` + "`agentbox settings set --worktree-root`" + ` or
+` + "`AGENTBOX_HOME`" + `.
+
+The --source option to ` + "`agentbox agent start`" + ` names only the input
+checkout; it is not the sync destination.
 `
 
 func agentCmd(ctx context.Context, a *app.App, args []string) error {

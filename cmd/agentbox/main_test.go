@@ -1171,9 +1171,17 @@ func TestAgentSyncHelpExplainsDestination(t *testing.T) {
 			}
 			for _, want := range []string{
 				"Usage: agentbox agent sync ID",
-				"~/.agentbox/worktrees/agentbox/<name>",
+				"Sync a run's results into its isolated run worktree",
+				"printed by `agentbox agent sync`",
+				"shown as `worktree` by",
+				"`agentbox agent show ID`",
+				"~/.agentbox/worktrees/<project>/<name>",
+				"~/.agentbox/worktrees/<name>",
+				"agentbox settings set --worktree-root",
+				"AGENTBOX_HOME",
 				"The --source option to",
-				"names only the input checkout",
+				"names only the input",
+				"checkout; it is not the sync destination",
 			} {
 				if !strings.Contains(output, want) {
 					t.Fatalf("agent sync help missing %q:\n%s", want, output)
