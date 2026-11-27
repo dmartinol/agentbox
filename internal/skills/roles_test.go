@@ -172,7 +172,7 @@ func TestEmbeddedHandoffRoleContracts(t *testing.T) {
 		"agentbox-verifier":    "Gate rerun at the pull-request head, recorded in `.agentbox-stage/verify-<iteration>.md`; returns only `Handoff complete: .agentbox-stage/verify-<iteration>.md.`.",
 		"agentbox-reviewer":    "Delta-scoped review from task-spec inputs, including `.agentbox-stage/context/pr-body.md` with its `body_sha256`, written to `.agentbox-stage/review-<iteration>.md`; returns only `Handoff complete: .agentbox-stage/review-<iteration>.md.`.",
 	}
-	rendererParagraph := "The five handoff roles take materialized input paths from their task spec, write only their untracked `.agentbox-stage/<stage>-<iteration>.md` handoff, and return only `Handoff complete: <path>.`. Planner, verifier, and reviewer are read-only: Claude omits `Edit` and `Write`, OpenCode denies `edit`, and both retain shell so the role writes its handoff through the shell. Codex cannot enforce read-only mode in an agent file, so its instruction rule allows only that explicitly named untracked handoff and still forbids tracked repository edits. Implementer and fixer remain writable. Triage and retro return complete bodies because they are shell-less and tracker-blind."
+	rendererParagraph := "The five handoff roles take materialized input paths from their task spec, write only their untracked `.agentbox-stage/<stage>-<iteration>.md` handoff, and return only `Handoff complete: <path>.`. Planner, verifier, and reviewer are read-only: Claude omits `Edit` and `Write`, OpenCode denies `edit`, and both retain shell so the role writes its handoff through the shell. Codex cannot enforce read-only mode in an agent file, so its instruction rule for those handoff roles allows only that explicitly named untracked handoff and still forbids tracked repository edits; read-only roles that define no handoff, such as triage, retro, and the orchestrator, render a read-only rule with no file-write exception. Implementer and fixer remain writable. Triage and retro return complete bodies because they are shell-less and tracker-blind."
 	if !strings.Contains(documentation, rendererParagraph) {
 		t.Fatal("skills documentation is missing the handoff renderer paragraph")
 	}
@@ -196,6 +196,20 @@ func TestEmbeddedHandoffRoleContracts(t *testing.T) {
 			}
 			if role.Write != tc.write || role.Shell != tc.shell {
 				t.Fatalf("role capabilities for %s = write %t, shell %t", tc.name, role.Write, role.Shell)
+			}
+			if !strings.Contains(role.Description, tc.artifactPath) || !strings.Contains(role.Description, tc.completionNote) {
+				t.Fatalf("role description for %s is missing its artifact and completion contract: %q", tc.name, role.Description)
+			}
+			for _, phrase := range []string{
+				"return the commit and evidence",
+				"report the addressed finding ids",
+				"returning gates and observations",
+				"return a verdict artifact",
+				"return a body",
+			} {
+				if strings.Contains(role.Description, phrase) {
+					t.Fatalf("role description for %s contains legacy return phrase %q", tc.name, phrase)
+				}
 			}
 
 			instructions := strings.Join(strings.Fields(role.Instructions), " ")
@@ -304,6 +318,67 @@ func TestEmbeddedHandoffRoleContracts(t *testing.T) {
 				t.Fatalf("read-only opencode role %s has the wrong handoff capability", tc.name)
 			}
 		})
+	}
+
+	for _, name := range []string{"agentbox-triage", "agentbox-retro", "agentbox-orchestrator"} {
+		t.Run(name+"/codex-read-only-without-handoff", func(t *testing.T) {
+			role, err := RoleByName(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if role.DefinesHandoff() {
+				t.Fatalf("role %s unexpectedly defines a stage handoff", name)
+			}
+			codexContent, err := RenderRole(role, "codex", "", "", "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var codexParsed struct {
+				DeveloperInstructions string `toml:"developer_instructions"`
+			}
+			if _, err := toml.Decode(string(codexContent), &codexParsed); err != nil {
+				t.Fatalf("codex role is not valid TOML: %v\n%s", err, codexContent)
+			}
+			codexInstructions := codexParsed.DeveloperInstructions
+			if !strings.Contains(codexInstructions, "This role is read-only") || !strings.Contains(codexInstructions, "do not create, edit, move, or delete any file, including tracked repository files") {
+				t.Fatalf("codex role %s is missing the strict read-only rule", name)
+			}
+			if strings.Contains(codexInstructions, "except for the untracked") {
+				t.Fatalf("codex role %s contains an unscoped handoff exception", name)
+			}
+		})
+	}
+
+	verdictBytes, err := os.ReadFile(filepath.Join("agentbox-orchestrator", "templates", "verdict.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verdict := string(verdictBytes); !strings.Contains(verdict, "git rev-parse HEAD") || !strings.Contains(verdict, "Reviewed commit (actual HEAD)") {
+		t.Fatal("verdict template is missing the exact-head evidence contract")
+	}
+
+	implementer, err := RoleByName("agentbox-implementer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phrase := range []string{
+		"git diff --name-only <base>..HEAD",
+		"git status --short",
+		"must equal the exact committed path list",
+	} {
+		if !strings.Contains(implementer.Instructions, phrase) {
+			t.Fatalf("implementer is missing changed-files contract %q", phrase)
+		}
+	}
+
+	skillBytes, err := os.ReadFile(filepath.Join("agentbox-orchestrator", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phrase := range []string{"openshell sandbox upload", "Path-list parity", "git diff --name-only <base>..HEAD"} {
+		if !strings.Contains(string(skillBytes), phrase) {
+			t.Fatalf("orchestrator skill is missing contract %q", phrase)
+		}
 	}
 }
 

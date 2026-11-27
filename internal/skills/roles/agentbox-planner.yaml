@@ -1,5 +1,5 @@
 name: agentbox-planner
-description: Plan one AgentBox orchestrator issue by normalizing acceptance criteria, defining the gate list, and writing a self-contained implementer task spec.
+description: 'Plan one AgentBox orchestrator issue by normalizing acceptance criteria, defining the gate list, and writing the full plan handoff to `.agentbox-stage/plan-<iteration>.md`; return only `Handoff complete: .agentbox-stage/plan-<iteration>.md.`'
 write: false
 shell: true
 instructions: |

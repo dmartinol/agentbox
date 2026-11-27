@@ -101,6 +101,7 @@ Creating a worktree is a mutation with an ambiguous failure mode. Verify the raw
 - The orchestrator is the only actor that merges and closes, and the only actor that posts review verdicts, for every worker type.
 - Never bypass sandbox or approval controls. Never pass `--dangerously-bypass-approvals-and-sandbox`, `--yolo`, or an equivalent to make a stage run; report a blocker when the workflow cannot proceed under the runtime's normal controls.
 - All environment operations go through the `agentbox` CLI; never drive `openshell` or `podman` directly. If the CLI is missing or a documented command is unknown, ask the user to install the current binary (`go install github.com/dmartinol/agentbox/cmd/agentbox@main`) instead of improvising.
+- The single permitted direct `openshell` call is `openshell sandbox upload` for stage-input delivery into a running sandbox, because AgentBox exposes no copy command; every other environment operation still goes through the `agentbox` CLI.
 - One stage is one agent process. A worker performs the stage itself and never launches another agent or a nested non-interactive agent for the same work.
 - Never bypass branch protection, required checks, or review requirements.
 - On any doubt, set `blocked` with a reason instead of improvising.
@@ -303,6 +304,7 @@ Define the reviewer follow-up queue as the accepted groups in the persisted `rev
 
 This rule applies to plan, implement, fix, verify, and review. Every stage input is either inlined verbatim in the task spec for short text or copied exact bytes into `.agentbox-stage/context/<name>` in the assigned worktree for anything long; the task spec names that worktree path. A host-only path such as `$AGENTBOX_HOME/orchestrator/<workflow-id>/<stage>-<iteration>.md` may never be the worker's only reference, and the worker never reads `$AGENTBOX_HOME`.
 
+- For a host or Orca worktree the orchestrator copies the exact bytes into `.agentbox-stage/context/<name>` with a direct file copy before dispatch; for an AgentBox sandbox worker AgentBox snapshots only the tracked tree, so the orchestrator copies the exact bytes with `openshell sandbox upload <sandbox> <local> <dest> --no-git-ignore` (the same primitive `internal/app/sync.go` uses), records their `sha256`, and inlines the bytes in the task spec when no copy is available. The directory never appears on its own.
 - A forge client, forge credential, or forge egress rule is never a stage-input mechanism. A pull-request body reaches the reviewer as a materialized file, owned by #151.
 - `.agentbox-stage/context/` is untracked and stays out of a run's starting snapshot (#147), as the stage-snapshot contract requires.
 - Pinned inputs are copied exact bytes and recorded with `sha256`. Never materialize a secret value, token file, or environment dump.
@@ -601,6 +603,7 @@ A worker's gates prove the tests it wrote pass. They do not prove the branch is 
 | Document accuracy | Does every changed sentence describe the code in this commit, including examples and counts? |
 | Acceptance criterion → test | Is every acceptance criterion mapped to a named test or an observed behavior at the pushed commit? |
 | Host-side focused run | Has the orchestrator run the focused gate on the host against the pushed commit? |
+| Path-list parity | Does the implementer handoff `changed_files` equal `git diff --name-only <base>..HEAD`? A mismatch is a handoff violation, fixed before squash or push. |
 
 A failing answer is fixed before push; it is not a note in the pull request. The checklist is the last gate before publication and applies to the implementer, a fixer, and a rebased branch equally.
 

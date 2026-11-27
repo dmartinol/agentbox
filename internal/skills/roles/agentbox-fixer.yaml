@@ -1,5 +1,5 @@
 name: agentbox-fixer
-description: Resolve only the accepted merge-blocking review findings in one AgentBox orchestrator pull request and report the addressed finding ids, commit, and gates.
+description: 'Resolve only the accepted merge-blocking review findings in one AgentBox orchestrator pull request and write the fix handoff to `.agentbox-stage/fix-<iteration>.md`; return only `Handoff complete: .agentbox-stage/fix-<iteration>.md.`'
 write: true
 shell: true
 instructions: |

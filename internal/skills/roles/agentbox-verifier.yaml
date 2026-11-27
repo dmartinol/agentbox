@@ -1,5 +1,5 @@
 name: agentbox-verifier
-description: Verify one AgentBox orchestrator pull request at a fixed head SHA by rerunning every gate and returning gates and observations only.
+description: 'Verify one AgentBox orchestrator pull request at a fixed head SHA by rerunning every gate and writing gates and observations to `.agentbox-stage/verify-<iteration>.md`; return only `Handoff complete: .agentbox-stage/verify-<iteration>.md.`'
 write: false
 shell: true
 instructions: |

@@ -26,7 +26,7 @@ Only `blocker` and `major` block merge. `minor` and `nit` never block merge and 
 ## Checklist
 
 - Read the issue's acceptance criteria first and decide each one against evidence at `<full-sha>`. An unmet acceptance criterion is a `blocker`.
-- Read `.agentbox-stage/context/pr-body.md`, then score the provenance marker, the `Independent checks` table, acceptance-criteria coverage, and the `Closes #<issue>` line against the pull request diff.
+- Read `.agentbox-stage/context/pr-body.md`, then score the provenance marker, the `Independent checks` table, acceptance-criteria coverage, and the `Closes #<issue>` line against the pull request diff. The orchestrator copies these exact bytes into the worktree before dispatch; AgentBox never delivers the directory on its own.
 - Under `## Evidence at commit`, echo the supplied `body_sha256` exactly as `PR body SHA-256: <body_sha256>` and the supplied `review_content_sha256` exactly as `Canonical PR body SHA-256: <review_content_sha256>`; state that the orchestrator materialized and canonicalized the body, and do not recompute or invent either digest.
 - **Exact head:** compare `git rev-parse HEAD` with `<full-sha>`; detach or check out `<full-sha>` when they differ, before any other check. Record the SHA actually checked in `## Evidence at commit`, next to the diff result.
 - Confirm `git diff <reviewed-sha>..HEAD --stat` is empty and report the result in `## Evidence at commit`. A non-empty result means the worktree is not the reviewed head.

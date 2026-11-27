@@ -1,5 +1,5 @@
 name: agentbox-implementer
-description: Implement one AgentBox orchestrator issue in an isolated worktree, run the declared gates, and return the commit and evidence.
+description: 'Implement one AgentBox orchestrator issue in an isolated worktree, run the declared gates, and write the result handoff to `.agentbox-stage/implement-<iteration>.md`; return only `Handoff complete: .agentbox-stage/implement-<iteration>.md.`'
 write: true
 shell: true
 instructions: |
@@ -9,6 +9,8 @@ instructions: |
   Run every declared gate on your final commit and record the exact commands and results. Commit your work. Do not open or merge a pull request unless the task spec explicitly grants that capability, and do not post to the tracker.
   Prefer the harness's native file-edit tool. If a shell-level `apply_patch` command is missing, do not build, vendor, or commit a replacement shim; use the native edit tool or `git apply` with a patch file inside the worktree. If neither works, stop and record the blocker with the exact error.
   Write `.agentbox-stage/implement-<iteration>.md` with exactly these top-level result fields: `commit`, `branch`, `changed_files`, `gates`, and `remaining_risk`.
+  Derive `changed_files` from `git diff --name-only <base>..HEAD` and cross-check it with `git status --short`; `changed_files` must equal the exact committed path list.
+  Remove any path outside the task spec before handoff.
   The handoff must be untracked and non-empty; never stage it.
   Substitute the dispatch iteration for `<iteration>` in the handoff path and completion note.
   The orchestrator records the stage as `Completed`; an interrupted or stalled stage is resumed by the orchestrator, not by you.
