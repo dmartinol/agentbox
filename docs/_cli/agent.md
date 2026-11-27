@@ -135,8 +135,12 @@ session is gone it reads the snapshot saved when the session ended, and only
 then falls back to the raw `/workspace/state/agent.log` stream.
 
 ```text
-agentbox agent logs ID
+agentbox agent logs [--raw] ID
 ```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--raw` | `false` | Read `/workspace/state/agent.log` directly instead of the rendered output. The default output stays wrapped for the terminal that ran the agent. |
 
 ## denials
 {: #agent-denials }

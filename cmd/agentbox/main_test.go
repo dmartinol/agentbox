@@ -837,6 +837,77 @@ func TestUsageListsAgentDenialsCommand(t *testing.T) {
 	}
 }
 
+type logsCommandRunner struct {
+	commands []string
+}
+
+func (runner *logsCommandRunner) Output(_ context.Context, name string, args ...string) ([]byte, error) {
+	command := name + " " + strings.Join(args, " ")
+	runner.commands = append(runner.commands, command)
+	if strings.Contains(command, "capture-pane") {
+		return []byte("agentbox-source:screen\nrendered\n"), nil
+	}
+	return []byte(strings.Repeat("raw-", 50)), nil
+}
+
+func (*logsCommandRunner) Stream(context.Context, io.Reader, io.Writer, io.Writer, string, ...string) error {
+	return nil
+}
+
+func TestAgentLogsRawFlagReadsRawStream(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(app.Run{ID: "run-logs-raw", Sandbox: "sandbox-raw", Gateway: "gateway-raw", Status: app.StatusReady}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &logsCommandRunner{}
+	a := &app.App{Store: store, Runner: runner}
+	want := strings.Repeat("raw-", 50)
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"agent", "logs", "--raw", "run-logs-raw"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output != want {
+		t.Fatalf("raw output = %q, want %q", output, want)
+	}
+	if len(runner.commands) != 2 || !strings.Contains(runner.commands[1], "cat /workspace/state/agent.log") {
+		t.Fatalf("raw logs commands = %#v", runner.commands)
+	}
+	for _, command := range runner.commands {
+		if strings.Contains(command, "capture-pane") {
+			t.Fatalf("raw logs used terminal rendering: %s", command)
+		}
+	}
+}
+
+func TestAgentLogsDefaultDoesNotReadRawStream(t *testing.T) {
+	store := app.Store{Base: t.TempDir()}
+	if err := store.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveRun(app.Run{ID: "run-logs-default", Sandbox: "sandbox-default", Gateway: "gateway-default", Status: app.StatusReady}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &logsCommandRunner{}
+	a := &app.App{Store: store, Runner: runner}
+	output, err := captureStdout(t, func() error {
+		return dispatch(context.Background(), a, []string{"agent", "logs", "run-logs-default"})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output != "rendered" {
+		t.Fatalf("default output = %q", output)
+	}
+	if len(runner.commands) != 1 || !strings.Contains(runner.commands[0], "capture-pane") {
+		t.Fatalf("default logs commands = %#v", runner.commands)
+	}
+}
+
 func TestAgentStartRejectsRemovedModeFlag(t *testing.T) {
 	ctx := context.Background()
 	a := &app.App{Store: app.Store{Base: t.TempDir()}, Runner: &appfakeRunner{}}
