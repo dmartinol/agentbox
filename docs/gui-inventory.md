@@ -47,6 +47,13 @@ checklist lives in [AGENTS.md](../AGENTS.md#layout-and-accessibility-checklist).
 | New agent | Project, profile, gateway, name, MCP, skills, prompt | Resolved configuration shows the effective image, model, and approval; the image select defaults to the current project image that matches the manifest, labels other repository images as overrides that do not retain provenance, and offers a profile-image opt-out; enabling overrides prefills the profile model and a blank model blocks Start | Single-column form; the image select spans the row and actions wrap |
 | Logs / diff / policy drawer | Title and task status; structured **Network denials** above raw output | Denial host, port, canonical binary, and reason with **Add host**, plus the observed binary when AgentBox canonicalized a vendored harness path; Add-host dialog shows the manifest entry, run-policy diff, optional persist, and manifest/fragment diffs; run policy shows textual provenance before the YAML | Full-width drawer; denial cards and dialog fields wrap and scroll |
 
+Fleet status semantics: a missing sandbox is normal for the first 2 minutes
+after `Run.Created`. After 2 minutes, the run is `Unreachable` rather than
+`Creating`; the detail names the sandbox and directs the operator to run
+`agentbox doctor`, then retry or delete the run. `Unreachable` means AgentBox
+cannot inspect or provision the sandbox. `Failed` remains reserved for a
+sandbox that reports an error phase.
+
 ## Setup tabs
 
 | Tab | Scan level | Detail reveal | Narrow layout |

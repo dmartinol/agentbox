@@ -55,6 +55,10 @@ export function displayStatus(status: string, exited?: boolean): string {
   return status.toLowerCase() === 'ready' && exited ? 'exited' : status;
 }
 
+export function isActiveDisplayedRun(status: string, exited?: boolean): boolean {
+  return isActiveRun(displayStatus(status, exited));
+}
+
 export function canAttachRun(status: string): boolean {
   return attachableStatuses.has(status.toLowerCase() as RunStatus);
 }

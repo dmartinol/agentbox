@@ -37,6 +37,129 @@ func newDeleteRunner() *fakeRunner {
 	return runner
 }
 
+func TestInspectRunProvisioningGrace(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().UTC()
+	cases := []struct {
+		name    string
+		created time.Time
+	}{
+		{name: "recent", created: now.Add(-time.Second)},
+		{name: "at grace boundary", created: now.Add(-provisioningGrace)},
+		{name: "zero", created: time.Time{}},
+		{name: "far future", created: now.Add(provisioningGrace + time.Second)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := Store{Base: t.TempDir()}
+			run := Run{
+				ID:        "run-grace",
+				Sandbox:   "sandbox-grace",
+				Gateway:   "openshell",
+				Status:    StatusCreating,
+				Created:   tc.created,
+				SyncState: SyncStateNeedsSync,
+			}
+			if err := store.SaveRun(run); err != nil {
+				t.Fatal(err)
+			}
+			app := App{Store: store, Runner: &fakeRunner{output: func(recordedCommand) ([]byte, error) {
+				return nil, errors.New("sandbox not found")
+			}}}
+			got, err := app.inspectRunWithSync(ctx, run, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantCreating := tc.name == "recent"
+			if wantCreating {
+				if got.Status != StatusCreating || got.SyncState != SyncStateUnknown {
+					t.Fatalf("recent run = %q/%q, want creating/unknown", got.Status, got.SyncState)
+				}
+			} else {
+				wantDetail := "sandbox sandbox-grace not found after 2m; provisioning may have failed; run agentbox doctor, then retry or delete this run"
+				if got.Status != StatusUnreachable || got.StatusDetail != wantDetail || got.SyncState != SyncStateUnknown {
+					t.Fatalf("run = %q/%q/%q, want unreachable with %q and unknown sync", got.Status, got.StatusDetail, got.SyncState, wantDetail)
+				}
+			}
+			persisted, err := store.LoadRun(run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if persisted.Status != got.Status || persisted.StatusDetail != got.StatusDetail {
+				t.Fatalf("persisted run = %q/%q, want %q/%q", persisted.Status, persisted.StatusDetail, got.Status, got.StatusDetail)
+			}
+		})
+	}
+}
+
+func TestInspectRunSuccessfulProbeAfterMissingSandbox(t *testing.T) {
+	ctx := context.Background()
+	store := Store{Base: t.TempDir()}
+	run := Run{
+		ID:        "run-recovered",
+		Sandbox:   "sandbox-recovered",
+		Gateway:   "openshell",
+		Status:    StatusCreating,
+		Created:   time.Now().UTC().Add(-3 * time.Minute),
+		SyncState: SyncStateNeedsSync,
+	}
+	if err := store.SaveRun(run); err != nil {
+		t.Fatal(err)
+	}
+	app := App{Store: store, Runner: &fakeRunner{output: func(recordedCommand) ([]byte, error) {
+		return nil, errors.New("sandbox not found")
+	}}}
+	missing, err := app.inspectRunWithSync(ctx, run, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingAgain, err := app.inspectRunWithSync(ctx, missing, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if missingAgain.StatusDetail != missing.StatusDetail {
+		t.Fatalf("repeated missing-sandbox detail = %q, want preserved %q", missingAgain.StatusDetail, missing.StatusDetail)
+	}
+
+	app.Runner = statusRunnerFor("running", "session=1\ndead=0\ncommand=sh\n")
+	got, err := app.inspectRunWithSync(ctx, run, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusReady || got.StatusDetail != "" || got.SyncState != SyncStateUnknown {
+		t.Fatalf("recovered run = %q/%q/%q, want ready with no detail and unknown sync", got.Status, got.StatusDetail, got.SyncState)
+	}
+	persisted, err := store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != StatusReady || persisted.StatusDetail != "" {
+		t.Fatalf("persisted recovered run = %q/%q, want ready with no detail", persisted.Status, persisted.StatusDetail)
+	}
+}
+
+func TestProvisioningGracePolicy(t *testing.T) {
+	now := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name    string
+		created time.Time
+		want    bool
+	}{
+		{name: "zero", created: time.Time{}, want: false},
+		{name: "inside recent", created: now.Add(-provisioningGrace + time.Second), want: true},
+		{name: "exact age", created: now.Add(-provisioningGrace), want: false},
+		{name: "exact future", created: now.Add(provisioningGrace), want: true},
+		{name: "far future", created: now.Add(provisioningGrace + time.Second), want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := withinProvisioningGrace(tc.created, now); got != tc.want {
+				t.Fatalf("withinProvisioningGrace(%s, now) = %v, want %v", tc.created, got, tc.want)
+			}
+		})
+	}
+}
+
 func seedRunArtifacts(t *testing.T, store Store, id string) []string {
 	t.Helper()
 	paths := []string{
@@ -174,14 +297,14 @@ func TestStartProvisioningFailureReportsUnavailableClockCheck(t *testing.T) {
 	if !errors.Is(err, createErr) {
 		t.Fatalf("error = %v, want wrapped %v", err, createErr)
 	}
-	if run.Status != StatusFailed {
-		t.Fatalf("run status = %q, want %q", run.Status, StatusFailed)
+	if run.Status != StatusUnreachable {
+		t.Fatalf("run status = %q, want %q", run.Status, StatusUnreachable)
 	}
 	for _, want := range []string{
+		"sandbox " + run.Sandbox + " provisioning failed: ",
 		"Podman VM clock could not be verified",
 		"machine is not running",
-		"`agentbox doctor`",
-		"Original error: " + createErr.Error(),
+		"run agentbox doctor, then retry or delete this run",
 	} {
 		if !strings.Contains(run.StatusDetail, want) {
 			t.Fatalf("status detail %q lacks %q", run.StatusDetail, want)
@@ -197,8 +320,8 @@ func TestStartProvisioningFailureReportsUnavailableClockCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if persisted.Status != StatusFailed || persisted.StatusDetail != run.StatusDetail {
-		t.Fatalf("persisted run = %+v, want failed run with detail %q", persisted, run.StatusDetail)
+	if persisted.Status != StatusUnreachable || persisted.StatusDetail != run.StatusDetail {
+		t.Fatalf("persisted run = %+v, want unreachable run with detail %q", persisted, run.StatusDetail)
 	}
 }
 
@@ -216,11 +339,11 @@ func TestStartProvisioningFailurePreservesDoctorCommandForLongProbeError(t *test
 	if !errors.Is(err, createErr) {
 		t.Fatalf("error = %v, want wrapped %v", err, createErr)
 	}
-	if run.Status != StatusFailed {
-		t.Fatalf("run status = %q, want %q", run.Status, StatusFailed)
+	if run.Status != StatusUnreachable {
+		t.Fatalf("run status = %q, want %q", run.Status, StatusUnreachable)
 	}
 	if !strings.Contains(run.StatusDetail, "Podman VM clock could not be verified") ||
-		!strings.Contains(run.StatusDetail, "; run `agentbox doctor`.") {
+		!strings.HasSuffix(run.StatusDetail, "run agentbox doctor, then retry or delete this run") {
 		t.Fatalf("status detail lacks bounded diagnosis: %q", run.StatusDetail)
 	}
 	if len(run.StatusDetail) > statusDetailLimit {
@@ -230,8 +353,8 @@ func TestStartProvisioningFailurePreservesDoctorCommandForLongProbeError(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if persisted.Status != StatusFailed || persisted.StatusDetail != run.StatusDetail {
-		t.Fatalf("persisted run = %+v, want failed run with detail %q", persisted, run.StatusDetail)
+	if persisted.Status != StatusUnreachable || persisted.StatusDetail != run.StatusDetail {
+		t.Fatalf("persisted run = %+v, want unreachable run with detail %q", persisted, run.StatusDetail)
 	}
 }
 
@@ -2248,28 +2371,27 @@ func TestStartProvisioningFailureReportsClockSkew(t *testing.T) {
 			if !errors.Is(err, tc.createErr) {
 				t.Fatalf("error = %v, want wrapped %v", err, tc.createErr)
 			}
-			if run.Status != StatusFailed {
-				t.Fatalf("run status = %q, want %q", run.Status, StatusFailed)
+			if run.Status != StatusUnreachable {
+				t.Fatalf("run status = %q, want %q", run.Status, StatusUnreachable)
 			}
 			if tc.signed == "" {
-				if run.StatusDetail != tc.createErr.Error() {
-					t.Fatalf("nonmatching status detail = %q, want original %q", run.StatusDetail, tc.createErr.Error())
+				wantDetail := "sandbox " + run.Sandbox + " provisioning failed: " + tc.createErr.Error() + "; run agentbox doctor, then retry or delete this run"
+				if run.StatusDetail != wantDetail {
+					t.Fatalf("nonmatching status detail = %q, want %q", run.StatusDetail, wantDetail)
 				}
 				return
 			}
 			for _, want := range []string{
+				"sandbox " + run.Sandbox + " provisioning failed: ",
 				"Host UTC:",
 				"VM UTC:",
 				"Signed delta (host UTC - VM UTC): " + tc.signed,
 				"Remediation:",
-				"`agentbox doctor`",
+				"run agentbox doctor, then retry or delete this run",
 			} {
 				if !strings.Contains(run.StatusDetail, want) {
 					t.Fatalf("status detail %q lacks %q", run.StatusDetail, want)
 				}
-			}
-			if strings.Contains(strings.ToLower(run.StatusDetail), "new jwts may seem future-dated") != tc.futureText {
-				t.Fatalf("status detail future-token wording = %q", run.StatusDetail)
 			}
 			if len(run.StatusDetail) > statusDetailLimit {
 				t.Fatalf("status detail length = %d, want at most %d", len(run.StatusDetail), statusDetailLimit)
@@ -2278,10 +2400,36 @@ func TestStartProvisioningFailureReportsClockSkew(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if persisted.Status != StatusFailed || persisted.StatusDetail != run.StatusDetail {
-				t.Fatalf("persisted run = %+v, want failed run with detail %q", persisted, run.StatusDetail)
+			if persisted.Status != StatusUnreachable || persisted.StatusDetail != run.StatusDetail {
+				t.Fatalf("persisted run = %+v, want unreachable run with detail %q", persisted, run.StatusDetail)
 			}
 		})
+	}
+}
+
+func TestStartProvisioningFailurePersistsUnreachableRecovery(t *testing.T) {
+	ctx := context.Background()
+	createErr := errors.New("disk space exhausted")
+	fixture := newProvisioningClockFixture(t, createErr, 0, nil)
+	run, err := fixture.app.Start(ctx, StartOptions{
+		Profile: fixture.profile.Name,
+		Source:  fixture.source,
+		Gateway: "openshell",
+		Image:   "profile",
+	})
+	if !errors.Is(err, createErr) {
+		t.Fatalf("error = %v, want %v", err, createErr)
+	}
+	wantDetail := "sandbox " + run.Sandbox + " provisioning failed: disk space exhausted; run agentbox doctor, then retry or delete this run"
+	if run.Status != StatusUnreachable || run.StatusDetail != wantDetail {
+		t.Fatalf("run = %q/%q, want unreachable with %q", run.Status, run.StatusDetail, wantDetail)
+	}
+	persisted, err := fixture.store.LoadRun(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != StatusUnreachable || persisted.StatusDetail != wantDetail {
+		t.Fatalf("persisted run = %q/%q, want unreachable with %q", persisted.Status, persisted.StatusDetail, wantDetail)
 	}
 }
 
@@ -2302,8 +2450,9 @@ func TestStartProvisioningFailureWithoutSkewKeepsOriginalDetail(t *testing.T) {
 			if !errors.Is(err, createErr) {
 				t.Fatalf("error = %v, want %v", err, createErr)
 			}
-			if run.Status != StatusFailed || run.StatusDetail != createErr.Error() {
-				t.Fatalf("run = %+v, want failed run with original detail %q", run, createErr.Error())
+			wantDetail := "sandbox " + run.Sandbox + " provisioning failed: " + createErr.Error() + "; run agentbox doctor, then retry or delete this run"
+			if run.Status != StatusUnreachable || run.StatusDetail != wantDetail {
+				t.Fatalf("run = %+v, want unreachable run with detail %q", run, wantDetail)
 			}
 			if strings.Contains(strings.ToLower(run.StatusDetail), "clock") {
 				t.Fatalf("aligned-clock status detail unexpectedly mentions clock: %q", run.StatusDetail)

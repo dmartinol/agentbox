@@ -5,6 +5,7 @@ import {
   canFinishRun,
   canResumeRun,
   canSleepRun,
+  isActiveDisplayedRun,
   isActiveRun,
   isWaitingRun,
   statusLabel
@@ -55,6 +56,14 @@ describe('agent status presentation', () => {
     expect(isWaitingRun('waiting')).toBe(true);
     expect(isWaitingRun('ready')).toBe(false);
     expect(statusLabel('unreachable')).toBe('Unreachable');
+  });
+
+  it('uses displayed status for active-run counting', () => {
+    expect(isActiveDisplayedRun('working')).toBe(true);
+    expect(isActiveDisplayedRun('waiting')).toBe(true);
+    expect(isActiveDisplayedRun('ready')).toBe(true);
+    expect(isActiveDisplayedRun('ready', true)).toBe(false);
+    expect(isActiveDisplayedRun('stopped')).toBe(false);
   });
 
   it('labels in-flight action states', () => {

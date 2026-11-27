@@ -18,7 +18,7 @@ import { Disclosure } from '../components/ui/disclosure';
 import { ExpandableValue } from '../components/ui/copy-value';
 import { cn } from '../lib/utils';
 import { compareVersions, formatSyncTimestamp, middleEllipsis } from '../lib/text';
-import { StatusBadge, SyncStateBadge, canAttachRun, displayStatus, isActiveRun, canFinishRun, canResumeRun, canSleepRun, isWaitingRun, statusLabel, syncStateExplanation, syncStateLabel } from '../components/StatusBadge';
+import { StatusBadge, SyncStateBadge, canAttachRun, displayStatus, isActiveDisplayedRun, canFinishRun, canResumeRun, canSleepRun, isWaitingRun, statusLabel, syncStateExplanation, syncStateLabel } from '../components/StatusBadge';
 import type { LogDrawerState } from '../components/LogDrawer';
 
 const allProjects = 'All projects';
@@ -665,21 +665,23 @@ export function FleetView({
           ) : filtered.length === 0 ? (
             <EmptyState title="No matching agents" description="Adjust search or project filters." />
           ) : (
-            grouped.map(([project, projectAgents]) => (
-              <Card key={project} className="mx-3 my-3 overflow-hidden">
-                <CardHeader className="h-auto flex-wrap py-2">
-                  <CardTitle className="min-w-0 [overflow-wrap:anywhere]" title={project}>{project}</CardTitle>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge tone="neutral">{projectAgents.length}</Badge>
-                    <Badge tone={projectAgents.some((agent) => isActiveRun(agent.status)) ? 'success' : 'neutral'}>
-                      {projectAgents.filter((agent) => isActiveRun(agent.status)).length} active
-                    </Badge>
-                    <Button size="xs" variant="ghost" onClick={() => openWorkspace(projectAgents[0])}>
-                      <Monitor className="size-3" /> Workspace
-                    </Button>
-                  </div>
-                </CardHeader>
-                <Table aria-label={`Agents in ${project}`} className="agentbox-fleet-table">
+            grouped.map(([project, projectAgents]) => {
+              const activeCount = projectAgents.filter((agent) => isActiveDisplayedRun(agent.status, agent.exited)).length;
+              return (
+                <Card key={project} className="mx-3 my-3 overflow-hidden">
+                  <CardHeader className="h-auto flex-wrap py-2">
+                    <CardTitle className="min-w-0 [overflow-wrap:anywhere]" title={project}>{project}</CardTitle>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge tone="neutral">{projectAgents.length}</Badge>
+                      <Badge tone={activeCount > 0 ? 'success' : 'neutral'}>
+                        {activeCount} active
+                      </Badge>
+                      <Button size="xs" variant="ghost" onClick={() => openWorkspace(projectAgents[0])}>
+                        <Monitor className="size-3" /> Workspace
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <Table aria-label={`Agents in ${project}`} className="agentbox-fleet-table">
                   <THead>
                     <TR>
                       <TH className="w-[20%]">Agent</TH>
@@ -767,9 +769,10 @@ export function FleetView({
                       );
                     })}
                   </TBody>
-                </Table>
-              </Card>
-            ))
+                  </Table>
+                </Card>
+              );
+            })
           )}
         </div>
 
