@@ -603,6 +603,7 @@ A worker's gates prove the tests it wrote pass. They do not prove the branch is 
 | Document accuracy | Does every changed sentence describe the code in this commit, including examples and counts? |
 | Acceptance criterion → test | Is every acceptance criterion mapped to a named test or an observed behavior at the pushed commit? |
 | Host-side focused run | Has the orchestrator run the focused gate on the host against the pushed commit? |
+| Implementation base | Before accepting `changed_files`, compare the implementer handoff's `base_sha` with the issue's current base commit. A stale base is a handoff violation: block publication and rebase or restart the implementation from the current base. |
 | Path-list parity | Does the implementer handoff `changed_files` equal `git diff --name-only <base>..HEAD`? A mismatch is a handoff violation, fixed before squash or push. |
 
 A failing answer is fixed before push; it is not a note in the pull request. The checklist is the last gate before publication and applies to the implementer, a fixer, and a rebased branch equally.

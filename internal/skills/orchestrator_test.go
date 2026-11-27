@@ -240,6 +240,15 @@ func TestOrchestratorSkillStageDispatch(t *testing.T) {
 	)
 }
 
+// TestOrchestratorSkillImplementationBaseSHA requires a recorded starting
+// commit and a stale-base check before the changed-file list can be trusted.
+func TestOrchestratorSkillImplementationBaseSHA(t *testing.T) {
+	wantAll(t, collapsed(t),
+		"Before accepting `changed_files`, compare the implementer handoff's `base_sha` with the issue's current base commit",
+		"A stale base is a handoff violation: block publication and rebase or restart the implementation from the current base",
+	)
+}
+
 // TestOrchestratorSkillFeedbackFollowUps pins the flow changes made after the
 // first long orchestration run: a simple-fix fast path, completed stage
 // records, concurrent verify and review, and the state comment's purpose.

@@ -94,6 +94,7 @@ func TestEmbeddedHandoffRoleContracts(t *testing.T) {
 		shell                 bool
 		materializedInputPath string
 		legacyPhrases         []string
+		roleSpecificRules     []string
 	}
 
 	cases := []handoffRoleContract{
@@ -114,6 +115,10 @@ func TestEmbeddedHandoffRoleContracts(t *testing.T) {
 			shell:                 true,
 			materializedInputPath: "",
 			legacyPhrases:         []string{"return the result in one final message"},
+			roleSpecificRules: []string{
+				"Write `.agentbox-stage/implement-<iteration>.md` with exactly these top-level result fields: `base_sha`, `commit`, `branch`, `changed_files`, `gates`, and `remaining_risk`.",
+				"Record the exact commit the sandbox started from as `base_sha` before making changes; do not substitute the final head, a tree-equal snapshot, or a remembered base.",
+			},
 		},
 		{
 			name:                  "agentbox-fixer",
@@ -222,6 +227,7 @@ func TestEmbeddedHandoffRoleContracts(t *testing.T) {
 			if !tc.write {
 				requiredInstructions = append(requiredInstructions, "Write the handoff only through your retained shell after confirming its path is untracked; do not use a native edit tool.")
 			}
+			requiredInstructions = append(requiredInstructions, tc.roleSpecificRules...)
 			for _, phrase := range requiredInstructions {
 				if !strings.Contains(instructions, phrase) {
 					t.Fatalf("role %s is missing instruction %q", tc.name, phrase)
