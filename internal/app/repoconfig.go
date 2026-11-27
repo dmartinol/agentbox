@@ -125,11 +125,38 @@ var (
 	repoHostLabel = `[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?`
 	repoExactHost = regexp.MustCompile(`^` + repoHostLabel + `(?:\.` + repoHostLabel + `)*$`)
 	repoSHA256    = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
-	// A long contiguous run of token-safe characters; the sha256 field and
-	// hostnames are exempt, every other value this long is treated as a
-	// pasted credential.
+	// A long contiguous run of token-safe characters; fields whose values are
+	// structurally validated are exempt (see repoOpaqueExemptFields), every
+	// other value this long is treated as a pasted credential. The class
+	// covers the base64 and base64url alphabets, so it also matches ordinary
+	// "/" and "-" separators in absolute paths.
 	repoOpaqueRun = regexp.MustCompile(`[A-Za-z0-9+/=_-]{40,}`)
 )
+
+// repoOpaqueExemptFields names manifest fields whose string values are
+// validated by shape rather than accepted as free form, so the opaque-run
+// heuristic must not apply to them. Without the exemption an ordinary
+// hyphenated binary path of 40 or more characters, such as
+// /usr/local/uv-aarch64-unknown-linux-gnu/uv, is mistaken for a credential
+// because "/" and "-" are inside the heuristic's character class.
+var repoOpaqueExemptFields = map[string]struct{}{
+	"sha256":   {}, // exactly 64 hexadecimal characters
+	"host":     {}, // exact hostname, see repoExactHost
+	"bin":      {}, // toolchain binary path, see validateRepoBinaryPath
+	"binaries": {}, // host-rule binary paths, see validateRepoBinaryPath
+}
+
+// pathContainsOpaqueExemptField reports whether any element of a manifest
+// field path names a structurally validated field. Host-rule binaries are
+// indexed (hosts.0.binaries.0), so ancestors count, not just the leaf.
+func pathContainsOpaqueExemptField(path []string) bool {
+	for _, part := range path {
+		if _, ok := repoOpaqueExemptFields[part]; ok {
+			return true
+		}
+	}
+	return false
+}
 
 const maxRepoHostNameLen = 253
 
@@ -436,13 +463,11 @@ func checkSecretValue(value string, path []string) error {
 			return fmt.Errorf("%s: secret-like value is not allowed (contains %q); the manifest must stay credential-free", yamlFieldPath(path), hint)
 		}
 	}
-	if len(path) > 0 {
-		// sha256 fields are legitimately opaque, and hostnames are
-		// structurally validated as exact hostnames elsewhere; both are
-		// exempt from the opaque-run heuristic.
-		if last := path[len(path)-1]; last == "sha256" || last == "host" {
-			return nil
-		}
+	// Digests, hostnames, and binary paths are opaque by nature but validated
+	// by shape, so the opaque-run heuristic does not apply. Value hints above
+	// still reject credentials pasted into any of them.
+	if pathContainsOpaqueExemptField(path) {
+		return nil
 	}
 	if repoOpaqueRun.MatchString(value) {
 		return fmt.Errorf("%s: secret-like value is not allowed (opaque run of 40+ characters); the manifest must stay credential-free", yamlFieldPath(path))

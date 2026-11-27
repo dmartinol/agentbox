@@ -60,7 +60,11 @@ agentbox policy edit --allow-host api.example.com --port 443 \
 ```
 
 Wildcards, directory paths, invalid ports, and secret-like values are refused.
-If the same host and port already has a rule, only the missing binary is added.
+The secret-like check exempts binary paths from its opaque-run (entropy)
+heuristic, so long hyphenated paths such as
+`/usr/local/uv-aarch64-unknown-linux-gnu/uv` are accepted; embedded credential
+strings are still refused. If the same host and port already has a rule, only
+the missing binary is added.
 
 The edit writes to the run's own policy copy under
 `$AGENTBOX_HOME/policies`, never to the reusable profile configuration. A

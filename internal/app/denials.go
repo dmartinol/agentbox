@@ -166,16 +166,16 @@ func denialKey(host string, port int, binary string) string {
 
 func annotateDenial(denial *PolicyDenial, agentBinary string) {
 	rule := RepoHostRule{Host: denial.Host, Port: denial.Port, Binaries: []string{denial.Binary}}
+	// A vendored harness path is always reported as the canonical agent
+	// binary; whether the logged path happens to pass manifest validation is
+	// not a reason to keep the vendor layout in the rule.
+	if canonical := canonicalDenialBinary(denial.Binary, agentBinary); canonical != "" {
+		rule.Binaries[0] = canonical
+	}
 	err := ValidateHostRule(rule)
-	if err != nil {
-		if canonical := canonicalDenialBinary(denial.Binary, agentBinary); canonical != "" {
-			rule.Binaries[0] = canonical
-			if ValidateHostRule(rule) == nil {
-				denial.ObservedBinary = denial.Binary
-				denial.Binary = canonical
-				err = nil
-			}
-		}
+	if rule.Binaries[0] != denial.Binary {
+		denial.ObservedBinary = denial.Binary
+		denial.Binary = rule.Binaries[0]
 	}
 	denial.Valid = err == nil
 	if err != nil {
