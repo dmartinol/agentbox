@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -41,6 +42,29 @@ func TestWorktreeLocationUsesProjectAndRunName(t *testing.T) {
 	wantRoot := filepath.Join(store.WorktreesDir(), "agentbox", "auth-refactor")
 	if root != wantRoot || branch != "agentbox/agentbox/auth-refactor" {
 		t.Fatalf("worktree location = %q %q; want %q and %q", root, branch, wantRoot, "agentbox/agentbox/auth-refactor")
+	}
+}
+
+func TestWorktreeLocationDoesNotUseBranchPrefixAsDirectory(t *testing.T) {
+	store := Store{Base: t.TempDir(), WorktreeRoot: filepath.Join(t.TempDir(), "trees")}
+	settings := Settings{
+		Version:   1,
+		Worktrees: WorktreeSettings{Root: store.WorktreesDir(), BranchPrefix: "runprefix"},
+	}
+	if err := store.SaveSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	application := App{Store: store, Runner: &fakeRunner{}}
+	worktree, branch, err := application.WorktreeLocation("nondefault", "focused-run", "run-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantWorktree := filepath.Join(store.WorktreesDir(), "nondefault", "focused-run")
+	if worktree != wantWorktree || branch != "runprefix/nondefault/focused-run" {
+		t.Fatalf("worktree location = %q %q; want %q and %q", worktree, branch, wantWorktree, "runprefix/nondefault/focused-run")
+	}
+	if strings.Contains(filepath.ToSlash(worktree), "runprefix/") {
+		t.Fatalf("worktree location uses branch prefix as a directory: %q", worktree)
 	}
 }
 

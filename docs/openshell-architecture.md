@@ -612,6 +612,13 @@ A run is created as follows:
 14. Start tmux and the agent session.
 15. Probe the new run once and cache its derived status.
 
+If `openshell sandbox create` fails, AgentBox records the run as `Unreachable`;
+the status detail names the sandbox and provisioning failure and ends with the
+recovery step to run `agentbox doctor`, then retry or delete the run. A saved
+`Creating` run whose sandbox is missing remains `Creating` for a 2-minute
+grace period after `Run.Created`; after that grace expires, it is recorded as
+`Unreachable` because provisioning may have failed.
+
 ## Runtime configuration location
 
 The generated configuration archive is extracted to:
@@ -814,9 +821,12 @@ tab is a view over one run.
   cursor addressing and synchronized-output modes; replayed as text it
   collapses into one unreadable blob with no line breaks. AgentBox saves the
   rendered pane to `/workspace/state/agent.screen` when the session ends, so a
-  finished run still has a readable log. The raw stream remains only as a
-  fallback for records written before snapshots existed, and the GUI labels
-  that fallback instead of presenting it as normal output.
+  finished run still has a readable log. `agentbox agent logs --raw` reads
+  `/workspace/state/agent.log` directly and preserves its exact bytes for
+  diagnostics. The default CLI output and GUI paths still use the rendered
+  pane, falling back to the raw stream only for records written before
+  snapshots existed; the GUI labels that fallback instead of presenting it as
+  normal output.
 - An attach issued while the sandbox bootstrap is still creating the tmux
   session waits for that session (up to 30 seconds) instead of failing with
   `no sessions`, and it fails immediately once `/workspace/finished` exists.

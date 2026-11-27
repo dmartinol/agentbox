@@ -51,8 +51,11 @@ Fleet status semantics: a missing sandbox is normal for the first 2 minutes
 after `Run.Created`. After 2 minutes, the run is `Unreachable` rather than
 `Creating`; the detail names the sandbox and directs the operator to run
 `agentbox doctor`, then retry or delete the run. `Unreachable` means AgentBox
-cannot inspect or provision the sandbox. `Failed` remains reserved for a
-sandbox that reports an error phase.
+cannot inspect or provision the sandbox. `Failed` is also used for start-time
+failures that are not sandbox error phases, including bundle, agent
+configuration, upload, config archive, sandbox preparation, policy check, and
+readiness steps, rather than being reserved for a sandbox that reports an
+error phase.
 
 ## Setup tabs
 
