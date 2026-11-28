@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -eq 4 ] && [ "$1" = "provider" ] && [ "$2" = "list" ] && [ "$3" = "-o" ] && [ "$4" = "json" ]; then
+	printf '%s\n' '{"providers":[{"name":"openai","type":"openai"},{"name":"anthropic","type":"anthropic"}]}'
+	exit 0
+fi
+
+if [ "$#" -eq 6 ] && [ "$1" = "provider" ] && [ "$2" = "list" ]; then
+	if { [ "$3" = "-o" ] && [ "$4" = "json" ] && [ "$5" = "--gateway" ] && [ "$6" = "team-gateway" ]; } ||
+		{ [ "$3" = "--gateway" ] && [ "$4" = "team-gateway" ] && [ "$5" = "-o" ] && [ "$6" = "json" ]; }; then
+		printf '%s\n' '{"providers":[{"name":"team-openai","type":"openai-compatible"},{"name":"team-anthropic","type":"anthropic-compatible"}]}'
+		exit 0
+	fi
+fi
+
+printf '%s\n' 'unsupported openshell invocation' >&2
+exit 64

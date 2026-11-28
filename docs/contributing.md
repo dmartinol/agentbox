@@ -44,6 +44,13 @@ make race
 The test suite uses temporary repositories and fake command runners by
 default. It does not require a live OpenShell gateway.
 
+### CLI OpenShell smoke checks
+
+Use the checked-in fake at
+`cmd/agentbox/testdata/fake-openshell/openshell` and run `make smoke-cli` for
+the no-gateway provider-list smoke path. Reviewers should use this command
+instead of hand-building a stub.
+
 ### Transient sandbox network failures
 
 Inside an OpenShell 0.1.4 sandbox, a large npm install can fail once with
