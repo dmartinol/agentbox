@@ -93,8 +93,12 @@ viewport, a control loses its accessible name, or the page needs horizontal
 scrolling. It is not part of `make test` because it needs a browser. Set
 `SMOKE_CHROME=/path/to/chrome` when no browser is found, or make the skip fatal
 with `npm --prefix internal/gui/web run smoke:responsive -- --require-browser`.
-In an AgentBox sandbox the check skips by design: the image ships no browser and
-the policy blocks the browser download hosts.
+Run it headed with `npm --prefix internal/gui/web run smoke:responsive:headed` to
+watch each viewport in a real window; `SMOKE_SLOWMO=250` slows it down. A failing
+viewport writes a full-page screenshot to `$SMOKE_OUT` (default
+`/tmp/agentbox-responsive-smoke`) and prints the path. In an AgentBox sandbox the
+check skips by design: the image ships no browser and the policy blocks the
+browser download hosts.
 
 ## Live OpenShell checks
 

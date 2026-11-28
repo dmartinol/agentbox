@@ -9,7 +9,8 @@
     "tour:capture": "npm run build && node --experimental-strip-types scripts/capture-tour.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke:responsive": "npm run build && node --experimental-strip-types scripts/responsive-smoke.mjs"
+    "smoke:responsive": "npm run build && node --experimental-strip-types scripts/responsive-smoke.mjs",
+    "smoke:responsive:headed": "npm run build && node --experimental-strip-types scripts/responsive-smoke.mjs --headed"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

@@ -7,8 +7,9 @@
 // with exit 0 unless --require-browser is passed.
 
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, resolve, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { mcps, overview, providers, runs, skillEntries, skillStatus } from '../tests/fixtures.ts';
@@ -17,6 +18,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const webRoot = resolve(here, '..');
 const distRoot = join(webRoot, 'dist');
 const requireBrowser = process.argv.includes('--require-browser');
+const headed = process.argv.includes('--headed') || process.env.SMOKE_HEADED === '1';
+const slowMo = Number(process.env.SMOKE_SLOWMO ?? 0) || 0;
 
 const viewports = [
   { label: 'mobile 390x844', width: 390, height: 844 },
@@ -121,6 +124,18 @@ async function box(locator, viewport, label) {
   return rect;
 }
 
+async function captureFailure(page, viewport) {
+  try {
+    const dir = process.env.SMOKE_OUT ? resolve(process.env.SMOKE_OUT) : join(tmpdir(), 'agentbox-responsive-smoke');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `${viewport.label.replace(/[^a-z0-9]+/gi, '-')}.png`);
+    await page.screenshot({ path: file, animations: 'disabled', fullPage: true });
+    return file;
+  } catch {
+    return undefined;
+  }
+}
+
 async function checkViewport(browser, origin, viewport) {
   const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height }, colorScheme: 'light' });
   await installApiMocks(context);
@@ -161,6 +176,9 @@ async function checkViewport(browser, origin, viewport) {
     }
 
     if (pageErrors.length) throw new Error(`page errors: ${pageErrors.join('; ')}`);
+  } catch (error) {
+    const shot = await captureFailure(page, viewport);
+    throw new Error(`${error.message}${shot ? ` (screenshot: ${shot})` : ''}`);
   } finally {
     await context.close();
   }
@@ -182,7 +200,7 @@ async function main() {
     return;
   }
   const { server, port } = await serveDist();
-  const browser = await chromium.launch({ executablePath, headless: true, args: ['--force-color-profile=srgb'] });
+  const browser = await chromium.launch({ executablePath, headless: !headed, slowMo, args: ['--force-color-profile=srgb'] });
   const failures = [];
   try {
     for (const viewport of viewports) {
