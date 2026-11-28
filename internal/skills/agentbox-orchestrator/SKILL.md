@@ -436,7 +436,7 @@ The skill ships seven templates and installs them beside `SKILL.md`:
 | `review-task.md` | Reviewer mandate: role, delta scope, severity bar, checklist, output contract. |
 | `verify-task.md` | Verify artifact: role, gate-only scope, the empty-diff and real-git checks, and the complete artifact schema (`commit`, `result`, `head_check`, `gates`, `git_probe`, `observations`) that the orchestrator posts. |
 
-The issue, plan, and pull request templates open with a scan layer a human can read without the diff. Keep file-level detail in the collapsible block or change list, and leave the marker, gate results, and `Closes #<issue>` line intact.
+The issue and pull request templates open with a scan layer a human can read without the diff. Write that layer for a reader outside the implementation: put the user-visible problem and result before the mechanism, use familiar terms, and explain an internal term briefly on first use. Move helper, field, package, and algorithm details into the collapsible block or Reviewer guide. Keep exact names where acceptance criteria and evidence need them, and leave the marker, gate results, and `Closes #<issue>` line intact.
 
 ### Prose formatting in posted artifacts
 
