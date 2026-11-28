@@ -74,6 +74,21 @@ change, refresh the tour with `npm --prefix internal/gui/web run tour:capture`;
 the procedure and its fixtures are documented in
 [Screenshot capture]({{ '/screenshot-capture/' | relative_url }}).
 
+The Setup → Projects surface also has a browser-backed responsive check:
+
+```sh
+npm --prefix internal/gui/web run smoke:responsive
+```
+
+It renders the built GUI at roughly 390px, 768px, and 1440px and fails when
+project identity or checkout state disappears, the primary action leaves the
+viewport, a control loses its accessible name, or the page needs horizontal
+scrolling. It is not part of `make test` because it needs a browser. Set
+`SMOKE_CHROME=/path/to/chrome` when no browser is found, or make the skip fatal
+with `npm --prefix internal/gui/web run smoke:responsive -- --require-browser`.
+In an AgentBox sandbox the check skips by design: the image ships no browser and
+the policy blocks the browser download hosts.
+
 ## Live OpenShell checks
 
 Live integration checks are opt-in and use the active local OpenShell gateway:
