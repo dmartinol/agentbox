@@ -3,8 +3,12 @@
 <!--
 Authoring budget: a human should be able to answer "do I need to read the
 diff?" from At a glance + What changed + Evidence. Keep those under ~25 lines
-and put file-level detail in the collapsible change list. Report facts; do not
-sell the change.
+and put file-level detail in the collapsible change list. Write the scan layer
+for a reader who does not know the implementation: state the user-visible
+result before the mechanism, explain an essential technical term when it first
+appears, and move helper, field, and package names into Reviewer guide or Full
+change list. Keep exact names in acceptance criteria and evidence. Report
+facts; do not sell the change.
 
 Section owners: the implementer (or fixer, for a fix cycle) writes At a glance,
 What changed, Reviewer guide, Changes, Evidence, AGENTS.md check, Risks, and
@@ -27,14 +31,14 @@ Closes #<issue>
 | Issue | `#<issue>` — what it delivers, slice `n/m` of `#<epic>` |
 | Workflow | `workflow-id` · [agent roles](../blob/HEAD/README.md#agent-roles) |
 | Surface | CLI `command` · Fleet · Setup → tab · API · skills · backend only |
-| Behavior | one line: what a user can do or see now that they could not before |
+| Behavior | one line in user-visible terms: what a user can do or see now that they could not before |
 | Size | `n` files · `n` commits · +`x`/−`y` |
 | Risk | low / medium / high — one clause: what could regress |
 
 ## What changed
 
-- **Before:** the observable behavior that motivated the issue.
-- **After:** the observable behavior now.
+- **Before:** the user-visible behavior that motivated the issue.
+- **After:** the user-visible behavior now; explain implementation details below.
 - **Try it:** `exact command`, or a screenshot or GIF path.
 
 ## Acceptance criteria

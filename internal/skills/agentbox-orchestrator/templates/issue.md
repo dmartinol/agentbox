@@ -3,7 +3,12 @@
 <!--
 Authoring budget: a reader should understand this issue in 30 seconds from
 At a glance + Current behavior + Acceptance criteria. Keep those under ~25
-lines and put design detail in the collapsible block.
+lines and put design detail in the collapsible block. Write At a glance,
+Summary, Current behavior, and Proposed design for a reader outside the
+implementation: lead with the user-visible problem and outcome, explain an
+internal term briefly on first use, and move helper, field, and package names
+into Design detail. Keep precise technical terms in acceptance criteria and
+test commands.
 
 Section owners: `agentbox-triage` writes At a glance, Summary, and Current
 behavior. `agentbox-planner` writes Proposed design, Acceptance criteria, Test
@@ -21,7 +26,7 @@ rewrite them. Repository contract: AGENTS.md.
 | Blocks | `#<issue>` · `none` |
 | Roles | `agentbox-triage` → `agentbox-planner` → `agentbox-implementer` · [agent roles](../blob/HEAD/README.md#agent-roles) |
 | Surface | Fleet · Setup → tab · CLI `command` · API · skills · backend |
-| Change | one line: the behavior, not the files |
+| Change | one line in user-visible terms: the behavior, not the files |
 | Risk | low / medium / high — one clause |
 | Size | ~`n` files · ~`n` lines |
 | Open questions | `none`, or the one decision needed before implement and its owner |
@@ -40,7 +45,7 @@ rewrite them. Repository contract: AGENTS.md.
 
 ## Proposed design
 
-One short paragraph in plain language: the smallest shape that works.
+One short paragraph in plain language: state the chosen behavior and explain how it works without relying on code identifiers. Put helper, field, and package names in Design detail.
 
 ```text
 before → after, data flow, or derivation (5 to 10 lines)
